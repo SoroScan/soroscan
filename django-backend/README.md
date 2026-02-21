@@ -73,6 +73,13 @@ celery -A soroscan beat -l info
 
 ## API Endpoints
 
+### Interactive Documentation (Swagger / ReDoc)
+
+SoroScan REST API comes with auto-generated interactive documentation:
+- **Swagger UI**: `/api/docs/`
+- **ReDoc UI**: `/api/redoc/`
+- **OpenAPI Schema**: `/api/schema/`
+
 ### REST API
 
 - `POST /api/ingest/record/` - Record a new event

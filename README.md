@@ -2,6 +2,8 @@
 
 ![Rust](https://img.shields.io/badge/Soroban-Rust-orange?style=for-the-badge&logo=rust) ![Django](https://img.shields.io/badge/Backend-Django-green?style=for-the-badge&logo=django) ![GraphQL](https://img.shields.io/badge/API-GraphQL-e535ab?style=for-the-badge&logo=graphql) ![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
 
+[![Django CI](https://github.com/SoroScan/soroscan/actions/workflows/django.yml/badge.svg)](https://github.com/SoroScan/soroscan/actions/workflows/django.yml) [![Soroban CI](https://github.com/SoroScan/soroscan/actions/workflows/soroban.yml/badge.svg)](https://github.com/SoroScan/soroscan/actions/workflows/soroban.yml)
+
 > **The Graph for Soroban — index, query, and subscribe to smart contract events.**
 
 **SoroScan** is a developer-focused indexing service for Soroban smart contract events on the Stellar blockchain. It combines a Rust-based Soroban smart contract with a Django backend to provide real-time event ingestion, GraphQL/REST APIs, and webhook notifications.
@@ -62,16 +64,82 @@ soroscan/
 
 ## 🚀 Quick Start
 
-Get SoroScan running locally in under 10 minutes.
+Get SoroScan running locally in under 5 minutes with Docker Compose.
 
 ### Prerequisites
 
-- Rust + Soroban CLI
-- Python 3.11+
-- PostgreSQL
-- Redis (for Celery)
+- Docker and Docker Compose
+- (Optional) Rust + Soroban CLI for contract development
 
-### 1. Deploy the Smart Contract
+### Using Docker Compose (Recommended)
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/SoroScan/soroscan.git
+cd soroscan
+
+# 2. Copy environment file and configure if needed
+cp django-backend/.env.example django-backend/.env
+
+# 3. Start all services (PostgreSQL, Redis, Django, Celery)
+docker-compose up --build
+
+# The backend will be available at:
+# - REST API: http://localhost:8000/api/events/
+# - GraphQL Playground: http://localhost:8000/graphql/
+# - Django Admin: http://localhost:8000/admin/
+```
+
+That's it! The stack auto-runs migrations on startup and supports live code reloading.
+
+**Port Conflicts?** Edit `django-backend/.env` and uncomment the port override variables.
+
+### Manual Setup (Advanced)
+
+<details>
+<summary>Click to expand manual installation steps</summary>
+
+#### Prerequisites
+- Python 3.11+
+- PostgreSQL 15+
+- Redis 7+
+
+#### 1. Set up the backend
+
+```bash
+cd django-backend
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+
+# Configure environment
+cp .env.example .env
+# Edit .env and set DATABASE_URL to your local PostgreSQL instance
+
+# Run migrations and start server
+python manage.py migrate
+python manage.py runserver
+```
+
+#### 2. Start Celery worker (separate terminal)
+
+```bash
+cd django-backend
+source venv/bin/activate
+celery -A soroscan worker --loglevel=info
+```
+
+#### 3. (Optional) Start Celery beat scheduler
+
+```bash
+cd django-backend
+source venv/bin/activate
+celery -A soroscan beat --loglevel=info
+```
+
+</details>
+
+### Deploy the Smart Contract (Optional)
 
 ```bash
 cd soroban-contracts/soroscan_core
@@ -81,25 +149,8 @@ cargo build --target wasm32-unknown-unknown --release
 soroban contract deploy \
   --wasm target/wasm32-unknown-unknown/release/soroscan_core.wasm \
   --network testnet
-```
 
-### 2. Start the Backend
-
-```bash
-cd django-backend
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# Run migrations and start server
-python manage.py migrate
-python manage.py runserver
-```
-
-### 3. Start Celery Worker (for webhooks)
-
-```bash
-celery -A soroscan worker --loglevel=info
+# Update SOROSCAN_CONTRACT_ID in django-backend/.env
 ```
 
 ---
@@ -262,7 +313,7 @@ kubectl scale deployment/soroscan-worker --replicas=3 -n soroscan
 - [x] Webhook subscriptions with Celery
 
 ### Phase 2: Production Readiness
-- [ ] Docker Compose setup for local development
+- [x] Docker Compose setup for local development
 - [x] Kubernetes manifests for production deployment
 - [ ] Rate limiting and API authentication
 - [ ] Comprehensive test suite

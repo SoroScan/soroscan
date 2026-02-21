@@ -7,7 +7,10 @@ from .models import ContractEvent, TrackedContract, WebhookSubscription, EventSc
 
 
 class TrackedContractSerializer(serializers.ModelSerializer):
-    """Serializer for TrackedContract model."""
+    """
+    Serializer for TrackedContract model.
+    Used for creating, updating, and returning tracked Soroban smart contracts.
+    """
 
     event_count = serializers.SerializerMethodField()
 
@@ -32,7 +35,10 @@ class TrackedContractSerializer(serializers.ModelSerializer):
 
 
 class ContractEventSerializer(serializers.ModelSerializer):
-    """Serializer for ContractEvent model."""
+    """
+    Serializer for ContractEvent model.
+    Provides read-only details of an indexed event from the Soroban network.
+    """
 
     contract_id = serializers.CharField(source="contract.contract_id", read_only=True)
     contract_name = serializers.CharField(source="contract.name", read_only=True)
@@ -69,7 +75,10 @@ class ContractEventSerializer(serializers.ModelSerializer):
 
 
 class WebhookSubscriptionSerializer(serializers.ModelSerializer):
-    """Serializer for WebhookSubscription model."""
+    """
+    Serializer for WebhookSubscription model.
+    Configures endpoints to receive event payloads when matches occur.
+    """
 
     contract_id = serializers.CharField(source="contract.contract_id", read_only=True)
 
@@ -93,7 +102,10 @@ class WebhookSubscriptionSerializer(serializers.ModelSerializer):
 
 
 class RecordEventRequestSerializer(serializers.Serializer):
-    """Serializer for incoming event recording requests."""
+    """
+    Serializer for incoming event recording requests.
+    Used to submit a transaction to the SoroScan contract for indexing.
+    """
 
     contract_id = serializers.CharField(
         max_length=56,

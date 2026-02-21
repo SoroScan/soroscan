@@ -5,7 +5,8 @@ import logging
 
 from django.db.models import Count, Max
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import status, viewsets
+from drf_spectacular.utils import extend_schema, inline_serializer
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -53,6 +54,7 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return TrackedContract.objects.filter(owner=self.request.user)
 
+    @extend_schema(responses=ContractEventSerializer(many=True))
     @action(detail=True, methods=["get"])
     def events(self, request, pk=None):
         """Get all events for a specific contract."""
@@ -61,6 +63,19 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         serializer = ContractEventSerializer(events, many=True)
         return Response(serializer.data)
 
+    @extend_schema(
+        responses=inline_serializer(
+            name="ContractStats",
+            fields={
+                "total_events": serializers.IntegerField(),
+                "unique_event_types": serializers.IntegerField(),
+                "latest_ledger": serializers.IntegerField(),
+                "last_activity": serializers.DateTimeField(),
+                "contract_id": serializers.CharField(),
+                "name": serializers.CharField(),
+            },
+        )
+    )
     @action(detail=True, methods=["get"])
     def stats(self, request, pk=None):
         """Get statistics for a contract."""
@@ -119,6 +134,15 @@ class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return WebhookSubscription.objects.filter(contract__owner=self.request.user)
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: inline_serializer(
+                name="TestWebhookResponse",
+                fields={"status": serializers.CharField()},
+            )
+        },
+    )
     @action(detail=True, methods=["post"])
     def test(self, request, pk=None):
         """Send a test webhook."""
@@ -133,6 +157,34 @@ class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
         return Response({"status": "test_webhook_queued"})
 
 
+@extend_schema(
+    request=RecordEventRequestSerializer,
+    responses={
+        202: inline_serializer(
+            name="RecordEventAccepted",
+            fields={
+                "status": serializers.CharField(),
+                "tx_hash": serializers.CharField(),
+                "transaction_status": serializers.CharField(),
+            },
+        ),
+        400: inline_serializer(
+            name="RecordEventFailed",
+            fields={
+                "status": serializers.CharField(),
+                "error": serializers.CharField(),
+                "transaction_status": serializers.CharField(),
+            },
+        ),
+        500: inline_serializer(
+            name="RecordEventError",
+            fields={
+                "status": serializers.CharField(),
+                "error": serializers.CharField(),
+            },
+        ),
+    },
+)
 @api_view(["POST"])
 @permission_classes([AllowAny])  # TODO: Add API key authentication
 def record_event_view(request):
@@ -191,6 +243,15 @@ def record_event_view(request):
         )
 
 
+@extend_schema(
+    responses=inline_serializer(
+        name="HealthCheckResponse",
+        fields={
+            "status": serializers.CharField(),
+            "service": serializers.CharField(),
+        },
+    )
+)
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def health_check(request):

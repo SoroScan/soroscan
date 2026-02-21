@@ -3,6 +3,11 @@ URL configuration for SoroScan project.
 """
 from django.contrib import admin
 from django.urls import include, path
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularRedocView,
+    SpectacularSwaggerView,
+)
 from strawberry.django.views import GraphQLView
 
 from soroscan.ingest.schema import schema
@@ -11,4 +16,8 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/ingest/", include("soroscan.ingest.urls")),
     path("graphql/", GraphQLView.as_view(schema=schema)),
+    # OpenAPI Schema & Docs
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
 ]

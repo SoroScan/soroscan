@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     # Third-party
     "rest_framework",
+    "drf_spectacular",
     "corsheaders",
     "django_filters",
     "strawberry.django",
@@ -115,6 +116,14 @@ REST_FRAMEWORK = {
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ],
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+# Spectacular Settings
+SPECTACULAR_SETTINGS = {
+    "TITLE": "SoroScan API",
+    "DESCRIPTION": "REST API documentation for SoroScan, a Stellar Soroban smart contract indexer.",
+    "VERSION": "1.0.0",
 }
 
 # CORS
