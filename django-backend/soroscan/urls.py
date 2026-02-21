@@ -8,14 +8,14 @@ from drf_spectacular.views import (
     SpectacularRedocView,
     SpectacularSwaggerView,
 )
-from strawberry.django.views import GraphQLView
 
+from soroscan.graphql_views import ThrottledGraphQLView
 from soroscan.ingest.schema import schema
 
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/ingest/", include("soroscan.ingest.urls")),
-    path("graphql/", GraphQLView.as_view(schema=schema)),
+    path("graphql/", ThrottledGraphQLView.as_view(schema=schema)),
     # OpenAPI Schema & Docs
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
