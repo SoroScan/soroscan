@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: soroscan-worker
+  namespace: soroscan
+  labels:
+    app: soroscan
+    component: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: soroscan
+      component: worker
+  template:
+    metadata:
+      labels:
+        app: soroscan
+        component: worker
+    spec:
+      containers:
+        - name: worker
+          image: soroscan/backend:v1.0.0  # Replace with your image registry and tag
+          command:
+            - celery
+            - -A
+            - soroscan
+            - worker
+            - --loglevel=info
+            - --concurrency=4
+            - --max-tasks-per-child=1000
+          workingDir: /app
+          envFrom:
+            - configMapRef:
+                name: soroscan-config
+            - secretRef:
+                name: soroscan-secrets
+          resources:
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+            requests:
+              cpu: 500m
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+      
+      securityContext:
+        fsGroup: 1000
+      
+      # Graceful shutdown for Celery workers
+      terminationGracePeriodSeconds: 60
+---
+# Separate deployment for backfill queue (if needed)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: soroscan-worker-backfill
+  namespace: soroscan
+  labels:
+    app: soroscan
+    component: worker-backfill
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: soroscan
+      component: worker-backfill
+  template:
+    metadata:
+      labels:
+        app: soroscan
+        component: worker-backfill
+    spec:
+      containers:
+        - name: worker-backfill
+          image: soroscan/backend:v1.0.0  # Replace with your image registry and tag
+          command:
+            - celery
+            - -A
+            - soroscan
+            - worker
+            - --loglevel=info
+            - --concurrency=2
+            - --queues=backfill
+            - --max-tasks-per-child=100
+          workingDir: /app
+          envFrom:
+            - configMapRef:
+                name: soroscan-config
+            - secretRef:
+                name: soroscan-secrets
+          resources:
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+            requests:
+              cpu: 500m
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+      
+      securityContext:
+        fsGroup: 1000
+      
+      terminationGracePeriodSeconds: 120

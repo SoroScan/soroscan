@@ -1,0 +1,124 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: soroscan-backend
+  namespace: soroscan
+  labels:
+    app: soroscan
+    component: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: soroscan
+      component: backend
+  template:
+    metadata:
+      labels:
+        app: soroscan
+        component: backend
+    spec:
+      initContainers:
+        # Run migrations before starting the backend
+        - name: migrate
+          image: soroscan/backend:v1.0.0  # Replace with your image registry and tag
+          command: ["python", "manage.py", "migrate", "--noinput"]
+          workingDir: /app
+          envFrom:
+            - configMapRef:
+                name: soroscan-config
+            - secretRef:
+                name: soroscan-secrets
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+        
+        # Collect static files
+        - name: collectstatic
+          image: soroscan/backend:v1.0.0  # Replace with your image registry and tag
+          command: ["python", "manage.py", "collectstatic", "--noinput"]
+          workingDir: /app
+          envFrom:
+            - configMapRef:
+                name: soroscan-config
+            - secretRef:
+                name: soroscan-secrets
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+      
+      containers:
+        - name: backend
+          image: soroscan/backend:v1.0.0  # Replace with your image registry and tag
+          command:
+            - gunicorn
+            - soroscan.wsgi:application
+            - --bind
+            - "0.0.0.0:8000"
+            - --workers
+            - "4"
+            - --timeout
+            - "120"
+            - --access-logfile
+            - "-"
+            - --error-logfile
+            - "-"
+          workingDir: /app
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: soroscan-config
+            - secretRef:
+                name: soroscan-secrets
+          readinessProbe:
+            httpGet:
+              path: /api/events/
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: localhost
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            successThreshold: 1
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/events/
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: localhost
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+            successThreshold: 1
+            failureThreshold: 3
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+            requests:
+              cpu: 250m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+      
+      securityContext:
+        fsGroup: 1000

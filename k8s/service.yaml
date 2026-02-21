@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: soroscan-backend
+  namespace: soroscan
+  labels:
+    app: soroscan
+    component: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: soroscan
+    component: backend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  sessionAffinity: None

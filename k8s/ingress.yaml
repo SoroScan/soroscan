@@ -1,0 +1,45 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: soroscan-ingress
+  namespace: soroscan
+  labels:
+    app: soroscan
+  annotations:
+    # Uncomment and configure based on your ingress controller:
+    
+    # For nginx-ingress:
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    # nginx.ingress.kubernetes.io/proxy-connect-timeout: "120"
+    # nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+    # nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    
+    # For cert-manager (automatic TLS):
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    
+    # For AWS ALB:
+    # alb.ingress.kubernetes.io/scheme: internet-facing
+    # alb.ingress.kubernetes.io/target-type: ip
+    # alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:region:account:certificate/xxx
+spec:
+  ingressClassName: nginx  # Change to your ingress class (e.g., nginx, traefik, alb)
+  
+  # TLS configuration - update with your domain and secret
+  # tls:
+  #   - hosts:
+  #       - soroscan.example.com
+  #     secretName: soroscan-tls
+  
+  rules:
+    - host: soroscan.example.com  # Replace with your domain
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: soroscan-backend
+                port:
+                  name: http

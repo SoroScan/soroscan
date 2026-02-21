@@ -104,6 +104,147 @@ celery -A soroscan worker --loglevel=info
 
 ---
 
+## 🚢 Production Deployment
+
+SoroScan includes production-ready Kubernetes manifests for self-hosted deployments.
+
+### Prerequisites
+
+- Kubernetes cluster (1.19+)
+- kubectl configured
+- PostgreSQL database (managed or self-hosted)
+- Redis instance (managed or self-hosted)
+- Container registry with SoroScan image
+- (Optional) External Secrets Operator for secret management
+
+### 1. Build and Push Container Image
+
+Build the backend image with gunicorn:
+
+```bash
+cd django-backend
+
+# Create Dockerfile if not exists
+cat > Dockerfile <<EOF
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Create non-root user
+RUN useradd -u 1000 -m appuser && chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8000
+
+# Default command uses gunicorn (override in k8s manifests for workers)
+CMD ["gunicorn", "soroscan.wsgi:application", "--bind", "0.0.0.0:8000"]
+EOF
+
+# Build and push
+docker build -t your-registry/soroscan-backend:v1.0.0 .
+docker push your-registry/soroscan-backend:v1.0.0
+```
+
+### 2. Configure Secrets
+
+Create secrets using kubectl or External Secrets Operator:
+
+```bash
+kubectl create secret generic soroscan-secrets \
+  --from-literal=SECRET_KEY='your-django-secret-key' \
+  --from-literal=DATABASE_URL='postgresql://user:pass@host:5432/dbname' \
+  --from-literal=REDIS_URL='redis://redis:6379/0' \
+  --from-literal=SOROSCAN_CONTRACT_ID='CXXXXXXXX' \
+  --from-literal=INDEXER_SECRET_KEY='your-indexer-key' \
+  -n soroscan
+```
+
+Or use External Secrets Operator (see `k8s/secret-reference.yaml`).
+
+### 3. Update Configuration
+
+Edit `k8s/configmap.yaml`:
+- Set `ALLOWED_HOSTS` to your domain
+- Configure `SOROBAN_RPC_URL` and `STELLAR_NETWORK_PASSPHRASE` for your network
+- Set `CORS_ALLOWED_ORIGINS` if needed
+
+Edit `k8s/backend-deployment.yaml`, `k8s/worker-deployment.yaml`, `k8s/beat-cronjob.yaml`:
+- Replace `soroscan/backend:v1.0.0` with your image
+
+Edit `k8s/ingress.yaml`:
+- Set your domain in `host` and `tls` sections
+- Configure ingress class and annotations for your ingress controller
+
+### 4. Deploy to Kubernetes
+
+```bash
+# Apply all manifests
+kubectl apply -f k8s/
+
+# Verify deployment
+kubectl get pods -n soroscan
+kubectl get svc -n soroscan
+kubectl get ingress -n soroscan
+
+# Check backend logs
+kubectl logs -f deployment/soroscan-backend -n soroscan
+
+# Check worker logs
+kubectl logs -f deployment/soroscan-worker -n soroscan
+```
+
+### 5. Verify Deployment
+
+```bash
+# Check readiness
+kubectl get pods -n soroscan -w
+
+# Test API endpoint
+curl https://your-domain.com/api/events/
+
+# Check migrations completed
+kubectl logs deployment/soroscan-backend -n soroscan --previous
+```
+
+### Architecture
+
+The Kubernetes deployment includes:
+
+- **Backend Deployment**: Django + gunicorn with readinessProbe on `/api/events/`
+- **Worker Deployment**: Celery workers for default queue
+- **Worker Backfill Deployment**: Dedicated workers for backfill queue
+- **Beat Deployment**: Celery beat scheduler (single replica)
+- **Service**: ClusterIP service exposing backend
+- **Ingress**: HTTP/HTTPS routing to backend service
+
+### Scaling
+
+```bash
+# Scale backend pods
+kubectl scale deployment/soroscan-backend --replicas=4 -n soroscan
+
+# Scale worker pods
+kubectl scale deployment/soroscan-worker --replicas=3 -n soroscan
+
+# Note: Beat scheduler must remain at 1 replica
+```
+
+### Troubleshooting
+
+- **Migrations not running**: Check init container logs: `kubectl logs pod/soroscan-backend-xxx -n soroscan -c migrate`
+- **Database connection failed**: Verify `DATABASE_URL` secret is correct
+- **Redis connection failed**: Verify `REDIS_URL` secret and Redis accessibility
+- **Readiness probe failing**: Check `/api/events/` endpoint is accessible after migrations
+
+---
+
 ## 🤝 Contributing
 
 1. Fork the repository and create your feature branch.
@@ -122,7 +263,7 @@ celery -A soroscan worker --loglevel=info
 
 ### Phase 2: Production Readiness
 - [ ] Docker Compose setup for local development
-- [ ] Kubernetes manifests for production deployment
+- [x] Kubernetes manifests for production deployment
 - [ ] Rate limiting and API authentication
 - [ ] Comprehensive test suite
 

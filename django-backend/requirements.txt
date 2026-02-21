@@ -30,6 +30,7 @@ djangorestframework==3.16.1
 factory_boy==3.3.3
 Faker==40.4.0
 graphql-core==3.2.7
+gunicorn==23.0.0
 hyperlink==21.0.0
 idna==3.11
 Incremental==24.11.0

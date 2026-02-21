@@ -1,0 +1,68 @@
+# Celery Beat Scheduler
+# Note: Celery beat is a scheduler daemon that must run continuously.
+# Using a Deployment (not CronJob) is the standard approach for Celery beat in Kubernetes.
+# Only 1 replica should run to avoid duplicate task scheduling.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: soroscan-beat
+  namespace: soroscan
+  labels:
+    app: soroscan
+    component: beat
+spec:
+  # IMPORTANT: Only 1 replica - multiple beat schedulers will cause duplicate tasks
+  replicas: 1
+  strategy:
+    type: Recreate  # Ensure only one instance runs at a time
+  selector:
+    matchLabels:
+      app: soroscan
+      component: beat
+  template:
+    metadata:
+      labels:
+        app: soroscan
+        component: beat
+    spec:
+      containers:
+        - name: beat
+          image: soroscan/backend:v1.0.0  # Replace with your image registry and tag
+          command:
+            - celery
+            - -A
+            - soroscan
+            - beat
+            - --loglevel=info
+            - --pidfile=/tmp/celerybeat.pid
+          workingDir: /app
+          envFrom:
+            - configMapRef:
+                name: soroscan-config
+            - secretRef:
+                name: soroscan-secrets
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: beat-schedule
+              mountPath: /tmp
+      
+      volumes:
+        - name: beat-schedule
+          emptyDir: {}
+      
+      securityContext:
+        fsGroup: 1000
