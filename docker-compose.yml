@@ -1,0 +1,114 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: soroscan-db
+    environment:
+      POSTGRES_DB: soroscan
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - soroscan-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: soroscan-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - soroscan-network
+
+  web:
+    build:
+      context: ./django-backend
+      dockerfile: Dockerfile
+    container_name: soroscan-web
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - ./django-backend:/app
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    env_file:
+      - ./django-backend/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/soroscan
+      - REDIS_URL=redis://redis:6379/0
+      - DEBUG=True
+      - ALLOWED_HOSTS=*
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - soroscan-network
+    stdin_open: true
+    tty: true
+
+  worker:
+    build:
+      context: ./django-backend
+      dockerfile: Dockerfile
+    container_name: soroscan-worker
+    command: celery -A soroscan worker --loglevel=info --concurrency=2
+    volumes:
+      - ./django-backend:/app
+    env_file:
+      - ./django-backend/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/soroscan
+      - REDIS_URL=redis://redis:6379/0
+      - DEBUG=True
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - soroscan-network
+
+  beat:
+    build:
+      context: ./django-backend
+      dockerfile: Dockerfile
+    container_name: soroscan-beat
+    command: celery -A soroscan beat --loglevel=info
+    volumes:
+      - ./django-backend:/app
+    env_file:
+      - ./django-backend/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/soroscan
+      - REDIS_URL=redis://redis:6379/0
+      - DEBUG=True
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - soroscan-network
+
+volumes:
+  postgres_data:
+
+networks:
+  soroscan-network:
+    driver: bridge
