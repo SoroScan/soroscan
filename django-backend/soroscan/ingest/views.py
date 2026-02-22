@@ -7,10 +7,13 @@ from django.db.models import Count, Max
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers, status, viewsets
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
+
+from soroscan.throttles import IngestRateThrottle
 
 from .models import ContractEvent, TrackedContract, WebhookSubscription
 from .serializers import (
@@ -183,10 +186,17 @@ class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
                 "error": serializers.CharField(),
             },
         ),
+        429: inline_serializer(
+            name="RateLimitExceeded",
+            fields={
+                "detail": serializers.CharField(),
+            },
+        ),
     },
 )
 @api_view(["POST"])
 @permission_classes([AllowAny])  # TODO: Add API key authentication
+@throttle_classes([IngestRateThrottle, AnonRateThrottle, UserRateThrottle])
 def record_event_view(request):
     """
     Record a new event by submitting a transaction to the SoroScan contract.
