@@ -1,0 +1,91 @@
+"""Pydantic models for SoroScan API responses."""
+
+from datetime import datetime
+from typing import Any, Generic, TypeVar
+
+from pydantic import BaseModel, Field
+
+T = TypeVar("T")
+
+
+class TrackedContract(BaseModel):
+    """Represents a tracked Soroban contract."""
+
+    id: int
+    contract_id: str = Field(..., description="Stellar contract address (C...)")
+    name: str = Field(..., description="Human-readable contract name")
+    description: str = Field(default="", description="Optional description")
+    abi_schema: dict[str, Any] | None = Field(None, description="Optional ABI/schema")
+    is_active: bool = Field(default=True, description="Whether indexing is active")
+    last_indexed_ledger: int | None = Field(None, description="Last indexed ledger sequence")
+    event_count: int = Field(default=0, description="Total number of events")
+    created_at: datetime
+    updated_at: datetime
+
+
+class ContractEvent(BaseModel):
+    """Represents an indexed contract event."""
+
+    id: int
+    contract_id: str = Field(..., description="Contract address that emitted the event")
+    contract_name: str = Field(..., description="Contract name")
+    event_type: str = Field(..., description="Event type/name (e.g., 'swap', 'transfer')")
+    payload: dict[str, Any] = Field(..., description="Decoded event payload")
+    payload_hash: str = Field(..., description="SHA-256 hash of the payload")
+    ledger: int = Field(..., description="Ledger sequence number")
+    event_index: int = Field(default=0, description="Event index within the ledger")
+    timestamp: datetime = Field(..., description="Event timestamp")
+    tx_hash: str = Field(..., description="Transaction hash")
+    schema_version: int | None = Field(None, description="Schema version used for validation")
+    validation_status: str = Field(default="passed", description="Validation result")
+
+
+class WebhookSubscription(BaseModel):
+    """Represents a webhook subscription."""
+
+    id: int
+    contract: int = Field(..., description="Contract ID")
+    contract_id: str = Field(..., description="Contract address")
+    event_type: str = Field(default="", description="Event type filter (empty = all events)")
+    target_url: str = Field(..., description="URL to POST event data to")
+    is_active: bool = Field(default=True, description="Whether webhook is active")
+    created_at: datetime
+    last_triggered: datetime | None = Field(None, description="Last trigger timestamp")
+    failure_count: int = Field(default=0, description="Number of consecutive failures")
+
+
+class ContractStats(BaseModel):
+    """Aggregate statistics for a contract."""
+
+    contract_id: str
+    name: str
+    total_events: int
+    unique_event_types: int
+    latest_ledger: int | None = None
+    last_activity: datetime | None = None
+
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    """Generic paginated response wrapper."""
+
+    count: int = Field(..., description="Total number of items")
+    next: str | None = Field(None, description="URL to next page")
+    previous: str | None = Field(None, description="URL to previous page")
+    results: list[T] = Field(..., description="Page results")
+
+
+class RecordEventRequest(BaseModel):
+    """Request model for recording a new event."""
+
+    contract_id: str = Field(..., max_length=56, description="Target contract address")
+    event_type: str = Field(..., max_length=100, description="Event type name")
+    payload_hash: str = Field(..., max_length=64, description="SHA-256 hash of payload (hex)")
+
+
+class RecordEventResponse(BaseModel):
+    """Response from recording an event."""
+
+    status: str = Field(..., description="Submission status")
+    tx_hash: str | None = Field(None, description="Transaction hash")
+    transaction_status: str | None = Field(None, description="Transaction status")
+    error: str | None = Field(None, description="Error message if failed")
