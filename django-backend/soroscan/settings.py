@@ -46,6 +46,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
+    "soroscan.middleware.ReverseProxyFixedIPMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "soroscan.middleware.RequestIdMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -106,6 +107,20 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # Default primary key field type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Cache (used for rate limiting)
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": env("REDIS_URL", default="redis://localhost:6379/1"),
+    }
+}
+
+# Rate limiting configuration (via environment variables)
+RATE_LIMIT_ANON = env("RATE_LIMIT_ANON", default="60/minute")
+RATE_LIMIT_USER = env("RATE_LIMIT_USER", default="300/minute")
+RATE_LIMIT_INGEST = env("RATE_LIMIT_INGEST", default="10/minute")
+RATE_LIMIT_GRAPHQL = env("RATE_LIMIT_GRAPHQL", default="100/minute")
+
 # REST Framework
 REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
@@ -116,6 +131,16 @@ REST_FRAMEWORK = {
         "rest_framework.filters.OrderingFilter",
     ],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": RATE_LIMIT_ANON,
+        "user": RATE_LIMIT_USER,
+        "ingest": RATE_LIMIT_INGEST,
+        "graphql": RATE_LIMIT_GRAPHQL,
+    },
 }
 
 # Spectacular Settings

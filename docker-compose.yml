@@ -106,6 +106,18 @@ services:
     networks:
       - soroscan-network
 
+  frontend:
+    build:
+      context: .
+      dockerfile: soroscan-frontend/Dockerfile.frontend
+    container_name: soroscan-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - web
+    networks:
+      - soroscan-network
+
 volumes:
   postgres_data:
 
