@@ -4,6 +4,8 @@ API Views for SoroScan event ingestion.
 import logging
 
 from django.db.models import Count, Max
+from django.shortcuts import get_object_or_404, render
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers, status, viewsets
@@ -257,3 +259,17 @@ def record_event_view(request):
 def health_check(request):
     """Health check endpoint."""
     return Response({"status": "healthy", "service": "soroscan"})
+
+
+@ensure_csrf_cookie
+def contract_timeline_view(request, contract_id: str):
+    """Render the terminal-style timeline page for a contract."""
+    contract = get_object_or_404(TrackedContract, contract_id=contract_id)
+    return render(
+        request,
+        "ingest/timeline.html",
+        {
+            "contract_id": contract.contract_id,
+            "contract_name": contract.name,
+        },
+    )

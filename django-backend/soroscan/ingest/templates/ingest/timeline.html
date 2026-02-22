@@ -1,0 +1,55 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SoroScan Timeline - {{ contract_name }}</title>
+  <link rel="stylesheet" href="{% static 'ingest/timeline.css' %}" />
+</head>
+<body>
+  <main class="timeline-app" data-contract-id="{{ contract_id }}" data-contract-name="{{ contract_name }}">
+    <header class="hero">
+      <p class="kicker">SoroScan Contract Event History</p>
+      <h1>{{ contract_name }}</h1>
+      <p class="contract-id">{{ contract_id }}</p>
+    </header>
+
+    <section class="controls" aria-label="Timeline controls">
+      <div class="control-card">
+        <h2>Zoom</h2>
+        <div class="row">
+          <button id="zoom-out" type="button" class="btn">Zoom Out</button>
+          <span id="zoom-level" class="pill" aria-live="polite">30 minutes</span>
+          <button id="zoom-in" type="button" class="btn">Zoom In</button>
+        </div>
+      </div>
+
+      <div class="control-card">
+        <h2>Filter by Event Type</h2>
+        <div id="event-type-filters" class="filter-grid" aria-live="polite"></div>
+        <button id="clear-filters" type="button" class="btn secondary">Clear Filters</button>
+      </div>
+
+      <div class="control-card">
+        <h2>Export</h2>
+        <div class="row">
+          <button id="export-json" type="button" class="btn">Export JSON</button>
+          <button id="export-csv" type="button" class="btn">Export CSV</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="timeline-panel" aria-label="Event timeline">
+      <div class="panel-head">
+        <h2>Timeline</h2>
+        <p id="timeline-summary" class="summary">Loading timeline data...</p>
+      </div>
+      <div id="timeline-status" class="status" aria-live="polite"></div>
+      <div id="timeline-groups" class="groups" role="tree"></div>
+    </section>
+  </main>
+
+  <script src="{% static 'ingest/timeline.js' %}"></script>
+</body>
+</html>

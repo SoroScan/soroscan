@@ -8,6 +8,7 @@ from .views import (
     ContractEventViewSet,
     TrackedContractViewSet,
     WebhookSubscriptionViewSet,
+    contract_timeline_view,
     health_check,
     record_event_view,
 )
@@ -18,6 +19,7 @@ router.register(r"events", ContractEventViewSet, basename="event")
 router.register(r"webhooks", WebhookSubscriptionViewSet, basename="webhook")
 
 urlpatterns = [
+    path("contracts/<str:contract_id>/timeline/", contract_timeline_view, name="contract-timeline"),
     path("", include(router.urls)),
     path("record/", record_event_view, name="record-event"),
     path("health/", health_check, name="health-check"),

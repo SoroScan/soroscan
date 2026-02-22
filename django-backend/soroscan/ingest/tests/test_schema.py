@@ -1,4 +1,5 @@
 import pytest
+from datetime import UTC, datetime
 from django.utils import timezone
 
 from soroscan.ingest.schema import schema
@@ -224,6 +225,118 @@ class TestGraphQLQueries:
         result = schema.execute_sync(query)
         assert result.errors is None
         assert set(result.data["eventTypes"]) == {"transfer", "mint"}
+
+    def test_query_event_timeline_groups_events(self, contract):
+        ContractEventFactory(
+            contract=contract,
+            event_type="transfer",
+            timestamp=timezone.make_aware(datetime(2024, 2, 19, 20, 1, 0), UTC),
+        )
+        ContractEventFactory(
+            contract=contract,
+            event_type="transfer",
+            timestamp=timezone.make_aware(datetime(2024, 2, 19, 20, 4, 0), UTC),
+        )
+        ContractEventFactory(
+            contract=contract,
+            event_type="burn",
+            timestamp=timezone.make_aware(datetime(2024, 2, 19, 20, 6, 0), UTC),
+        )
+
+        query = f"""
+            query {{
+                eventTimeline(
+                    contractId: "{contract.contract_id}"
+                    bucketSize: FIVE_MINUTES
+                    timezone: "UTC"
+                    since: "2024-02-19T20:00:00+00:00"
+                    until: "2024-02-19T20:10:00+00:00"
+                ) {{
+                    totalEvents
+                    groups {{
+                        eventCount
+                        eventTypeCounts {{
+                            eventType
+                            count
+                        }}
+                        events {{
+                            id
+                            eventType
+                        }}
+                    }}
+                }}
+            }}
+        """
+        result = schema.execute_sync(query)
+
+        assert result.errors is None
+        assert result.data["eventTimeline"]["totalEvents"] == 3
+        assert len(result.data["eventTimeline"]["groups"]) == 2
+        assert result.data["eventTimeline"]["groups"][0]["eventCount"] == 1
+        assert result.data["eventTimeline"]["groups"][0]["eventTypeCounts"][0]["eventType"] == "burn"
+        assert len(result.data["eventTimeline"]["groups"][0]["events"]) == 1
+        assert result.data["eventTimeline"]["groups"][1]["eventCount"] == 2
+        assert result.data["eventTimeline"]["groups"][1]["eventTypeCounts"][0]["eventType"] == "transfer"
+
+    def test_query_event_timeline_filter_by_event_types(self, contract):
+        current_time = timezone.now()
+        ContractEventFactory(contract=contract, event_type="transfer", timestamp=current_time)
+        ContractEventFactory(contract=contract, event_type="mint", timestamp=current_time)
+
+        query = f"""
+            query {{
+                eventTimeline(
+                    contractId: "{contract.contract_id}"
+                    bucketSize: THIRTY_MINUTES
+                    eventTypes: ["transfer"]
+                    timezone: "UTC"
+                ) {{
+                    totalEvents
+                    groups {{
+                        eventTypeCounts {{
+                            eventType
+                            count
+                        }}
+                    }}
+                }}
+            }}
+        """
+        result = schema.execute_sync(query)
+
+        assert result.errors is None
+        assert result.data["eventTimeline"]["totalEvents"] == 1
+        assert len(result.data["eventTimeline"]["groups"]) == 1
+        assert result.data["eventTimeline"]["groups"][0]["eventTypeCounts"][0]["eventType"] == "transfer"
+
+    def test_query_event_timeline_without_events_payload(self, contract):
+        ContractEventFactory(
+            contract=contract,
+            event_type="transfer",
+            timestamp=timezone.now(),
+        )
+
+        query = f"""
+            query {{
+                eventTimeline(
+                    contractId: "{contract.contract_id}"
+                    bucketSize: THIRTY_MINUTES
+                    includeEvents: false
+                    timezone: "UTC"
+                ) {{
+                    groups {{
+                        eventCount
+                        events {{
+                            id
+                        }}
+                    }}
+                }}
+            }}
+        """
+        result = schema.execute_sync(query)
+
+        assert result.errors is None
+        assert result.data["eventTimeline"]["groups"][0]["eventCount"] == 1
+        assert result.data["eventTimeline"]["groups"][0]["events"] == []
 
 
 @pytest.mark.django_db

@@ -1,7 +1,9 @@
-"""
-GraphQL schema for SoroScan API using Strawberry.
-"""
+"""GraphQL schema for SoroScan API using Strawberry."""
+
+from __future__ import annotations
+
 from datetime import datetime
+from enum import Enum
 from typing import Optional
 
 import strawberry
@@ -10,6 +12,7 @@ from strawberry import auto
 from strawberry.types import Info
 
 from .models import ContractEvent, TrackedContract
+from .services.timeline import build_timeline
 
 
 @strawberry_django.type(TrackedContract)
@@ -33,8 +36,11 @@ class EventType:
     payload: strawberry.scalars.JSON
     payload_hash: auto
     ledger: auto
+    event_index: auto
     timestamp: auto
     tx_hash: auto
+    schema_version: auto
+    validation_status: auto
 
     @strawberry.field
     def contract_id(self) -> str:
@@ -52,6 +58,47 @@ class ContractStats:
     total_events: int
     unique_event_types: int
     last_activity: Optional[datetime]
+
+
+@strawberry.type
+class EventTypeCount:
+    event_type: str
+    count: int
+
+
+@strawberry.enum
+class TimelineBucketSize(Enum):
+    FIVE_MINUTES = "FIVE_MINUTES"
+    THIRTY_MINUTES = "THIRTY_MINUTES"
+    ONE_HOUR = "ONE_HOUR"
+    ONE_DAY = "ONE_DAY"
+
+
+BUCKET_SECONDS_BY_SIZE = {
+    TimelineBucketSize.FIVE_MINUTES: 300,
+    TimelineBucketSize.THIRTY_MINUTES: 1800,
+    TimelineBucketSize.ONE_HOUR: 3600,
+    TimelineBucketSize.ONE_DAY: 86_400,
+}
+
+
+@strawberry.type
+class EventTimelineGroup:
+    start: datetime
+    end: datetime
+    event_count: int
+    event_type_counts: list[EventTypeCount]
+    events: list[EventType]
+
+
+@strawberry.type
+class EventTimelineResult:
+    contract_id: str
+    bucket_size: TimelineBucketSize
+    since: datetime
+    until: datetime
+    total_events: int
+    groups: list[EventTimelineGroup]
 
 
 @strawberry.type
@@ -82,17 +129,7 @@ class Query:
         since: Optional[datetime] = None,
         until: Optional[datetime] = None,
     ) -> list[EventType]:
-        """
-        Query events with flexible filtering.
-
-        Args:
-            contract_id: Filter by contract address
-            event_type: Filter by event type
-            limit: Maximum results (default 50, max 1000)
-            offset: Pagination offset
-            since: Filter events after this timestamp
-            until: Filter events before this timestamp
-        """
+        """Query events with flexible filtering."""
         qs = ContractEvent.objects.all()
 
         if contract_id:
@@ -104,9 +141,7 @@ class Query:
         if until:
             qs = qs.filter(timestamp__lte=until)
 
-        # Enforce max limit
         limit = min(limit, 1000)
-
         return qs[offset : offset + limit]
 
     @strawberry.field
@@ -150,6 +185,54 @@ class Query:
             .distinct()
         )
 
+    @strawberry.field
+    def event_timeline(
+        self,
+        contract_id: str,
+        bucket_size: TimelineBucketSize = TimelineBucketSize.THIRTY_MINUTES,
+        event_types: Optional[list[str]] = None,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+        timezone: str = "UTC",
+        limit_groups: int = 500,
+        include_events: bool = True,
+    ) -> EventTimelineResult:
+        """Return grouped timeline data for contract event history."""
+        bucket_seconds = BUCKET_SECONDS_BY_SIZE[bucket_size]
+        timeline = build_timeline(
+            contract_id=contract_id,
+            bucket_seconds=bucket_seconds,
+            event_types=event_types,
+            since=since,
+            until=until,
+            timezone_name=timezone,
+            limit_groups=limit_groups,
+            include_events=include_events,
+        )
+
+        groups = [
+            EventTimelineGroup(
+                start=group.start,
+                end=group.end,
+                event_count=group.event_count,
+                event_type_counts=[
+                    EventTypeCount(event_type=item.event_type, count=item.count)
+                    for item in group.event_type_counts
+                ],
+                events=group.events,
+            )
+            for group in timeline.groups
+        ]
+
+        return EventTimelineResult(
+            contract_id=timeline.contract_id,
+            bucket_size=bucket_size,
+            since=timeline.since,
+            until=timeline.until,
+            total_events=timeline.total_events,
+            groups=groups,
+        )
+
 
 @strawberry.type
 class Mutation:
@@ -162,12 +245,11 @@ class Mutation:
         description: str = "",
     ) -> ContractType:
         """Register a new contract for indexing."""
-        # TODO: Add proper authentication
         contract = TrackedContract.objects.create(
             contract_id=contract_id,
             name=name,
             description=description,
-            owner_id=1,  # Placeholder - should use authenticated user
+            owner_id=1,
         )
         return contract
 
