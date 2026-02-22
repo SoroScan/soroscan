@@ -98,6 +98,12 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "1000/hour",
+        "user": "10000/hour",
+        "ingest": "100/hour",
+        "graphql": "500/hour",
+    },
 }
 
 # CORS

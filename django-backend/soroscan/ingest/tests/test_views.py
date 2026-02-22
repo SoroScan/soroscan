@@ -212,6 +212,18 @@ class TestWebhookSubscriptionViewSet:
 
 @pytest.mark.django_db
 class TestRecordEventView:
+    @pytest.fixture(autouse=True)
+    def setup_throttle_rates(self, settings):
+        """Ensure throttle rates are configured for tests"""
+        if 'DEFAULT_THROTTLE_RATES' not in settings.REST_FRAMEWORK:
+            settings.REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'] = {}
+        settings.REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'].update({
+            'anon': '1000/hour',
+            'user': '10000/hour',
+            'ingest': '100/hour',
+            'graphql': '500/hour',
+        })
+    
     @responses.activate
     def test_record_event_success(self, api_client):
         responses.add(
