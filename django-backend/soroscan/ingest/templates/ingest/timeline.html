@@ -8,11 +8,20 @@
   <link rel="stylesheet" href="{% static 'ingest/timeline.css' %}" />
 </head>
 <body>
-  <main class="timeline-app" data-contract-id="{{ contract_id }}" data-contract-name="{{ contract_name }}">
+  <main
+    class="timeline-app"
+    data-contract-id="{{ contract_id }}"
+    data-contract-name="{{ contract_name }}"
+  >
     <header class="hero">
       <p class="kicker">SoroScan Contract Event History</p>
       <h1>{{ contract_name }}</h1>
       <p class="contract-id">{{ contract_id }}</p>
+      <div class="row top-actions">
+        <a href="{% url 'contract-event-explorer' contract_id=contract_id %}" class="btn secondary link-btn">
+          Open Event Explorer
+        </a>
+      </div>
     </header>
 
     <section class="controls" aria-label="Timeline controls">
@@ -34,8 +43,7 @@
       <div class="control-card">
         <h2>Export</h2>
         <div class="row">
-          <button id="export-json" type="button" class="btn">Export JSON</button>
-          <button id="export-csv" type="button" class="btn">Export CSV</button>
+          <button id="open-export-modal" type="button" class="btn">Export Events</button>
         </div>
       </div>
     </section>
@@ -50,6 +58,6 @@
     </section>
   </main>
 
-  <script src="{% static 'ingest/timeline.js' %}"></script>
+  <script type="module" src="{% static 'ingest/timeline.js' %}"></script>
 </body>
 </html>

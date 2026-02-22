@@ -273,3 +273,17 @@ def contract_timeline_view(request, contract_id: str):
             "contract_name": contract.name,
         },
     )
+
+
+@ensure_csrf_cookie
+def contract_event_explorer_view(request, contract_id: str):
+    """Render the event explorer page for a contract."""
+    contract = get_object_or_404(TrackedContract, contract_id=contract_id)
+    return render(
+        request,
+        "ingest/event_explorer.html",
+        {
+            "contract_id": contract.contract_id,
+            "contract_name": contract.name,
+        },
+    )

@@ -1,3 +1,5 @@
+import { attachEventExport } from "./export-events.js";
+
 (() => {
   const BUCKETS = ["ONE_DAY", "ONE_HOUR", "THIRTY_MINUTES", "FIVE_MINUTES"];
   const BUCKET_LABELS = {
@@ -77,8 +79,7 @@
     zoomIn: document.getElementById("zoom-in"),
     zoomOut: document.getElementById("zoom-out"),
     clearFilters: document.getElementById("clear-filters"),
-    exportJson: document.getElementById("export-json"),
-    exportCsv: document.getElementById("export-csv"),
+    exportEvents: document.getElementById("open-export-modal"),
     filters: document.getElementById("event-type-filters"),
     summary: document.getElementById("timeline-summary"),
     status: document.getElementById("timeline-status"),
@@ -88,6 +89,18 @@
   function init() {
     bindControls();
     updateZoomState();
+    attachEventExport({
+      trigger: elements.exportEvents,
+      contractId: state.contractId,
+      getCurrentFilters: () => ({
+        eventTypes: state.selectedEventTypes.size
+          ? Array.from(state.selectedEventTypes)
+          : [],
+        since: state.timeline?.since || null,
+        until: state.timeline?.until || null,
+      }),
+      onStatus: (message, isError) => setStatus(message, Boolean(isError)),
+    });
     void loadAll();
   }
 
@@ -118,26 +131,6 @@
       renderFilters([]);
       void loadEventTypes();
       void loadTimeline();
-    });
-
-    elements.exportJson.addEventListener("click", () => {
-      if (!state.timeline) {
-        setStatus("No timeline data to export.", true);
-        return;
-      }
-      const filename = buildExportFilename("json");
-      downloadBlob(filename, "application/json", JSON.stringify(state.timeline, null, 2));
-      setStatus(`Exported ${filename}`);
-    });
-
-    elements.exportCsv.addEventListener("click", () => {
-      if (!state.timeline) {
-        setStatus("No timeline data to export.", true);
-        return;
-      }
-      const filename = buildExportFilename("csv");
-      downloadBlob(filename, "text/csv;charset=utf-8", timelineToCsv(state.timeline));
-      setStatus(`Exported ${filename}`);
     });
   }
 
@@ -202,7 +195,9 @@
     elements.groups.innerHTML = "";
 
     const selectedBucket = BUCKETS[state.bucketIndex];
-    const selectedTypes = state.selectedEventTypes.size > 0 ? Array.from(state.selectedEventTypes) : null;
+    const selectedTypes = state.selectedEventTypes.size
+      ? Array.from(state.selectedEventTypes)
+      : null;
 
     try {
       const payload = await graphqlRequest(EVENT_TIMELINE_QUERY, {
@@ -385,64 +380,6 @@
       return raw;
     }
     return `${raw.slice(0, 177)}...`;
-  }
-
-  function buildExportFilename(extension) {
-    const now = new Date();
-    const stamp = now
-      .toISOString()
-      .replaceAll("-", "")
-      .replaceAll(":", "")
-      .replace("T", "_")
-      .slice(0, 13);
-    return `events_timeline_${state.contractId}_${stamp}.${extension}`;
-  }
-
-  function timelineToCsv(timeline) {
-    const rows = [
-      ["group_start", "group_end", "event_type", "count", "total_group_count"],
-    ];
-
-    timeline.groups.forEach((group) => {
-      if (!group.eventTypeCounts.length) {
-        rows.push([group.start, group.end, "", "0", String(group.eventCount)]);
-        return;
-      }
-      group.eventTypeCounts.forEach((entry) => {
-        rows.push([
-          group.start,
-          group.end,
-          entry.eventType,
-          String(entry.count),
-          String(group.eventCount),
-        ]);
-      });
-    });
-
-    return rows.map((row) => row.map(escapeCsv).join(",")).join("\n");
-  }
-
-  function escapeCsv(value) {
-    if (value == null) {
-      return "";
-    }
-    const str = String(value);
-    if (/[,"\n]/.test(str)) {
-      return `"${str.replaceAll('"', '""')}"`;
-    }
-    return str;
-  }
-
-  function downloadBlob(filename, mimeType, content) {
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
   }
 
   function setStatus(message, isError = false) {
