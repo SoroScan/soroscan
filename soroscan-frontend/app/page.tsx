@@ -4,7 +4,6 @@ import * as React from "react"
 import { Button } from "@/components/terminal/Button"
 import { Card } from "@/components/terminal/Card"
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/terminal/Table"
-import { Input } from "@/components/terminal/Input"
 
 export default function Home() {
   return (
@@ -83,7 +82,7 @@ export default function Home() {
             </Card>
             <Card title="HORIZON_INTEGRATION" className="h-full">
               <p className="text-sm leading-relaxed">
-                Seamlessly stream ledger events directly from Stellar's Horizon API using optimized stellar-sdk workers.
+                Seamlessly stream ledger events directly from Stellar&apos;s Horizon API using optimized stellar-sdk workers.
               </p>
             </Card>
             <Card title="DEVELOPER_FIRST" className="h-full">
