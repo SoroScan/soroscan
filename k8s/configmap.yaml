@@ -7,6 +7,7 @@ data:
   # Django settings
   DEBUG: "False"
   ALLOWED_HOSTS: "*"  # Override with specific domains in production
+  FRONTEND_BASE_URL: "https://app.soroscan.example.com"  # Replace with your frontend URL
   LOG_FORMAT: "json"
   
   # Stellar/Soroban configuration

@@ -3,9 +3,9 @@ API Views for SoroScan event ingestion.
 """
 import logging
 
+from django.conf import settings
 from django.db.models import Count, Max
-from django.shortcuts import get_object_or_404, render
-from django.views.decorators.csrf import ensure_csrf_cookie
+from django.shortcuts import get_object_or_404, redirect
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers, status, viewsets
@@ -271,29 +271,15 @@ def health_check(request):
     return Response({"status": "healthy", "service": "soroscan"})
 
 
-@ensure_csrf_cookie
 def contract_timeline_view(request, contract_id: str):
-    """Render the terminal-style timeline page for a contract."""
+    """Redirect timeline requests to the frontend contract timeline page."""
     contract = get_object_or_404(TrackedContract, contract_id=contract_id)
-    return render(
-        request,
-        "ingest/timeline.html",
-        {
-            "contract_id": contract.contract_id,
-            "contract_name": contract.name,
-        },
-    )
+    frontend_base = settings.FRONTEND_BASE_URL.rstrip("/")
+    return redirect(f"{frontend_base}/contracts/{contract.contract_id}/timeline")
 
 
-@ensure_csrf_cookie
 def contract_event_explorer_view(request, contract_id: str):
-    """Render the event explorer page for a contract."""
+    """Redirect explorer requests to the frontend event explorer page."""
     contract = get_object_or_404(TrackedContract, contract_id=contract_id)
-    return render(
-        request,
-        "ingest/event_explorer.html",
-        {
-            "contract_id": contract.contract_id,
-            "contract_name": contract.name,
-        },
-    )
+    frontend_base = settings.FRONTEND_BASE_URL.rstrip("/")
+    return redirect(f"{frontend_base}/contracts/{contract.contract_id}/events/explorer")

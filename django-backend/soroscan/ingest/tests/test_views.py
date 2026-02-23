@@ -265,19 +265,42 @@ class TestHealthCheck:
 
 @pytest.mark.django_db
 class TestTimelinePageView:
-    def test_contract_timeline_page_renders(self, api_client, contract):
+    def test_contract_timeline_page_redirects_to_frontend(self, api_client, contract, settings):
+        settings.FRONTEND_BASE_URL = "http://localhost:3000"
         url = reverse("contract-timeline", args=[contract.contract_id])
         response = api_client.get(url)
 
-        assert response.status_code == status.HTTP_200_OK
-        assert contract.contract_id in response.content.decode()
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response["Location"] == (
+            f"http://localhost:3000/contracts/{contract.contract_id}/timeline"
+        )
+
+    def test_contract_timeline_page_missing_contract_returns_404(self, api_client):
+        url = reverse("contract-timeline", args=["C" + "A" * 55])
+        response = api_client.get(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 @pytest.mark.django_db
 class TestEventExplorerPageView:
-    def test_contract_event_explorer_page_renders(self, api_client, contract):
+    def test_contract_event_explorer_page_redirects_to_frontend(
+        self,
+        api_client,
+        contract,
+        settings,
+    ):
+        settings.FRONTEND_BASE_URL = "http://localhost:3000"
         url = reverse("contract-event-explorer", args=[contract.contract_id])
         response = api_client.get(url)
 
-        assert response.status_code == status.HTTP_200_OK
-        assert contract.contract_id in response.content.decode()
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response["Location"] == (
+            f"http://localhost:3000/contracts/{contract.contract_id}/events/explorer"
+        )
+
+    def test_contract_event_explorer_missing_contract_returns_404(self, api_client):
+        url = reverse("contract-event-explorer", args=["C" + "A" * 55])
+        response = api_client.get(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND

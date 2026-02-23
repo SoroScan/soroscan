@@ -52,6 +52,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - DEBUG=True
       - ALLOWED_HOSTS=*
+      - FRONTEND_BASE_URL=http://localhost:3000
     depends_on:
       db:
         condition: service_healthy
@@ -113,6 +114,8 @@ services:
     container_name: soroscan-frontend
     ports:
       - "3000:3000"
+    environment:
+      - BACKEND_BASE_URL=http://web:8000
     depends_on:
       - web
     networks:

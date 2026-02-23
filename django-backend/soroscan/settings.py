@@ -22,6 +22,7 @@ SECRET_KEY = env("SECRET_KEY", default="django-insecure-change-this-in-productio
 DEBUG = env("DEBUG")
 
 ALLOWED_HOSTS = env("ALLOWED_HOSTS")
+FRONTEND_BASE_URL = env("FRONTEND_BASE_URL", default="http://localhost:3000")
 
 # Application definition
 INSTALLED_APPS = [

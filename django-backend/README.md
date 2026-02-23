@@ -46,6 +46,7 @@ DEBUG=True
 SECRET_KEY=your-secret-key-here
 DATABASE_URL=postgres://user:pass@localhost:5432/soroscan
 REDIS_URL=redis://localhost:6379/0
+FRONTEND_BASE_URL=http://localhost:3000
 
 # Stellar
 SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
@@ -85,7 +86,8 @@ SoroScan REST API comes with auto-generated interactive documentation:
 - `POST /api/ingest/record/` - Record a new event
 - `GET /api/events/` - List events
 - `GET /api/contracts/` - List tracked contracts
-- `GET /api/ingest/contracts/<contract_id>/timeline/` - Terminal-style event timeline UI
+- `GET /api/ingest/contracts/<contract_id>/timeline/` - Redirects to frontend timeline page
+- `GET /api/ingest/contracts/<contract_id>/events/explorer/` - Redirects to frontend event explorer page
 
 ### GraphQL
 
