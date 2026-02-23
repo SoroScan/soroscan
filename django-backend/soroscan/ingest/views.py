@@ -5,8 +5,7 @@ import logging
 
 from django.conf import settings
 from django.db.models import Count, Max
-from django.shortcuts import get_object_or_404, render
-from django.views.decorators.csrf import ensure_csrf_cookie
+from django.shortcuts import get_object_or_404, redirect
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers, status, viewsets
@@ -29,6 +28,10 @@ from .stellar_client import SorobanClient
 from .tasks import dispatch_webhook
 
 logger = logging.getLogger(__name__)
+
+
+def _frontend_base_url() -> str:
+    return getattr(settings, "FRONTEND_BASE_URL", "http://localhost:3000").rstrip("/")
 
 
 class TrackedContractViewSet(viewsets.ModelViewSet):
@@ -275,12 +278,12 @@ def health_check(request):
 def contract_timeline_view(request, contract_id: str):
     """Redirect timeline requests to the frontend contract timeline page."""
     contract = get_object_or_404(TrackedContract, contract_id=contract_id)
-    frontend_base = settings.FRONTEND_BASE_URL.rstrip("/")
+    frontend_base = _frontend_base_url()
     return redirect(f"{frontend_base}/contracts/{contract.contract_id}/timeline")
 
 
 def contract_event_explorer_view(request, contract_id: str):
     """Redirect explorer requests to the frontend event explorer page."""
     contract = get_object_or_404(TrackedContract, contract_id=contract_id)
-    frontend_base = settings.FRONTEND_BASE_URL.rstrip("/")
+    frontend_base = _frontend_base_url()
     return redirect(f"{frontend_base}/contracts/{contract.contract_id}/events/explorer")

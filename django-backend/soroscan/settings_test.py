@@ -13,6 +13,7 @@ SECRET_KEY = "django-insecure-test-key-for-testing-only"
 DEBUG = True
 
 ALLOWED_HOSTS = ["*"]
+FRONTEND_BASE_URL = "http://localhost:3000"
 
 # Application definition
 INSTALLED_APPS = [

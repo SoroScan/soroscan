@@ -103,10 +103,10 @@ const importCache: {
 let parquetReady = false;
 
 async function importFromUrl<T>(url: string): Promise<T> {
-  const module = (await import(
+  const importedModule = (await import(
     /* webpackIgnore: true */ url
   )) as unknown;
-  return module as T;
+  return importedModule as T;
 }
 
 export function ExportEventsModal({
