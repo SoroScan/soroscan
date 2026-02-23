@@ -318,4 +318,59 @@ mod tests {
         assert!(latest.is_some());
         assert_eq!(latest.unwrap().event_type, event_type);
     }
+
+    #[test]
+    fn test_add_indexer_as_non_admin() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, SoroScanCore);
+        let client = SoroScanCoreClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let non_admin = Address::generate(&env);
+        let indexer = Address::generate(&env);
+
+        client.init(&admin);
+
+        // Non-admin tries to add indexer — should fail with Unauthorized
+        let result = client.try_add_indexer(&non_admin, &indexer);
+        assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    }
+
+    #[test]
+    fn test_record_event_not_whitelisted() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, SoroScanCore);
+        let client = SoroScanCoreClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let rogue = Address::generate(&env);
+        let target = Address::generate(&env);
+
+        client.init(&admin);
+
+        let event_type = symbol_short!("swap");
+        let payload_hash = BytesN::from_array(&env, &[0u8; 32]);
+
+        // Non-whitelisted address tries to record — should fail with IndexerNotFound
+        let result = client.try_record_event(&rogue, &target, &event_type, &payload_hash);
+        assert_eq!(result, Err(Ok(ContractError::IndexerNotFound)));
+    }
+
+    #[test]
+    fn test_double_initialize() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SoroScanCore);
+        let client = SoroScanCoreClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.init(&admin);
+
+        // Second init should fail with AlreadyInitialized
+        let result = client.try_init(&admin);
+        assert_eq!(result, Err(Ok(ContractError::AlreadyInitialized)));
+    }
 }
