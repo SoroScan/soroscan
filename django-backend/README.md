@@ -86,8 +86,7 @@ SoroScan REST API comes with auto-generated interactive documentation:
 - `POST /api/ingest/record/` - Record a new event
 - `GET /api/events/` - List events
 - `GET /api/contracts/` - List tracked contracts
-- `GET /api/ingest/contracts/<contract_id>/timeline/` - Redirects to frontend timeline page
-- `GET /api/ingest/contracts/<contract_id>/events/explorer/` - Redirects to frontend event explorer page
+- `GET /api/ingest/contracts/<contract_id>/timeline/` - Terminal-style event timeline UI
 
 ### GraphQL
 

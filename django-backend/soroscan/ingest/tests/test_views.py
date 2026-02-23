@@ -304,3 +304,9 @@ class TestEventExplorerPageView:
         response = api_client.get(url)
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+    def test_contract_timeline_page_renders(self, api_client, contract):
+        url = reverse("contract-timeline", args=[contract.contract_id])
+        response = api_client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert contract.contract_id in response.content.decode()

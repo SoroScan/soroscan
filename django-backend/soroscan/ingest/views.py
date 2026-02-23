@@ -5,7 +5,8 @@ import logging
 
 from django.conf import settings
 from django.db.models import Count, Max
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, render
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers, status, viewsets
