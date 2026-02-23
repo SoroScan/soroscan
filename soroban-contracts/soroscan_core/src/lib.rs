@@ -105,11 +105,7 @@ impl SoroScanCore {
     /// * `env` - The contract environment
     /// * `admin` - The admin address (must match stored admin)
     /// * `indexer` - The indexer address to remove
-    pub fn remove_indexer(
-        env: Env,
-        admin: Address,
-        indexer: Address,
-    ) -> Result<(), ContractError> {
+    pub fn remove_indexer(env: Env, admin: Address, indexer: Address) -> Result<(), ContractError> {
         admin.require_auth();
 
         let stored_admin: Address = env
@@ -182,11 +178,7 @@ impl SoroScanCore {
         };
 
         // Increment counter with overflow protection
-        let mut count: u64 = env
-            .storage()
-            .instance()
-            .get(&COUNTER_KEY)
-            .unwrap_or(0);
+        let mut count: u64 = env.storage().instance().get(&COUNTER_KEY).unwrap_or(0);
         count = count.saturating_add(1);
         env.storage().instance().set(&COUNTER_KEY, &count);
 
