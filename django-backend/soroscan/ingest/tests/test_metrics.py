@@ -319,7 +319,7 @@ class MetricsModuleImportTest(TestCase):
         try:
             result = _get_or_create(
                 PC_Counter,
-                "soroscan_events_ingested",  # base name, no _total suffix
+                "soroscan_events_ingested_total",  # same name used in metrics.py
                 "Total number of contract events ingested",
                 ["contract_id", "network", "event_type"],
             )

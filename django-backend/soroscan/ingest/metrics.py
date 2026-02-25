@@ -44,7 +44,7 @@ def _get_or_create(metric_cls, name, documentation, labelnames=()):
 
 events_ingested_total = _get_or_create(
     Counter,
-    "soroscan_events_ingested",
+    "soroscan_events_ingested_total",
     "Total number of contract events ingested",
     ["contract_id", "network", "event_type"],
 )
