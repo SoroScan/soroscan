@@ -382,3 +382,4 @@ class LabelCardinalityTest(TestCase):
 
         with override_settings(STELLAR_NETWORK_PASSPHRASE="Some Custom Network"):
             self.assertEqual(_network_label(), "unknown")
+            
