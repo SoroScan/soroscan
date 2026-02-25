@@ -316,12 +316,10 @@ class MetricsModuleImportTest(TestCase):
         from prometheus_client import Counter as PC_Counter
         from soroscan.ingest.metrics import _get_or_create
 
-        # First call is a no-op (metric already registered by module load).
-        # Second call must return the existing collector without raising.
         try:
             result = _get_or_create(
                 PC_Counter,
-                "soroscan_events_ingested_total",
+                "soroscan_events_ingested",  # base name, no _total suffix
                 "Total number of contract events ingested",
                 ["contract_id", "network", "event_type"],
             )
