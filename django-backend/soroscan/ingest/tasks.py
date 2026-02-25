@@ -5,12 +5,14 @@ import hashlib
 import hmac
 import json
 import logging
+import time
 from datetime import datetime, timedelta, timezone as dt_timezone
 from typing import Any
 
 import jsonschema
 import requests
 from celery import shared_task
+from django.conf import settings
 from django.db.models import F
 from django.utils import timezone
 
@@ -19,6 +21,34 @@ from .stellar_client import SorobanClient
 
 logger = logging.getLogger(__name__)
 BATCH_LEDGER_SIZE = 200
+
+# ---------------------------------------------------------------------------
+# Prometheus metrics (imported lazily-ish to avoid import-time side-effects
+# during migrations/management commands that don't need metrics).
+# ---------------------------------------------------------------------------
+
+def _get_metrics():
+    """Return the metrics module, importing it on first call."""
+    from soroscan.ingest import metrics  # noqa: PLC0415
+    return metrics
+
+
+def _network_label() -> str:
+    """Return a short label for the current Stellar network."""
+    passphrase: str = getattr(settings, "STELLAR_NETWORK_PASSPHRASE", "")
+    if "Public" in passphrase:
+        return "mainnet"
+    if "Test" in passphrase:
+        return "testnet"
+    return "unknown"
+
+
+def _short_contract_id(contract_id: str) -> str:
+    """
+    Truncate contract_id to its first 8 chars to keep Prometheus label
+    cardinality bounded (full 56-char IDs would create one series per contract).
+    """
+    return contract_id[:8] if contract_id else "unknown"
 
 
 def _event_attr(event: Any, *names: str, default: Any = None) -> Any:
@@ -69,7 +99,7 @@ def _upsert_contract_event(
     if not isinstance(timestamp, datetime):
         timestamp = timezone.now()
 
-    return ContractEvent.objects.update_or_create(
+    result = ContractEvent.objects.update_or_create(
         contract=contract,
         ledger=ledger,
         event_index=event_index,
@@ -81,6 +111,19 @@ def _upsert_contract_event(
             "raw_xdr": raw_xdr,
         },
     )
+    obj, created = result
+    if created:
+        m = _get_metrics()
+        m.events_ingested_total.labels(
+            contract_id=_short_contract_id(contract.contract_id),
+            network=_network_label(),
+            event_type=event_type,
+        ).inc()
+        # Refresh the active contracts gauge whenever a new event arrives.
+        m.active_contracts_gauge.set(
+            TrackedContract.objects.filter(is_active=True).count()
+        )
+    return result
 
 
 def validate_event_payload(
@@ -160,6 +203,9 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
         ``True`` on successful delivery, ``False`` when the subscription is
         absent/inactive (no retry in that case).
     """
+    _start = time.monotonic()
+    m = _get_metrics()
+
     # ------------------------------------------------------------------ #
     # 1. Fetch subscription — skip silently if gone / inactive / suspended #
     # ------------------------------------------------------------------ #
@@ -268,6 +314,9 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
                 attempt_number,
                 extra={"webhook_id": subscription_id},
             )
+            m.task_duration_seconds.labels(task_name="dispatch_webhook").observe(
+                time.monotonic() - _start
+            )
             return True
 
         # -- non-2xx, non-429: raise to trigger autoretry ---------------
@@ -293,6 +342,9 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
         )
         raise  # re-raise so autoretry_for can schedule the next attempt
 
+    m.task_duration_seconds.labels(task_name="dispatch_webhook").observe(
+        time.monotonic() - _start
+    )
     return False  # unreachable — satisfies type checker
 
 
@@ -356,6 +408,7 @@ def cleanup_webhook_delivery_logs() -> int:
     """
     from .models import WebhookDeliveryLog
 
+    _start = time.monotonic()
     cutoff = timezone.now() - timedelta(days=30)
     deleted_count, _ = WebhookDeliveryLog.objects.filter(timestamp__lt=cutoff).delete()
     logger.info(
@@ -363,6 +416,9 @@ def cleanup_webhook_delivery_logs() -> int:
         deleted_count,
         extra={},
     )
+    _get_metrics().task_duration_seconds.labels(
+        task_name="cleanup_webhook_delivery_logs"
+    ).observe(time.monotonic() - _start)
     return deleted_count
 
 
@@ -474,7 +530,9 @@ def sync_events_from_horizon() -> int:
         Number of new events indexed
     """
     from stellar_sdk import SorobanServer
-    from django.conf import settings
+
+    _start = time.monotonic()
+    m = _get_metrics()
 
     # Get last processed cursor
     cursor_state, _ = IndexerState.objects.get_or_create(
@@ -496,6 +554,9 @@ def sync_events_from_horizon() -> int:
             logger.info("No active contracts to index", extra={})
             return 0
 
+        # Update active contracts gauge at the start of each sync cycle.
+        m.active_contracts_gauge.set(len(contract_ids))
+
         # Fetch events from Soroban RPC
         # Note: Actual implementation depends on stellar-sdk version
         # This is a simplified example
@@ -510,6 +571,7 @@ def sync_events_from_horizon() -> int:
             pagination={"limit": 100},
         )
 
+        network = _network_label()
         for fallback_event_index, event in enumerate(events_response.events):
             # Find the tracked contract
             try:
@@ -549,6 +611,12 @@ def sync_events_from_horizon() -> int:
 
             if created:
                 new_events += 1
+                # Increment ingestion counter for this event.
+                m.events_ingested_total.labels(
+                    contract_id=_short_contract_id(contract.contract_id),
+                    network=network,
+                    event_type=event_record.event_type,
+                ).inc()
                 # Trigger webhooks for new events
                 process_new_event.delay(
                     {
@@ -577,6 +645,9 @@ def sync_events_from_horizon() -> int:
             new_events,
             extra={"ledger_sequence": last_ledger},
         )
+        m.task_duration_seconds.labels(task_name="sync_events_from_horizon").observe(
+            time.monotonic() - _start
+        )
         return new_events
 
     except Exception:
@@ -594,6 +665,9 @@ def backfill_contract_events(
     """
     Backfill events for one contract within an inclusive ledger range.
     """
+    _start = time.monotonic()
+    m = _get_metrics()
+
     start_ledger = _safe_int(from_ledger, default=0)
     end_ledger = _safe_int(to_ledger, default=0)
 
@@ -613,6 +687,7 @@ def backfill_contract_events(
     processed_events = 0
     created_events = 0
     updated_events = 0
+    network = _network_label()
 
     try:
         for batch_start in range(next_ledger, end_ledger + 1, BATCH_LEDGER_SIZE):
@@ -632,12 +707,21 @@ def backfill_contract_events(
                 processed_events += 1
                 if created:
                     created_events += 1
+                    # _upsert_contract_event already increments events_ingested_total
+                    # and refreshes active_contracts_gauge on creation.
                 else:
                     updated_events += 1
 
             contract.last_indexed_ledger = batch_end
             contract.save(update_fields=["last_indexed_ledger"])
 
+        m.task_duration_seconds.labels(task_name="backfill_contract_events").observe(
+            time.monotonic() - _start
+        )
+        # Ensure gauge is fresh after a bulk backfill.
+        m.active_contracts_gauge.set(
+            TrackedContract.objects.filter(is_active=True).count()
+        )
         return {
             "contract_id": contract.contract_id,
             "from_ledger": start_ledger,
