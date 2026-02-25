@@ -55,7 +55,6 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
 
     queryset = TrackedContract.objects.all()
     serializer_class = TrackedContractSerializer
-    permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["is_active"]
     search_fields = ["name", "contract_id"]
@@ -66,6 +65,9 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         serializer.save(owner=self.request.user)
 
     def get_queryset(self):
+        # Public read access, but filter by owner for write operations
+        if self.request.method in ['GET', 'HEAD', 'OPTIONS']:
+            return TrackedContract.objects.all()
         return TrackedContract.objects.filter(owner=self.request.user)
 
     @extend_schema(responses=ContractEventSerializer(many=True))
@@ -116,16 +118,13 @@ class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
 
     queryset = ContractEvent.objects.all()
     serializer_class = ContractEventSerializer
-    permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_fields = ["contract__contract_id", "event_type", "ledger", "validation_status"]
     ordering_fields = ["timestamp", "ledger"]
     ordering = ["-timestamp"]
 
     def get_queryset(self):
-        return ContractEvent.objects.select_related("contract").filter(
-            contract__owner=self.request.user
-        )
+        return ContractEvent.objects.select_related("contract").all()
 
 
 class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
@@ -143,9 +142,11 @@ class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
 
     queryset = WebhookSubscription.objects.all()
     serializer_class = WebhookSubscriptionSerializer
-    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        # Public read access, but filter by owner for write operations
+        if self.request.method in ['GET', 'HEAD', 'OPTIONS']:
+            return WebhookSubscription.objects.all()
         return WebhookSubscription.objects.filter(contract__owner=self.request.user)
 
     @extend_schema(
@@ -224,6 +225,12 @@ class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
                 "transaction_status": serializers.CharField(),
             },
         ),
+        401: inline_serializer(
+            name="Unauthorized",
+            fields={
+                "detail": serializers.CharField(),
+            },
+        ),
         500: inline_serializer(
             name="RecordEventError",
             fields={
@@ -240,7 +247,7 @@ class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
     },
 )
 @api_view(["POST"])
-@permission_classes([AllowAny])  # TODO: Add API key authentication
+@permission_classes([IsAuthenticated])
 @throttle_classes([IngestRateThrottle, AnonRateThrottle, UserRateThrottle])
 def record_event_view(request):
     """
