@@ -1,0 +1,99 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - main [ref=e3]:
+    - generic [ref=e4]:
+      - paragraph [ref=e5]: SoroScan
+      - heading "Event Explorer Dashboard" [level=1] [ref=e6]
+      - paragraph [ref=e7]: Browse, filter, and analyze contract events in real-time
+    - region "Event filters" [ref=e8]:
+      - generic [ref=e9]:
+        - heading "Filters" [level=2] [ref=e10]
+        - generic [ref=e11]:
+          - generic [ref=e12]:
+            - generic [ref=e13]: Contract
+            - combobox "Contract" [ref=e14]:
+              - option "All Contracts"
+              - option "Test Token" [selected]
+              - option "Liquidity Pool"
+          - generic [ref=e15]:
+            - generic [ref=e16]: Event Type
+            - combobox "Event Type" [ref=e17]:
+              - option "All Types" [selected]
+              - option "SWAP"
+              - option "MINT"
+              - option "BURN"
+              - option "TRANSFER"
+          - generic [ref=e18]:
+            - generic [ref=e19]: From
+            - textbox "From" [ref=e20]
+          - generic [ref=e21]:
+            - generic [ref=e22]: To
+            - textbox "To" [ref=e23]
+        - generic [ref=e25]:
+          - generic [ref=e26]: Search
+          - textbox "Search" [ref=e27]:
+            - /placeholder: Search events...
+        - generic [ref=e28]:
+          - button "Apply Filters" [active] [ref=e29] [cursor=pointer]
+          - button "Clear" [ref=e30] [cursor=pointer]
+          - button "Export CSV" [ref=e31] [cursor=pointer]
+          - button "Export JSON" [ref=e32] [cursor=pointer]
+    - region "Events table" [ref=e33]:
+      - generic [ref=e34]:
+        - heading "Contract Events" [level=2] [ref=e35]
+        - paragraph [ref=e36]: Showing 1-2 of 2+
+      - table [ref=e38]:
+        - rowgroup [ref=e39]:
+          - row "Contract Type Ledger Time Transaction Actions" [ref=e40]:
+            - columnheader "Contract" [ref=e41]
+            - columnheader "Type" [ref=e42]
+            - columnheader "Ledger" [ref=e43]
+            - columnheader "Time" [ref=e44]
+            - columnheader "Transaction" [ref=e45]
+            - columnheader "Actions" [ref=e46]
+        - rowgroup [ref=e47]:
+          - row "CABC1234...567890 📋 SWAP 1001 02/24/2026, 14:24:02 0x123...abc 📋 View" [ref=e48] [cursor=pointer]:
+            - cell "CABC1234...567890 📋" [ref=e49]:
+              - generic [ref=e50]:
+                - code [ref=e51]: CABC1234...567890
+                - button "📋" [ref=e52]
+            - cell "SWAP" [ref=e53]:
+              - generic [ref=e54]: SWAP
+            - cell "1001" [ref=e55]:
+              - button "1001" [ref=e56]
+            - cell "02/24/2026, 14:24:02" [ref=e57]
+            - cell "0x123...abc 📋" [ref=e58]:
+              - generic [ref=e59]:
+                - code [ref=e60]: 0x123...abc
+                - button "📋" [ref=e61]
+            - cell "View" [ref=e62]:
+              - button "View" [ref=e63]
+          - row "CABC1234...567890 📋 TRANSFER 1002 02/24/2026, 14:24:02 0x456...def 📋 View" [ref=e64] [cursor=pointer]:
+            - cell "CABC1234...567890 📋" [ref=e65]:
+              - generic [ref=e66]:
+                - code [ref=e67]: CABC1234...567890
+                - button "📋" [ref=e68]
+            - cell "TRANSFER" [ref=e69]:
+              - generic [ref=e70]: TRANSFER
+            - cell "1002" [ref=e71]:
+              - button "1002" [ref=e72]
+            - cell "02/24/2026, 14:24:02" [ref=e73]
+            - cell "0x456...def 📋" [ref=e74]:
+              - generic [ref=e75]:
+                - code [ref=e76]: 0x456...def
+                - button "📋" [ref=e77]
+            - cell "View" [ref=e78]:
+              - button "View" [ref=e79]
+      - generic [ref=e80]:
+        - button "◄◄" [disabled] [ref=e81]
+        - button "◄ Previous" [disabled] [ref=e82]
+        - generic [ref=e83]: Page 1
+        - generic [ref=e84]: Showing 1-2 of 2+
+        - button "Next ►" [disabled] [ref=e85]
+        - button "►►" [disabled] [ref=e86]
+  - button "Open Next.js Dev Tools" [ref=e92] [cursor=pointer]:
+    - img [ref=e93]
+  - alert [ref=e97]
+```

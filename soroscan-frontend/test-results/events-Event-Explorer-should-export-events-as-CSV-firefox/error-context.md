@@ -1,0 +1,65 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - main [ref=e3]:
+    - generic [ref=e4]:
+      - paragraph [ref=e5]: SoroScan
+      - heading "Event Explorer Dashboard" [level=1] [ref=e6]
+      - paragraph [ref=e7]: Browse, filter, and analyze contract events in real-time
+    - region "Event filters" [ref=e8]:
+      - generic [ref=e9]:
+        - heading "Filters" [level=2] [ref=e10]
+        - generic [ref=e11]:
+          - generic [ref=e12]:
+            - generic [ref=e13]: Contract
+            - combobox "Contract" [ref=e14]:
+              - option "All Contracts"
+              - option "Test Token" [selected]
+              - option "Liquidity Pool"
+          - generic [ref=e15]:
+            - generic [ref=e16]: Event Type
+            - combobox "Event Type" [ref=e17]:
+              - option "All Types" [selected]
+          - generic [ref=e18]:
+            - generic [ref=e19]: From
+            - textbox "From" [ref=e20]
+          - generic [ref=e21]:
+            - generic [ref=e22]: To
+            - textbox "To" [ref=e23]
+        - generic [ref=e25]:
+          - generic [ref=e26]: Search
+          - textbox "Search" [ref=e27]:
+            - /placeholder: Search events...
+        - generic [ref=e28]:
+          - button "Apply Filters" [ref=e29] [cursor=pointer]
+          - button "Clear" [ref=e30] [cursor=pointer]
+          - button "Export CSV" [active] [ref=e31] [cursor=pointer]
+          - button "Export JSON" [ref=e32] [cursor=pointer]
+    - region "Events table" [ref=e33]:
+      - generic [ref=e34]:
+        - heading "Contract Events" [level=2] [ref=e35]
+        - paragraph [ref=e36]: Showing 1-0 of 0+
+      - table [ref=e38]:
+        - rowgroup [ref=e39]:
+          - row "Contract Type Ledger Time Transaction Actions" [ref=e40]:
+            - columnheader "Contract" [ref=e41]
+            - columnheader "Type" [ref=e42]
+            - columnheader "Ledger" [ref=e43]
+            - columnheader "Time" [ref=e44]
+            - columnheader "Transaction" [ref=e45]
+            - columnheader "Actions" [ref=e46]
+        - rowgroup [ref=e47]:
+          - row "No events found. Select a contract and adjust filters to view events." [ref=e48]:
+            - cell "No events found. Select a contract and adjust filters to view events." [ref=e49]
+      - generic [ref=e50]:
+        - button "◄◄" [disabled] [ref=e51]
+        - button "◄ Previous" [disabled] [ref=e52]
+        - generic [ref=e53]: Page 1
+        - generic [ref=e54]: Showing 1-0 of 0+
+        - button "Next ►" [disabled] [ref=e55]
+        - button "►►" [disabled] [ref=e56]
+  - button "Open Next.js Dev Tools" [ref=e62] [cursor=pointer]:
+    - img [ref=e63]
+  - alert [ref=e67]
+```

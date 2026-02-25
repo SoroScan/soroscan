@@ -1,0 +1,328 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - navigation [ref=e3]:
+      - generic [ref=e4]:
+        - link "[SOROSCAN]" [ref=e5] [cursor=pointer]:
+          - /url: /
+        - generic [ref=e6]:
+          - link "DOCS" [ref=e7] [cursor=pointer]:
+            - /url: /docs
+          - link "FEATURES" [ref=e8] [cursor=pointer]:
+            - /url: /features
+          - link "API_DOCS" [ref=e9] [cursor=pointer]:
+            - /url: /api/docs/
+          - link "GITHUB" [ref=e10] [cursor=pointer]:
+            - /url: https://github.com/SoroScan/soroscan
+        - link "> GET_API_KEY" [ref=e12] [cursor=pointer]:
+          - /url: /api/docs/
+          - button "> GET_API_KEY" [ref=e13]:
+            - generic [ref=e14]:
+              - generic [ref=e15]: ">"
+              - text: GET_API_KEY
+    - main [ref=e16]:
+      - generic [ref=e17]:
+        - generic [ref=e18]:
+          - generic [ref=e19]: "[WEBHOOK_MANAGER]"
+          - heading "SUBSCRIPTIONS" [level=1] [ref=e20]
+          - paragraph [ref=e21]: 6 subscriptions configured
+        - button "> NEW_WEBHOOK" [ref=e22]:
+          - generic [ref=e23]:
+            - generic [ref=e24]: ">"
+            - img [ref=e25]
+            - text: NEW_WEBHOOK
+      - generic [ref=e26]:
+        - generic [ref=e27]:
+          - generic [ref=e28]: "6"
+          - generic [ref=e29]: TOTAL
+        - generic [ref=e30]:
+          - generic [ref=e31]:
+            - img [ref=e32]
+            - text: "4"
+          - generic [ref=e34]: ACTIVE
+        - generic [ref=e35]:
+          - generic [ref=e36]:
+            - img [ref=e37]
+            - text: "1"
+          - generic [ref=e39]: FAILED
+        - generic [ref=e40]:
+          - generic [ref=e41]: 80.7%
+          - generic [ref=e42]: AVG_SUCCESS
+      - generic [ref=e43]: "LAST_EVENT: 23/02/2026, 23:34:01"
+      - generic [ref=e45]:
+        - heading "[WEBHOOK_LIST]" [level=2] [ref=e47]
+        - table [ref=e51]:
+          - rowgroup [ref=e52]:
+            - row "STATUS ENDPOINT_URL EVENT_TYPES SUCCESS LAST_DELIVERY ACTIONS" [ref=e53]:
+              - columnheader "STATUS" [ref=e54] [cursor=pointer]:
+                - generic [ref=e55]:
+                  - text: STATUS
+                  - img [ref=e56]
+              - columnheader "ENDPOINT_URL" [ref=e58] [cursor=pointer]:
+                - generic [ref=e59]:
+                  - text: ENDPOINT_URL
+                  - img [ref=e60]
+              - columnheader "EVENT_TYPES" [ref=e62]
+              - columnheader "SUCCESS" [ref=e63] [cursor=pointer]:
+                - generic [ref=e64]:
+                  - text: SUCCESS
+                  - img [ref=e65]
+              - columnheader "LAST_DELIVERY" [ref=e67] [cursor=pointer]:
+                - generic [ref=e68]:
+                  - text: LAST_DELIVERY
+                  - img [ref=e69]
+              - columnheader "ACTIONS" [ref=e71]
+          - rowgroup [ref=e72]:
+            - 'row "ACTIVE https://api.myapp.io/hooks/soroban CONTRACT: CABC...9X4Z SWAP_COMPLETE LIQUIDITY_ADD 98.7% 23/02/2026, 23:34 HTTP 200 > DETAIL" [ref=e73]':
+              - cell "ACTIVE" [ref=e74]:
+                - generic [ref=e75]: ACTIVE
+              - 'cell "https://api.myapp.io/hooks/soroban CONTRACT: CABC...9X4Z" [ref=e77]':
+                - generic [ref=e78]:
+                  - link "https://api.myapp.io/hooks/soroban" [ref=e79] [cursor=pointer]:
+                    - /url: /webhooks/wh_001
+                  - generic [ref=e80]: "CONTRACT: CABC...9X4Z"
+              - cell "SWAP_COMPLETE LIQUIDITY_ADD" [ref=e81]:
+                - generic [ref=e82]:
+                  - generic [ref=e83]: SWAP_COMPLETE
+                  - generic [ref=e84]: LIQUIDITY_ADD
+              - cell "98.7%" [ref=e85]:
+                - generic [ref=e89]: 98.7%
+              - cell "23/02/2026, 23:34 HTTP 200" [ref=e90]:
+                - text: 23/02/2026, 23:34
+                - generic [ref=e91]: HTTP 200
+              - cell "> DETAIL" [ref=e92]:
+                - generic [ref=e93]:
+                  - link "> DETAIL" [ref=e94] [cursor=pointer]:
+                    - /url: /webhooks/wh_001
+                    - button "> DETAIL" [ref=e95]:
+                      - generic [ref=e96]:
+                        - generic [ref=e97]: ">"
+                        - text: DETAIL
+                  - button "Test webhook" [ref=e98]:
+                    - img [ref=e99]
+                  - button "Delete webhook" [ref=e101]:
+                    - img [ref=e102]
+            - row "ACTIVE https://realtime.indexer.finance/soroscan-events ORACLE_UPDATE STAKING_LOCK SWAP_COMPLETE 99.1% 23/02/2026, 23:33 HTTP 200 > DETAIL" [ref=e105]:
+              - cell "ACTIVE" [ref=e106]:
+                - generic [ref=e107]: ACTIVE
+              - cell "https://realtime.indexer.finance/soroscan-events" [ref=e109]:
+                - link "https://realtime.indexer.finance/soroscan-events" [ref=e111] [cursor=pointer]:
+                  - /url: /webhooks/wh_005
+              - cell "ORACLE_UPDATE STAKING_LOCK SWAP_COMPLETE" [ref=e112]:
+                - generic [ref=e113]:
+                  - generic [ref=e114]: ORACLE_UPDATE
+                  - generic [ref=e115]: STAKING_LOCK
+                  - generic [ref=e116]: SWAP_COMPLETE
+              - cell "99.1%" [ref=e117]:
+                - generic [ref=e121]: 99.1%
+              - cell "23/02/2026, 23:33 HTTP 200" [ref=e122]:
+                - text: 23/02/2026, 23:33
+                - generic [ref=e123]: HTTP 200
+              - cell "> DETAIL" [ref=e124]:
+                - generic [ref=e125]:
+                  - link "> DETAIL" [ref=e126] [cursor=pointer]:
+                    - /url: /webhooks/wh_005
+                    - button "> DETAIL" [ref=e127]:
+                      - generic [ref=e128]:
+                        - generic [ref=e129]: ">"
+                        - text: DETAIL
+                  - button "Test webhook" [ref=e130]:
+                    - img [ref=e131]
+                  - button "Delete webhook" [ref=e133]:
+                    - img [ref=e134]
+            - row "ACTIVE https://webhook.site/abc123def456 ALL_EVENTS 100.0% 23/02/2026, 23:31 HTTP 200 > DETAIL" [ref=e137]:
+              - cell "ACTIVE" [ref=e138]:
+                - generic [ref=e139]: ACTIVE
+              - cell "https://webhook.site/abc123def456" [ref=e141]:
+                - link "https://webhook.site/abc123def456" [ref=e143] [cursor=pointer]:
+                  - /url: /webhooks/wh_002
+              - cell "ALL_EVENTS" [ref=e144]:
+                - generic [ref=e146]: ALL_EVENTS
+              - cell "100.0%" [ref=e147]:
+                - generic [ref=e151]: 100.0%
+              - cell "23/02/2026, 23:31 HTTP 200" [ref=e152]:
+                - text: 23/02/2026, 23:31
+                - generic [ref=e153]: HTTP 200
+              - cell "> DETAIL" [ref=e154]:
+                - generic [ref=e155]:
+                  - link "> DETAIL" [ref=e156] [cursor=pointer]:
+                    - /url: /webhooks/wh_002
+                    - button "> DETAIL" [ref=e157]:
+                      - generic [ref=e158]:
+                        - generic [ref=e159]: ">"
+                        - text: DETAIL
+                  - button "Test webhook" [ref=e160]:
+                    - img [ref=e161]
+                  - button "Delete webhook" [ref=e163]:
+                    - img [ref=e164]
+            - row "FAILED https://hooks.internal.corp/blockchain-events GOV_PROPOSAL 12.1% 23/02/2026, 21:55 HTTP 404 > DETAIL" [ref=e167]:
+              - cell "FAILED" [ref=e168]:
+                - generic [ref=e169]: FAILED
+              - cell "https://hooks.internal.corp/blockchain-events" [ref=e171]:
+                - link "https://hooks.internal.corp/blockchain-events" [ref=e173] [cursor=pointer]:
+                  - /url: /webhooks/wh_004
+              - cell "GOV_PROPOSAL" [ref=e174]:
+                - generic [ref=e176]: GOV_PROPOSAL
+              - cell "12.1%" [ref=e177]:
+                - generic [ref=e181]: 12.1%
+              - cell "23/02/2026, 21:55 HTTP 404" [ref=e182]:
+                - text: 23/02/2026, 21:55
+                - generic [ref=e183]: HTTP 404
+              - cell "> DETAIL" [ref=e184]:
+                - generic [ref=e185]:
+                  - link "> DETAIL" [ref=e186] [cursor=pointer]:
+                    - /url: /webhooks/wh_004
+                    - button "> DETAIL" [ref=e187]:
+                      - generic [ref=e188]:
+                        - generic [ref=e189]: ">"
+                        - text: DETAIL
+                  - button "Test webhook" [ref=e190]:
+                    - img [ref=e191]
+                  - button "Delete webhook" [ref=e193]:
+                    - img [ref=e194]
+            - 'row "SUSPENDED https://events.defiprotocol.org/soroscan CONTRACT: CGHI...F7K1 VAULT_DEPOSIT YIELD_CLAIMED 74.2% 21/02/2026, 09:10 HTTP 503 > DETAIL" [ref=e197]':
+              - cell "SUSPENDED" [ref=e198]:
+                - generic [ref=e199]: SUSPENDED
+              - 'cell "https://events.defiprotocol.org/soroscan CONTRACT: CGHI...F7K1" [ref=e201]':
+                - generic [ref=e202]:
+                  - link "https://events.defiprotocol.org/soroscan" [ref=e203] [cursor=pointer]:
+                    - /url: /webhooks/wh_003
+                  - generic [ref=e204]: "CONTRACT: CGHI...F7K1"
+              - cell "VAULT_DEPOSIT YIELD_CLAIMED" [ref=e205]:
+                - generic [ref=e206]:
+                  - generic [ref=e207]: VAULT_DEPOSIT
+                  - generic [ref=e208]: YIELD_CLAIMED
+              - cell "74.2%" [ref=e209]:
+                - generic [ref=e213]: 74.2%
+              - cell "21/02/2026, 09:10 HTTP 503" [ref=e214]:
+                - text: 21/02/2026, 09:10
+                - generic [ref=e215]: HTTP 503
+              - cell "> DETAIL" [ref=e216]:
+                - generic [ref=e217]:
+                  - link "> DETAIL" [ref=e218] [cursor=pointer]:
+                    - /url: /webhooks/wh_003
+                    - button "> DETAIL" [ref=e219]:
+                      - generic [ref=e220]:
+                        - generic [ref=e221]: ">"
+                        - text: DETAIL
+                  - button "Test webhook" [ref=e222]:
+                    - img [ref=e223]
+                  - button "Delete webhook" [ref=e225]:
+                    - img [ref=e226]
+            - row "ACTIVE https://example.com/webhook ALL_EVENTS 100.0% — > DETAIL" [ref=e229]:
+              - cell "ACTIVE" [ref=e230]:
+                - generic [ref=e231]: ACTIVE
+              - cell "https://example.com/webhook" [ref=e233]:
+                - link "https://example.com/webhook" [ref=e235] [cursor=pointer]:
+                  - /url: /webhooks/wh_ejsu7
+              - cell "ALL_EVENTS" [ref=e236]:
+                - generic [ref=e238]: ALL_EVENTS
+              - cell "100.0%" [ref=e239]:
+                - generic [ref=e243]: 100.0%
+              - cell "—" [ref=e244]
+              - cell "> DETAIL" [ref=e245]:
+                - generic [ref=e246]:
+                  - link "> DETAIL" [ref=e247] [cursor=pointer]:
+                    - /url: /webhooks/wh_ejsu7
+                    - button "> DETAIL" [ref=e248]:
+                      - generic [ref=e249]:
+                        - generic [ref=e250]: ">"
+                        - text: DETAIL
+                  - button "Test webhook" [disabled] [ref=e251]:
+                    - img [ref=e252]
+                  - button "Delete webhook" [ref=e254]:
+                    - img [ref=e255]
+    - generic [ref=e258]:
+      - generic [ref=e259]:
+        - generic [ref=e260]: SYSTEM_OVERRIDE_ACTIVE
+        - generic [ref=e261]: "AUTH_MODE: DEV_OPEN"
+        - heading "READY_TO_UPLINK?" [level=2] [ref=e262]
+        - paragraph [ref=e263]: Join the decentralised indexing network and fuel your Soroban dApps with high-fidelity event data — free during open beta.
+        - generic [ref=e264]:
+          - link "> GET_API_KEY" [ref=e265] [cursor=pointer]:
+            - /url: /api/docs/
+            - button "> GET_API_KEY" [ref=e266]:
+              - generic [ref=e267]:
+                - generic [ref=e268]: ">"
+                - text: GET_API_KEY
+          - link "> READ_DOCS" [ref=e269] [cursor=pointer]:
+            - /url: /docs
+            - button "> READ_DOCS" [ref=e270]:
+              - generic [ref=e271]:
+                - generic [ref=e272]: ">"
+                - text: READ_DOCS
+      - contentinfo [ref=e273]:
+        - generic [ref=e274]:
+          - generic [ref=e275]:
+            - link "[SOROSCAN]" [ref=e276] [cursor=pointer]:
+              - /url: /
+            - paragraph [ref=e277]: The Graph for Soroban. Real-time event indexing for the Stellar ecosystem.
+            - link "GitHub" [ref=e278] [cursor=pointer]:
+              - /url: https://github.com/SoroScan/soroscan
+              - img [ref=e279]
+              - text: GitHub
+          - generic [ref=e282]:
+            - heading "PRODUCT" [level=3] [ref=e283]
+            - list [ref=e284]:
+              - listitem [ref=e285]:
+                - link "Home" [ref=e286] [cursor=pointer]:
+                  - /url: /
+              - listitem [ref=e287]:
+                - link "Features" [ref=e288] [cursor=pointer]:
+                  - /url: /features
+              - listitem [ref=e289]:
+                - link "Dashboard" [ref=e290] [cursor=pointer]:
+                  - /url: /dashboard
+              - listitem [ref=e291]:
+                - link "Gallery" [ref=e292] [cursor=pointer]:
+                  - /url: /gallery
+          - generic [ref=e293]:
+            - heading "DEVELOPERS" [level=3] [ref=e294]
+            - list [ref=e295]:
+              - listitem [ref=e296]:
+                - link "Documentation" [ref=e297] [cursor=pointer]:
+                  - /url: /docs
+              - listitem [ref=e298]:
+                - link "API Docs (Swagger)" [ref=e299] [cursor=pointer]:
+                  - /url: /api/docs/
+              - listitem [ref=e300]:
+                - link "API Docs (ReDoc)" [ref=e301] [cursor=pointer]:
+                  - /url: /api/redoc/
+              - listitem [ref=e302]:
+                - link "SDK — Python" [ref=e303] [cursor=pointer]:
+                  - /url: https://github.com/SoroScan/soroscan
+              - listitem [ref=e304]:
+                - link "SDK — TypeScript" [ref=e305] [cursor=pointer]:
+                  - /url: https://github.com/SoroScan/soroscan
+          - generic [ref=e306]:
+            - heading "PROJECT" [level=3] [ref=e307]
+            - list [ref=e308]:
+              - listitem [ref=e309]:
+                - link "GitHub" [ref=e310] [cursor=pointer]:
+                  - /url: https://github.com/SoroScan/soroscan
+              - listitem [ref=e311]:
+                - link "Contributing" [ref=e312] [cursor=pointer]:
+                  - /url: https://github.com/SoroScan/soroscan/blob/main/CONTRIBUTING.md
+              - listitem [ref=e313]:
+                - link "Stellar Network" [ref=e314] [cursor=pointer]:
+                  - /url: https://stellar.org
+              - listitem [ref=e315]:
+                - link "Soroban Docs" [ref=e316] [cursor=pointer]:
+                  - /url: https://soroban.stellar.org
+        - generic [ref=e317]:
+          - generic [ref=e318]:
+            - generic [ref=e319]: © 2026 SOROSCAN_INDEXER_SERVICES
+            - link "TERMS_OF_SERVICE" [ref=e320] [cursor=pointer]:
+              - /url: "#"
+            - link "PRIVACY_POLICY" [ref=e321] [cursor=pointer]:
+              - /url: "#"
+          - generic [ref=e322]:
+            - generic [ref=e323]: "STELLAR_MAINNET_UPLINK: ONLINE"
+            - generic [ref=e325]: "LATENCY: 42MS"
+    - generic [ref=e326]: ✓WEBHOOK_CREATED — subscription is now active
+  - button "Open Next.js Dev Tools" [ref=e332] [cursor=pointer]:
+    - img [ref=e333]
+  - alert [ref=e336]
+```
