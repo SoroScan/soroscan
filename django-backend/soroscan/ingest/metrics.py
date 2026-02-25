@@ -14,44 +14,43 @@ __all__ = [
 ]
 
 
-def _register_or_get(collector):
+def _get_or_create(metric_cls, name, documentation, labelnames=()):
     """
-    Register *collector* with the default REGISTRY.
+    Return an existing collector from REGISTRY if one with *name* is already
+    registered, otherwise create and register a new one.
 
-    If a metric with the same name is already registered (e.g. during tests
-    that import this module more than once), the existing collector is
-    returned instead of raising an error.
+    The key insight: we check the registry BEFORE constructing the metric
+    object.  Constructing a prometheus_client metric auto-registers it, so
+    we must avoid constructing a second instance at all.
     """
-    try:
-        REGISTRY.register(collector)
-    except ValueError:
-        # Already registered – return the existing one from the registry.
-        for registered in REGISTRY._names_to_collectors.values():
-            if registered is collector:
-                return registered
-        # Fallback: return the collector as-is (already registered elsewhere).
-    return collector
+    # prometheus_client stores metrics under several derived names
+    # (e.g. "foo", "foo_total", "foo_created" for a Counter).
+    # Any of those being present means the metric was already registered.
+    for registered_name, collector in list(REGISTRY._names_to_collectors.items()):
+        if hasattr(collector, "_name") and collector._name == name:
+            return collector
+    # Not found — safe to create (which auto-registers).
+    if labelnames:
+        return metric_cls(name, documentation, labelnames)
+    return metric_cls(name, documentation)
 
 
-events_ingested_total = _register_or_get(
-    Counter(
-        "soroscan_events_ingested_total",
-        "Total number of contract events ingested",
-        ["contract_id", "network", "event_type"],
-    )
+events_ingested_total = _get_or_create(
+    Counter,
+    "soroscan_events_ingested_total",
+    "Total number of contract events ingested",
+    ["contract_id", "network", "event_type"],
 )
 
-task_duration_seconds = _register_or_get(
-    Histogram(
-        "soroscan_task_duration_seconds",
-        "Duration of Celery tasks in seconds",
-        ["task_name"],
-    )
+task_duration_seconds = _get_or_create(
+    Histogram,
+    "soroscan_task_duration_seconds",
+    "Duration of Celery tasks in seconds",
+    ["task_name"],
 )
 
-active_contracts_gauge = _register_or_get(
-    Gauge(
-        "soroscan_tracked_contracts_active",
-        "Number of currently active tracked contracts",
-    )
+active_contracts_gauge = _get_or_create(
+    Gauge,
+    "soroscan_tracked_contracts_active",
+    "Number of currently active tracked contracts",
 )

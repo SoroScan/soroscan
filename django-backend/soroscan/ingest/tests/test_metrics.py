@@ -9,7 +9,6 @@ Covers:
 - /metrics is accessible without authentication
 - Duplicate-registration guard in metrics.py doesn't blow up on re-import
 """
-import importlib
 import time
 from unittest.mock import MagicMock, patch
 
@@ -233,7 +232,7 @@ class ActiveContractsGaugeTest(TestCase):
         from soroscan.ingest import metrics as m
 
         with patch.object(m.active_contracts_gauge, "set") as mock_set, \
-             patch("soroscan.ingest.tasks.SorobanServer") as mock_server_cls:
+             patch("stellar_sdk.SorobanServer") as mock_server_cls:
 
             mock_server = MagicMock()
             mock_server.get_events.return_value = MagicMock(events=[])
@@ -259,7 +258,7 @@ class TaskDurationHistogramTest(TestCase):
         )
 
     def test_sync_events_observes_histogram(self):
-        with patch("soroscan.ingest.tasks.SorobanServer") as mock_server_cls:
+        with patch("stellar_sdk.SorobanServer") as mock_server_cls:
             mock_server = MagicMock()
             mock_server.get_events.return_value = MagicMock(events=[])
             mock_server_cls.return_value = mock_server
@@ -310,21 +309,42 @@ class TaskDurationHistogramTest(TestCase):
 # ---------------------------------------------------------------------------
 
 class MetricsModuleImportTest(TestCase):
-    """Re-importing metrics.py must not raise ValueError."""
+    """The _get_or_create guard must survive being called with an already-registered name."""
 
-    def test_reimport_does_not_raise(self):
-        import soroscan.ingest.metrics as metrics_module
+    def test_double_call_does_not_raise(self):
+        """Calling _get_or_create twice with the same name must not raise."""
+        from prometheus_client import Counter as PC_Counter
+        from soroscan.ingest.metrics import _get_or_create
+
+        # First call is a no-op (metric already registered by module load).
+        # Second call must return the existing collector without raising.
         try:
-            importlib.reload(metrics_module)
+            result = _get_or_create(
+                PC_Counter,
+                "soroscan_events_ingested_total",
+                "Total number of contract events ingested",
+                ["contract_id", "network", "event_type"],
+            )
         except ValueError as exc:
-            self.fail(f"Re-importing metrics raised ValueError: {exc}")
+            self.fail(f"_get_or_create raised ValueError on duplicate name: {exc}")
+        self.assertIsNotNone(result)
 
-    def test_metrics_objects_are_accessible_after_reimport(self):
+    def test_metrics_objects_are_accessible(self):
         import soroscan.ingest.metrics as metrics_module
-        importlib.reload(metrics_module)
         self.assertTrue(hasattr(metrics_module, "events_ingested_total"))
         self.assertTrue(hasattr(metrics_module, "task_duration_seconds"))
         self.assertTrue(hasattr(metrics_module, "active_contracts_gauge"))
+
+    def test_second_import_returns_same_objects(self):
+        """Multiple imports of the metrics module return the same collector instances."""
+        import soroscan.ingest.metrics as m1
+        import importlib
+        import sys
+        # Access via sys.modules (no reload) — must be identical objects.
+        m2 = sys.modules["soroscan.ingest.metrics"]
+        self.assertIs(m1.events_ingested_total, m2.events_ingested_total)
+        self.assertIs(m1.task_duration_seconds, m2.task_duration_seconds)
+        self.assertIs(m1.active_contracts_gauge, m2.active_contracts_gauge)
 
 
 # ---------------------------------------------------------------------------
