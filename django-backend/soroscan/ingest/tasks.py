@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 BATCH_LEDGER_SIZE = 200
 
 # ---------------------------------------------------------------------------
-# Prometheus metrics (imported lazily-ish to avoid import-time side-effects
+# Prometheus metrics (imported lazily to avoid import-time side-effects
 # during migrations/management commands that don't need metrics).
 # ---------------------------------------------------------------------------
 
@@ -179,36 +179,10 @@ def validate_event_payload(
 def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
     """
     Deliver a single ContractEvent to a WebhookSubscription endpoint.
-
-    Retry strategy
-    ~~~~~~~~~~~~~~
-    Celery auto-retries on any ``requests.RequestException`` with exponential
-    backoff (cap 600 s, up to 5 retries).  On HTTP 429 the ``Retry-After``
-    response header is honoured.  Every attempt — success or failure — is
-    written to ``WebhookDeliveryLog``.  After all 5 retries are exhausted the
-    subscription is marked ``suspended`` and ``is_active`` set to ``False`` so
-    it is excluded from future dispatches.
-
-    HMAC signing
-    ~~~~~~~~~~~~
-    Every request carries ``X-SoroScan-Signature: sha256=<hmac_hex>`` where
-    the HMAC is computed over the JSON-serialised (sorted-keys) event payload
-    using the subscription's secret.  The secret is never logged.
-
-    Args:
-        subscription_id: PK of the ``WebhookSubscription`` to deliver to.
-        event_id: PK of the ``ContractEvent`` being delivered.
-
-    Returns:
-        ``True`` on successful delivery, ``False`` when the subscription is
-        absent/inactive (no retry in that case).
     """
     _start = time.monotonic()
     m = _get_metrics()
 
-    # ------------------------------------------------------------------ #
-    # 1. Fetch subscription — skip silently if gone / inactive / suspended #
-    # ------------------------------------------------------------------ #
     try:
         webhook = WebhookSubscription.objects.get(
             id=subscription_id,
@@ -223,9 +197,6 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
         )
         return False
 
-    # ------------------------------------------------------------------ #
-    # 2. Fetch event                                                        #
-    # ------------------------------------------------------------------ #
     try:
         event = ContractEvent.objects.select_related("contract").get(id=event_id)
     except ContractEvent.DoesNotExist:
@@ -237,9 +208,6 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
         )
         return False
 
-    # ------------------------------------------------------------------ #
-    # 3. Build payload & HMAC-SHA256 signature                             #
-    # ------------------------------------------------------------------ #
     event_data = {
         "contract_id": event.contract.contract_id,
         "event_type": event.event_type,
@@ -262,11 +230,8 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
     }
 
     attempt_number = self.request.retries + 1
-    attempt_logged = False  # guard against double-logging
+    attempt_logged = False
 
-    # ------------------------------------------------------------------ #
-    # 4. Deliver                                                           #
-    # ------------------------------------------------------------------ #
     try:
         response = requests.post(
             webhook.target_url,
@@ -276,7 +241,6 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
         )
         status_code = response.status_code
 
-        # -- 429: respect Retry-After header, then retry ---------------
         if status_code == 429:
             error_msg = "Rate limited by subscriber (429)"
             _log_delivery_attempt(webhook, event, attempt_number, status_code, False, error_msg)
@@ -296,7 +260,6 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
                 countdown=countdown,
             )
 
-        # -- 2xx: success (treat any 2xx as success, even malformed body) --
         success = 200 <= status_code < 300
         error_msg = "" if success else f"HTTP {status_code}"
 
@@ -319,15 +282,10 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
             )
             return True
 
-        # -- non-2xx, non-429: raise to trigger autoretry ---------------
         _on_delivery_failure(webhook, self)
-        response.raise_for_status()  # raises HTTPError → caught by autoretry_for
+        response.raise_for_status()
 
     except requests.RequestException as exc:
-        # Network-level error (timeout, connection refused, etc.) only reaches
-        # here when raise_for_status() fires AND attempt was already logged, OR
-        # for genuine network errors.  The attempt_logged flag prevents
-        # duplicate records.
         if not attempt_logged:
             _log_delivery_attempt(webhook, event, attempt_number, None, False, str(exc))
             _on_delivery_failure(webhook, self)
@@ -340,12 +298,12 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
             exc,
             extra={"webhook_id": subscription_id},
         )
-        raise  # re-raise so autoretry_for can schedule the next attempt
+        raise
 
     m.task_duration_seconds.labels(task_name="dispatch_webhook").observe(
         time.monotonic() - _start
     )
-    return False  # unreachable — satisfies type checker
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -403,8 +361,6 @@ def _on_delivery_failure(
 def cleanup_webhook_delivery_logs() -> int:
     """
     Prune ``WebhookDeliveryLog`` entries older than 30 days (TTL cleanup).
-
-    Schedule via Celery Beat, e.g. daily.  Returns the number of deleted rows.
     """
     from .models import WebhookDeliveryLog
 
@@ -426,9 +382,6 @@ def cleanup_webhook_delivery_logs() -> int:
 def process_new_event(event_data: dict[str, Any]) -> None:
     """
     Process a newly indexed event and trigger webhooks.
-
-    Args:
-        event_data: Decoded event data from the ledger
     """
     from asgiref.sync import async_to_sync
     from channels.layers import get_channel_layer
@@ -440,7 +393,6 @@ def process_new_event(event_data: dict[str, Any]) -> None:
         logger.warning("Event missing contract_id", extra={})
         return
 
-    # Publish to WebSocket channel layer
     channel_layer = get_channel_layer()
     if channel_layer:
         try:
@@ -458,13 +410,11 @@ def process_new_event(event_data: dict[str, Any]) -> None:
                 extra={"contract_id": contract_id},
             )
 
-    # Find matching active (non-suspended) webhooks
     webhooks = WebhookSubscription.objects.filter(
         contract__contract_id=contract_id,
         is_active=True,
         status=WebhookSubscription.STATUS_ACTIVE,
     ).filter(
-        # Match specific event type or all events (blank event_type)
         event_type__in=[event_type, ""]
     )
 
@@ -477,7 +427,6 @@ def process_new_event(event_data: dict[str, Any]) -> None:
         )
         return
 
-    # Resolve the ContractEvent DB row so dispatch_webhook receives its PK
     ledger = event_data.get("ledger")
     event_index = event_data.get("event_index", 0)
     event_obj = None
@@ -505,7 +454,6 @@ def process_new_event(event_data: dict[str, Any]) -> None:
         )
         return
 
-    # Dispatch to all matching webhooks
     dispatched = 0
     for webhook in webhooks:
         dispatch_webhook.delay(webhook.id, event_obj.id)
@@ -522,44 +470,32 @@ def process_new_event(event_data: dict[str, Any]) -> None:
 def sync_events_from_horizon() -> int:
     """
     Sync events from Horizon/Soroban RPC.
-
-    This task runs periodically to fetch new events from the ledger
-    and store them in the database.
-
-    Returns:
-        Number of new events indexed
     """
     from stellar_sdk import SorobanServer
 
     _start = time.monotonic()
     m = _get_metrics()
 
-    # Get last processed cursor
     cursor_state, _ = IndexerState.objects.get_or_create(
         key="horizon_cursor",
         defaults={"value": "now"},
     )
     cursor = cursor_state.value
-
     server = SorobanServer(settings.SOROBAN_RPC_URL)
     new_events = 0
 
     try:
-        # Get list of tracked contract IDs
         contract_ids = list(
             TrackedContract.objects.filter(is_active=True).values_list("contract_id", flat=True)
         )
+
+        # Always update the gauge, even when there are no active contracts.
+        m.active_contracts_gauge.set(len(contract_ids))
 
         if not contract_ids:
             logger.info("No active contracts to index", extra={})
             return 0
 
-        # Update active contracts gauge at the start of each sync cycle.
-        m.active_contracts_gauge.set(len(contract_ids))
-
-        # Fetch events from Soroban RPC
-        # Note: Actual implementation depends on stellar-sdk version
-        # This is a simplified example
         events_response = server.get_events(
             start_ledger=int(cursor) if cursor.isdigit() else None,
             filters=[
@@ -573,20 +509,18 @@ def sync_events_from_horizon() -> int:
 
         network = _network_label()
         for fallback_event_index, event in enumerate(events_response.events):
-            # Find the tracked contract
             try:
                 contract = TrackedContract.objects.get(contract_id=event.contract_id)
             except TrackedContract.DoesNotExist:
                 continue
 
-            payload = event.value  # Decoded payload
+            payload = event.value
             passed, version_used = validate_event_payload(
                 contract, event.type, payload, ledger=event.ledger
             )
             validation_status = "passed" if passed else "failed"
             schema_version = version_used
 
-            # Create or get event record
             event_record, created = ContractEvent.objects.get_or_create(
                 tx_hash=event.tx_hash,
                 ledger=event.ledger,
@@ -594,7 +528,7 @@ def sync_events_from_horizon() -> int:
                 defaults={
                     "contract": contract,
                     "payload": payload,
-                    "timestamp": timezone.now(),  # Should parse from ledger
+                    "timestamp": timezone.now(),
                     "raw_xdr": event.xdr if hasattr(event, "xdr") else "",
                     "validation_status": validation_status,
                     "schema_version": schema_version,
@@ -611,13 +545,11 @@ def sync_events_from_horizon() -> int:
 
             if created:
                 new_events += 1
-                # Increment ingestion counter for this event.
                 m.events_ingested_total.labels(
                     contract_id=_short_contract_id(contract.contract_id),
                     network=network,
                     event_type=event_record.event_type,
                 ).inc()
-                # Trigger webhooks for new events
                 process_new_event.delay(
                     {
                         "contract_id": contract.contract_id,
@@ -633,7 +565,6 @@ def sync_events_from_horizon() -> int:
                 contract.last_indexed_ledger = event_record.ledger
                 contract.save(update_fields=["last_indexed_ledger"])
 
-        # Update cursor
         last_ledger = None
         if events_response.events:
             last_ledger = events_response.events[-1].ledger
@@ -645,14 +576,17 @@ def sync_events_from_horizon() -> int:
             new_events,
             extra={"ledger_sequence": last_ledger},
         )
-        m.task_duration_seconds.labels(task_name="sync_events_from_horizon").observe(
-            time.monotonic() - _start
-        )
-        return new_events
 
     except Exception:
         logger.exception("Failed to sync events from Horizon", extra={})
-        return 0
+
+    finally:
+        # Always record duration, even if an exception occurred.
+        m.task_duration_seconds.labels(
+            task_name="sync_events_from_horizon"
+        ).observe(time.monotonic() - _start)
+
+    return new_events
 
 
 @shared_task(bind=True, queue="backfill", max_retries=3, default_retry_delay=60)
@@ -707,17 +641,12 @@ def backfill_contract_events(
                 processed_events += 1
                 if created:
                     created_events += 1
-                    # _upsert_contract_event already increments events_ingested_total
-                    # and refreshes active_contracts_gauge on creation.
                 else:
                     updated_events += 1
 
             contract.last_indexed_ledger = batch_end
             contract.save(update_fields=["last_indexed_ledger"])
 
-        m.task_duration_seconds.labels(task_name="backfill_contract_events").observe(
-            time.monotonic() - _start
-        )
         # Ensure gauge is fresh after a bulk backfill.
         m.active_contracts_gauge.set(
             TrackedContract.objects.filter(is_active=True).count()
@@ -731,6 +660,7 @@ def backfill_contract_events(
             "created_events": created_events,
             "updated_events": updated_events,
         }
+
     except Exception as exc:
         logger.exception(
             "Backfill failed for contract=%s range=%s-%s",
@@ -739,3 +669,9 @@ def backfill_contract_events(
             end_ledger,
         )
         raise self.retry(exc=exc)
+
+    finally:
+        # Always record duration, even if an exception occurred.
+        m.task_duration_seconds.labels(
+            task_name="backfill_contract_events"
+        ).observe(time.monotonic() - _start)
