@@ -621,7 +621,6 @@ def backfill_contract_events(
     processed_events = 0
     created_events = 0
     updated_events = 0
-    network = _network_label()
 
     try:
         for batch_start in range(next_ledger, end_ledger + 1, BATCH_LEDGER_SIZE):

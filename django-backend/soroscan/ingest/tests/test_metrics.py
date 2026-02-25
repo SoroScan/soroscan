@@ -9,15 +9,13 @@ Covers:
 - /metrics is accessible without authentication
 - Duplicate-registration guard in metrics.py doesn't blow up on re-import
 """
-import time
 from unittest.mock import MagicMock, patch
 
-import pytest
 from django.test import TestCase, override_settings
 from django.contrib.auth import get_user_model
-from prometheus_client import REGISTRY, CollectorRegistry
+from prometheus_client import REGISTRY
 
-from soroscan.ingest.models import TrackedContract, ContractEvent, WebhookSubscription
+from soroscan.ingest.models import TrackedContract
 
 User = get_user_model()
 
@@ -114,7 +112,7 @@ class MetricsEndpointTest(TestCase):
         Every non-comment, non-empty line should follow Prometheus text format:
         <metric_name>{<labels>} <value> [<timestamp>]
         """
-        import re
+
         response = self.client.get("/metrics")
         content = response.content.decode()
         # Basic sanity: must contain at least one HELP line
@@ -134,7 +132,7 @@ class EventsIngestedCounterTest(TestCase):
         self.contract = _make_contract(self.user)
 
     def _count_for_contract(self) -> float:
-        from soroscan.ingest.tasks import _short_contract_id, _network_label
+        from soroscan.ingest.tasks import _short_contract_id
         return _get_metric_value(
             "soroscan_events_ingested_total",
             labels={
@@ -349,7 +347,7 @@ class MetricsModuleImportTest(TestCase):
     def test_second_import_returns_same_objects(self):
         """Multiple imports of the metrics module return the same collector instances."""
         import soroscan.ingest.metrics as m1
-        import importlib
+
         import sys
         # Access via sys.modules (no reload) — must be identical objects.
         m2 = sys.modules["soroscan.ingest.metrics"]
