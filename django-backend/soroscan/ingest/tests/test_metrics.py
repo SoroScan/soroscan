@@ -30,9 +30,22 @@ def _get_metric_value(metric_name: str, labels: dict | None = None) -> float:
     """
     Read the current value of a prometheus_client metric from the default
     REGISTRY.  Works for Counter (returns _total), Gauge, and Histogram (_count).
+
+    prometheus_client stores ``metric.name`` as the *base* name (e.g.
+    ``soroscan_events_ingested``), while callers often pass the full suffixed
+    name (``soroscan_events_ingested_total``).  We strip conventional Prometheus
+    suffixes so the metric-level match succeeds, then match individual samples
+    by their original (suffixed) name.
     """
+    # Compute the base name that prometheus_client uses internally.
+    base = metric_name
+    for suffix in ("_total", "_created", "_count", "_sum", "_bucket"):
+        if base.endswith(suffix):
+            base = base[: -len(suffix)]
+            break
+
     for metric in REGISTRY.collect():
-        if metric.name == metric_name or metric.name == f"{metric_name}_total":
+        if metric.name in (metric_name, base):
             for sample in metric.samples:
                 if sample.name in (metric_name, f"{metric_name}_total"):
                     if labels is None:
