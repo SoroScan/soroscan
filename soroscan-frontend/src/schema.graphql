@@ -67,3 +67,11 @@ type Event {
   data: String!
   createdAt: String!
 }
+
+type ContractEvent {
+  id: ID!
+  eventType: String!
+  ledgerSequence: Int!
+  timestamp: String!
+  payload: String!
+}
