@@ -624,15 +624,10 @@ class ContractSnapshotAdmin(admin.ModelAdmin):
 class StateChangeInline(admin.TabularInline):
     """Inline display of state changes for a snapshot."""
     
-    model = None  # Will be set dynamically
+    model = StateChange
     extra = 0
     readonly_fields = ["previous_snapshot", "field_name", "old_value", "new_value", "created_at"]
     can_delete = False
-    
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        from .models import StateChange
-        self.model = StateChange
 
     def has_add_permission(self, request, obj=None):
         return False
