@@ -159,6 +159,18 @@ class TestContractEventViewSet:
         assert response.status_code == status.HTTP_200_OK
         assert len(response.data["results"]) == 1
 
+    def test_filter_events_by_decoding_status(self, authenticated_client, contract):
+        ContractEventFactory(contract=contract, decoding_status="success")
+        ContractEventFactory(contract=contract, decoding_status="failed")
+        ContractEventFactory(contract=contract, decoding_status="no_abi")
+
+        url = reverse("event-list")
+        response = authenticated_client.get(url, {"decoding_status": "failed"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data["results"]) == 1
+        assert response.data["results"][0]["decoding_status"] == "failed"
+
 
 @pytest.mark.django_db
 class TestWebhookSubscriptionViewSet:
@@ -225,7 +237,7 @@ class TestRecordEventView:
         })
     
     @responses.activate
-    def test_record_event_success(self, api_client):
+    def test_record_event_success(self, authenticated_client):
         responses.add(
             responses.POST,
             "https://soroban-testnet.stellar.org/",
@@ -239,14 +251,14 @@ class TestRecordEventView:
             "event_type": "swap",
             "payload_hash": "a" * 64,
         }
-        response = api_client.post(url, data, format="json")
+        response = authenticated_client.post(url, data, format="json")
 
         assert response.status_code in [status.HTTP_202_ACCEPTED, status.HTTP_400_BAD_REQUEST]
 
-    def test_record_event_validation_error(self, api_client):
+    def test_record_event_validation_error(self, authenticated_client):
         url = reverse("record-event")
         data = {"event_type": "swap"}
-        response = api_client.post(url, data, format="json")
+        response = authenticated_client.post(url, data, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "contract_id" in response.data
