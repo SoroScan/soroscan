@@ -13,7 +13,7 @@ from channels.layers import get_channel_layer
 from strawberry import auto
 from strawberry.types import Info
 
-from .models import ContractEvent, TrackedContract, WebhookDeliveryLog
+from .models import ContractEvent, ContractInvocation, TrackedContract, WebhookDeliveryLog
 from .services.timeline import build_timeline
 from django.utils import timezone
 from django.db.models import Count, Max
