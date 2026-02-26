@@ -376,8 +376,7 @@ class SorobanClient:
             function_name = ""
             parameters = {}
 
-            # Try to extract from result_meta_xdr if available
-            result_meta = getattr(tx_response, "result_meta_xdr", None)
+            # Try to extract from result_xdr if available
             result_xdr = getattr(tx_response, "result_xdr", None)
 
             # Store result as XDR-encoded dict
