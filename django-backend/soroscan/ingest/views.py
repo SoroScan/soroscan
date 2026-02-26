@@ -24,10 +24,11 @@ import requests as http_requests
 
 from soroscan.throttles import IngestRateThrottle
 
-from .models import APIKey, ContractEvent, TrackedContract, WebhookSubscription
+from .models import APIKey, ContractEvent, ContractInvocation, TrackedContract, WebhookSubscription
 from .serializers import (
     APIKeySerializer,
     ContractEventSerializer,
+    ContractInvocationSerializer,
     EventSearchSerializer,
     RecordEventRequestSerializer,
     TrackedContractSerializer,
