@@ -6,6 +6,7 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     ContractEventViewSet,
+    ContractInvocationViewSet,
     TrackedContractViewSet,
     contract_event_explorer_view,
     WebhookSubscriptionViewSet,
@@ -18,6 +19,7 @@ router = DefaultRouter()
 router.register(r"contracts", TrackedContractViewSet, basename="contract")
 router.register(r"events", ContractEventViewSet, basename="event")
 router.register(r"webhooks", WebhookSubscriptionViewSet, basename="webhook")
+router.register(r"invocations", ContractInvocationViewSet, basename="invocation")
 
 urlpatterns = [
     path("contracts/<str:contract_id>/timeline/", contract_timeline_view, name="contract-timeline"),

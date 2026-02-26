@@ -3,7 +3,7 @@ DRF Serializers for SoroScan API.
 """
 from rest_framework import serializers
 
-from .models import ContractEvent, TrackedContract, WebhookSubscription
+from .models import ContractEvent, ContractInvocation, TrackedContract, WebhookSubscription
 
 
 class TrackedContractSerializer(serializers.ModelSerializer):
@@ -119,3 +119,37 @@ class RecordEventRequestSerializer(serializers.Serializer):
         max_length=64,
         help_text="SHA-256 hash of payload (hex)",
     )
+
+
+class ContractInvocationSerializer(serializers.ModelSerializer):
+    """
+    Serializer for ContractInvocation model.
+    Provides read-only details of a contract function invocation.
+    """
+
+    contract_id = serializers.CharField(source="contract.contract_id", read_only=True)
+    contract_name = serializers.CharField(source="contract.name", read_only=True)
+    events_count = serializers.SerializerMethodField()
+    events = ContractEventSerializer(many=True, read_only=True, required=False)
+
+    class Meta:
+        model = ContractInvocation
+        fields = [
+            "id",
+            "tx_hash",
+            "caller",
+            "contract_id",
+            "contract_name",
+            "function_name",
+            "parameters",
+            "result",
+            "ledger_sequence",
+            "created_at",
+            "events_count",
+            "events",
+        ]
+        read_only_fields = fields
+
+    def get_events_count(self, obj) -> int:
+        """Return count of related events."""
+        return obj.events.count()

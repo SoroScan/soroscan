@@ -14,7 +14,7 @@ from celery import shared_task
 from django.db.models import F
 from django.utils import timezone
 
-from .models import ContractEvent, TrackedContract, WebhookSubscription, IndexerState, EventSchema
+from .models import ContractEvent, ContractInvocation, TrackedContract, WebhookSubscription, IndexerState, EventSchema
 from .stellar_client import SorobanClient
 
 logger = logging.getLogger(__name__)
@@ -55,6 +55,8 @@ def _upsert_contract_event(
     contract: TrackedContract,
     event: Any,
     fallback_event_index: int = 0,
+    client: SorobanClient | None = None,
+    batch_cache: dict | None = None,
 ) -> tuple[ContractEvent, bool]:
     ledger = _safe_int(_event_attr(event, "ledger", "ledger_sequence"), default=0)
     event_index = _extract_event_index(event, fallback_event_index)
@@ -69,7 +71,7 @@ def _upsert_contract_event(
     if not isinstance(timestamp, datetime):
         timestamp = timezone.now()
 
-    return ContractEvent.objects.update_or_create(
+    event_obj, created = ContractEvent.objects.update_or_create(
         contract=contract,
         ledger=ledger,
         event_index=event_index,
@@ -81,6 +83,82 @@ def _upsert_contract_event(
             "raw_xdr": raw_xdr,
         },
     )
+    
+    # Fetch and link invocation if client provided
+    if client and tx_hash and not event_obj.invocation:
+        batch_cache = batch_cache or {}
+        invocation = _fetch_and_store_invocation(
+            tx_hash, contract, client, batch_cache
+        )
+        if invocation:
+            event_obj.invocation = invocation
+            event_obj.save(update_fields=["invocation"])
+    
+    return event_obj, created
+
+
+def _fetch_and_store_invocation(
+    tx_hash: str,
+    contract: TrackedContract,
+    client: SorobanClient,
+    batch_cache: dict,
+) -> ContractInvocation | None:
+    """
+    Fetch invocation details and store in database.
+    
+    Uses batch-level cache to avoid redundant RPC calls within same batch.
+    
+    Args:
+        tx_hash: Transaction hash to fetch
+        contract: TrackedContract instance
+        client: SorobanClient instance for RPC calls
+        batch_cache: Dictionary for caching invocations within a batch
+        
+    Returns:
+        ContractInvocation instance or None if fetch failed
+    """
+    # Check batch cache first
+    cache_key = f"{tx_hash}:{contract.contract_id}"
+    if cache_key in batch_cache:
+        return batch_cache[cache_key]
+    
+    # Fetch from RPC (with client-level caching and rate limiting)
+    invocation_data = client.get_invocation(tx_hash)
+    
+    if not invocation_data.success:
+        logger.warning(
+            "Failed to fetch invocation for tx_hash=%s: %s",
+            tx_hash,
+            invocation_data.error,
+        )
+        return None
+    
+    # Verify contract matches
+    if invocation_data.contract != contract.contract_id:
+        logger.warning(
+            "Contract mismatch: expected %s, got %s",
+            contract.contract_id,
+            invocation_data.contract,
+        )
+        return None
+    
+    # Upsert invocation
+    invocation, created = ContractInvocation.objects.update_or_create(
+        tx_hash=tx_hash,
+        contract=contract,
+        defaults={
+            "caller": invocation_data.caller,
+            "function_name": invocation_data.function_name,
+            "parameters": invocation_data.parameters,
+            "result": invocation_data.result,
+            "ledger_sequence": invocation_data.ledger_sequence,
+        },
+    )
+    
+    # Cache in batch
+    batch_cache[cache_key] = invocation
+    
+    return invocation
 
 
 def validate_event_payload(
@@ -496,6 +574,10 @@ def sync_events_from_horizon() -> int:
             logger.info("No active contracts to index", extra={})
             return 0
 
+        # Initialize SorobanClient for invocation tracking
+        client = SorobanClient()
+        batch_cache = {}
+
         # Fetch events from Soroban RPC
         # Note: Actual implementation depends on stellar-sdk version
         # This is a simplified example
@@ -524,20 +606,12 @@ def sync_events_from_horizon() -> int:
             validation_status = "passed" if passed else "failed"
             schema_version = version_used
 
-            # Create or get event record
-            event_record, created = ContractEvent.objects.get_or_create(
-                tx_hash=event.tx_hash,
-                ledger=event.ledger,
-                event_type=event.type,
-                defaults={
-                    "contract": contract,
-                    "payload": payload,
-                    "timestamp": timezone.now(),  # Should parse from ledger
-                    "raw_xdr": event.xdr if hasattr(event, "xdr") else "",
-                    "validation_status": validation_status,
-                    "schema_version": schema_version,
-                },
+            # Create or get event record using _upsert_contract_event with invocation tracking
+            event_record, created = _upsert_contract_event(
+                contract, event, fallback_event_index, client=client, batch_cache=batch_cache
             )
+            
+            # Update validation status if needed
             if not created:
                 if (
                     event_record.validation_status != validation_status
@@ -618,6 +692,9 @@ def backfill_contract_events(
         for batch_start in range(next_ledger, end_ledger + 1, BATCH_LEDGER_SIZE):
             batch_end = min(batch_start + BATCH_LEDGER_SIZE - 1, end_ledger)
             batch_events = client.get_events_range(contract.contract_id, batch_start, batch_end)
+            
+            # Create batch_cache for this batch to avoid redundant RPC calls
+            batch_cache = {}
 
             if not batch_events:
                 logger.warning(
@@ -628,7 +705,9 @@ def backfill_contract_events(
                 )
 
             for fallback_event_index, event in enumerate(batch_events):
-                _, created = _upsert_contract_event(contract, event, fallback_event_index)
+                _, created = _upsert_contract_event(
+                    contract, event, fallback_event_index, client=client, batch_cache=batch_cache
+                )
                 processed_events += 1
                 if created:
                     created_events += 1
