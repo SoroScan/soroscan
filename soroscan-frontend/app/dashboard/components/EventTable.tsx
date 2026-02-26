@@ -51,8 +51,8 @@ export function EventTable({ events, loading, onEventClick }: EventTableProps) {
             <th>Contract</th>
             <th>Type</th>
             <th>Ledger</th>
-            <th className="hidden-mobile">Time</th>
-            <th className="hidden-mobile">Transaction</th>
+            <th>Time</th>
+            <th>Transaction</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -80,7 +80,7 @@ export function EventTable({ events, loading, onEventClick }: EventTableProps) {
                   e.currentTarget.style.boxShadow = "none";
                 }}
               >
-                <td>
+                <td data-label="Contract">
                   <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                     <code>{shortHash(event.contractId)}</code>
                     <button
@@ -101,7 +101,7 @@ export function EventTable({ events, loading, onEventClick }: EventTableProps) {
                     </button>
                   </div>
                 </td>
-                <td>
+                <td data-label="Type">
                   <span
                     className={styles.pill}
                     style={{
@@ -113,7 +113,7 @@ export function EventTable({ events, loading, onEventClick }: EventTableProps) {
                     {event.eventType}
                   </span>
                 </td>
-                <td>
+                <td data-label="Ledger">
                   <button
                     type="button"
                     className={styles.btn}
@@ -123,14 +123,13 @@ export function EventTable({ events, loading, onEventClick }: EventTableProps) {
                     }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      // Could filter by ledger here
                     }}
                   >
                     {event.ledger}
                   </button>
                 </td>
-                <td className="hidden-mobile">{formatDateTime(event.timestamp)}</td>
-                <td className="hidden-mobile">
+                <td data-label="Time">{formatDateTime(event.timestamp)}</td>
+                <td data-label="Tx">
                   <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                     <code>{shortHash(event.txHash)}</code>
                     <button
@@ -151,7 +150,7 @@ export function EventTable({ events, loading, onEventClick }: EventTableProps) {
                     </button>
                   </div>
                 </td>
-                <td>
+                <td data-label="Actions">
                   <button
                     type="button"
                     className={styles.btn}
@@ -169,13 +168,6 @@ export function EventTable({ events, loading, onEventClick }: EventTableProps) {
           )}
         </tbody>
       </table>
-      <style jsx>{`
-        @media (max-width: 768px) {
-          .hidden-mobile {
-            display: none;
-          }
-        }
-      `}</style>
     </div>
   );
 }

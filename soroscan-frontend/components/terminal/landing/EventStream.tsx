@@ -1,54 +1,36 @@
 "use client"
 
 import * as React from "react"
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "../Table"
+import { LiveEventStream } from "../LiveEventStream"
 
 export function EventStream() {
+
   return (
     <section className="space-y-8">
-      <div className="flex items-center gap-4">
-        <h2 className="text-2xl font-bold text-terminal-green whitespace-nowrap">
-          [LIVE_EVENT_STREAM]
-        </h2>
-        <div className="h-[2px] w-full bg-terminal-green/20" />
+      {/* Problem / Solution narrative */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border border-terminal-green/20 p-6 md:p-8 relative">
+        <div className="scanline-overlay" />
+        <div>
+          <div className="text-[10px] text-terminal-danger tracking-widest mb-2 font-terminal-mono">[PROBLEM]</div>
+          <h3 className="text-xl font-bold text-terminal-danger mb-3 font-terminal-mono">NO_THE_GRAPH_FOR_SOROBAN</h3>
+          <p className="text-terminal-gray text-sm leading-relaxed">
+            Developers building on Stellar&apos;s Soroban smart contracts have no reliable way to
+            index or query on-chain events. Building custom indexers means managing infrastructure,
+            dealing with ledger polling, and writing brittle parsers — just to answer &quot;what events did my contract emit?&quot;
+          </p>
+        </div>
+        <div>
+          <div className="text-[10px] text-terminal-green tracking-widest mb-2 font-terminal-mono">[SOLUTION]</div>
+          <h3 className="text-xl font-bold text-terminal-green mb-3 font-terminal-mono">SOROSCAN_IS_THE_FIX</h3>
+          <p className="text-terminal-gray text-sm leading-relaxed">
+            SoroScan provides a managed event indexing service — connect your contract, define your
+            event schema, and immediately query events via GraphQL or REST. Webhook subscriptions
+            push events to your backend in real-time. No infrastructure. No polling. No complexity.
+          </p>
+        </div>
       </div>
 
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>TIMESTAMP</TableHead>
-            <TableHead>CONTRACT_ID</TableHead>
-            <TableHead>EVENT_TYPE</TableHead>
-            <TableHead>STATUS</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          <TableRow>
-            <TableCell>2026-02-22T21:42:01</TableCell>
-            <TableCell className="text-terminal-cyan">C...9X4Z</TableCell>
-            <TableCell>LIQUIDITY_ADD</TableCell>
-            <TableCell className="text-terminal-green">PROCESSED</TableCell>
-          </TableRow>
-          <TableRow>
-            <TableCell>2026-02-22T21:41:55</TableCell>
-            <TableCell className="text-terminal-cyan">C...2B8Y</TableCell>
-            <TableCell>SWAP_COMPLETE</TableCell>
-            <TableCell className="text-terminal-green">PROCESSED</TableCell>
-          </TableRow>
-          <TableRow>
-            <TableCell>2026-02-22T21:41:48</TableCell>
-            <TableCell className="text-terminal-cyan">C...F7K1</TableCell>
-            <TableCell>VAULT_DEPOSIT</TableCell>
-            <TableCell className="text-terminal-warning">INGESTING</TableCell>
-          </TableRow>
-          <TableRow>
-            <TableCell>2026-02-22T21:41:30</TableCell>
-            <TableCell className="text-terminal-cyan">C...A9S0</TableCell>
-            <TableCell>GOV_PROPOSAL</TableCell>
-            <TableCell className="text-terminal-green">PROCESSED</TableCell>
-          </TableRow>
-        </TableBody>
-      </Table>
+      <LiveEventStream contractId="CB76XYM3HDYCR2LZEM6BTXGWBZCH6D66Z6F7B" />
     </section>
   )
 }

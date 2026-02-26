@@ -128,7 +128,6 @@
  export function showToast(message: string, type: ToastType): void {
    if (!dispatchToast) {
      if (process.env.NODE_ENV !== "production") {
-       // eslint-disable-next-line no-console
        console.warn(
          "ToastProvider is not mounted; cannot show toast:",
          message,

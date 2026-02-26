@@ -14,7 +14,7 @@ const config: CodegenConfig = {
         useTypeImports: true,
       },
     },
-    './src/generated/graphql.ts': {
+    './src/generated/legacy-types.ts': {
       plugins: [
         'typescript',
         'typescript-operations',

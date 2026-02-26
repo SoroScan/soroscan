@@ -141,11 +141,11 @@ export function ContractForm({ contract, onSave, onCancel }: ContractFormProps) 
         </div>
       )}
 
-      <div className="flex gap-3 pt-4">
+     <div className="flex flex-col sm:flex-row gap-3 pt-4">
         <Button type="submit" variant="primary" disabled={isSubmitting} className="flex-1">
           {isSubmitting ? "SAVING..." : "SAVE CHANGES"}
         </Button>
-        <Button type="button" variant="secondary" onClick={onCancel} disabled={isSubmitting}>
+        <Button type="button" variant="secondary" onClick={onCancel} disabled={isSubmitting} className="sm:w-auto">
           CANCEL
         </Button>
       </div>
