@@ -196,7 +196,7 @@ class ContractEvent(models.Model):
     tx_hash = models.CharField(max_length=64, help_text="Transaction hash")
     raw_xdr = models.TextField(blank=True, help_text="Raw XDR for debugging")
     invocation = models.ForeignKey(
-        ContractInvocation,
+        "ContractInvocation",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
