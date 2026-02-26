@@ -1,0 +1,10 @@
+# Playwright artifacts
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Visual regression baseline updates
+__screenshots__/
+
+# Trace files
+*.zip
