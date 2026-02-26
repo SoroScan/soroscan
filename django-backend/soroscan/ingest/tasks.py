@@ -1002,3 +1002,192 @@ def cleanup_silk_data() -> int:
         extra={},
     )
     return deleted_count
+
+
+# ---------------------------------------------------------------------------
+# Contract State Snapshots: Periodic snapshot capture and state tracking
+# ---------------------------------------------------------------------------
+
+@shared_task
+def capture_contract_snapshots(snapshot_interval: int = 1000) -> dict[str, Any]:
+    """
+    Capture state snapshots for all active contracts at snapshot intervals.
+    
+    Iterates through TrackedContracts and captures snapshots when
+    last_indexed_ledger is a multiple of snapshot_interval. For each snapshot,
+    computes state differences from the previous snapshot and creates StateChange
+    records.
+    
+    Args:
+        snapshot_interval: Ledger interval between snapshots (default: 1000)
+        
+    Returns:
+        Dictionary with:
+            - contracts_processed: int
+            - snapshots_created: int
+            - changes_detected: int
+            - errors: list[dict]
+    """
+    from .models import ContractSnapshot, StateChange
+    from .state_diff import compute_state_diff
+    
+    _start = time.monotonic()
+    m = _get_metrics()
+    
+    contracts_processed = 0
+    snapshots_created = 0
+    changes_detected = 0
+    errors = []
+    
+    try:
+        # Query all active contracts
+        active_contracts = TrackedContract.objects.filter(is_active=True)
+        
+        for contract in active_contracts:
+            contracts_processed += 1
+            
+            # Skip if no ledger has been indexed yet
+            if contract.last_indexed_ledger is None:
+                continue
+            
+            # Only snapshot at interval multiples
+            if contract.last_indexed_ledger % snapshot_interval != 0:
+                continue
+            
+            try:
+                # Check if snapshot already exists (avoid duplicates)
+                existing_snapshot = ContractSnapshot.objects.filter(
+                    contract=contract,
+                    ledger_sequence=contract.last_indexed_ledger,
+                ).first()
+                
+                if existing_snapshot:
+                    logger.info(
+                        "Snapshot already exists for contract %s at ledger %s",
+                        contract.contract_id,
+                        contract.last_indexed_ledger,
+                        extra={"contract_id": contract.contract_id},
+                    )
+                    continue
+                
+                # Retrieve contract state from Stellar network
+                client = SorobanClient()
+                state_result = client.get_contract_state(contract.contract_id)
+                
+                if not state_result["success"]:
+                    error_msg = f"Failed to retrieve state: {state_result['error']}"
+                    logger.error(
+                        "Failed to retrieve state for contract %s: %s",
+                        contract.contract_id,
+                        state_result["error"],
+                        extra={"contract_id": contract.contract_id},
+                    )
+                    errors.append({
+                        "contract_id": contract.contract_id,
+                        "ledger": contract.last_indexed_ledger,
+                        "error": error_msg,
+                    })
+                    continue
+                
+                # Log truncation warning if state was truncated
+                if state_result["is_truncated"]:
+                    logger.warning(
+                        "Contract state truncated for %s at ledger %s due to size constraints",
+                        contract.contract_id,
+                        contract.last_indexed_ledger,
+                        extra={
+                            "contract_id": contract.contract_id,
+                            "ledger_sequence": contract.last_indexed_ledger,
+                        },
+                    )
+                
+                # Create snapshot
+                snapshot = ContractSnapshot.objects.create(
+                    contract=contract,
+                    ledger_sequence=contract.last_indexed_ledger,
+                    state_data=state_result["state_data"],
+                    is_truncated=state_result["is_truncated"],
+                    is_compressed=state_result["is_compressed"],
+                )
+                snapshots_created += 1
+                
+                logger.info(
+                    "Created snapshot for contract %s at ledger %s",
+                    contract.contract_id,
+                    contract.last_indexed_ledger,
+                    extra={"contract_id": contract.contract_id},
+                )
+                
+                # Compute state differences from previous snapshot
+                previous_snapshot = ContractSnapshot.objects.filter(
+                    contract=contract,
+                    ledger_sequence__lt=snapshot.ledger_sequence,
+                ).order_by("-ledger_sequence").first()
+                
+                if previous_snapshot:
+                    # Compute differences
+                    changes = compute_state_diff(
+                        snapshot.state_data,
+                        previous_snapshot.state_data,
+                    )
+                    
+                    # Create StateChange records
+                    for change in changes:
+                        StateChange.objects.create(
+                            snapshot=snapshot,
+                            previous_snapshot=previous_snapshot,
+                            field_name=change["field_name"],
+                            old_value=change["old_value"],
+                            new_value=change["new_value"],
+                        )
+                        changes_detected += 1
+                    
+                    if changes:
+                        logger.info(
+                            "Detected %d state changes for contract %s",
+                            len(changes),
+                            contract.contract_id,
+                            extra={"contract_id": contract.contract_id},
+                        )
+                
+            except Exception as e:
+                error_msg = f"Error processing contract: {str(e)}"
+                logger.exception(
+                    "Error capturing snapshot for contract %s",
+                    contract.contract_id,
+                    extra={"contract_id": contract.contract_id},
+                )
+                errors.append({
+                    "contract_id": contract.contract_id,
+                    "ledger": contract.last_indexed_ledger,
+                    "error": error_msg,
+                })
+        
+        logger.info(
+            "Snapshot capture completed: %d contracts processed, %d snapshots created, %d changes detected",
+            contracts_processed,
+            snapshots_created,
+            changes_detected,
+            extra={},
+        )
+        
+    except Exception as e:
+        logger.exception("Failed to capture contract snapshots", extra={})
+        errors.append({
+            "contract_id": "N/A",
+            "ledger": 0,
+            "error": f"Task-level error: {str(e)}",
+        })
+    
+    finally:
+        # Always record duration
+        m.task_duration_seconds.labels(
+            task_name="capture_contract_snapshots"
+        ).observe(time.monotonic() - _start)
+    
+    return {
+        "contracts_processed": contracts_processed,
+        "snapshots_created": snapshots_created,
+        "changes_detected": changes_detected,
+        "errors": errors,
+    }

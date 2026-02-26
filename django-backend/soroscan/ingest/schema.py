@@ -217,6 +217,18 @@ class ErrorLog:
 
 
 @strawberry.type
+class ContractStateType:
+    """GraphQL type for contract state snapshots."""
+    
+    contract_id: str
+    ledger_sequence: int
+    state_data: strawberry.scalars.JSON
+    captured_at: datetime
+    is_truncated: bool
+    is_compressed: bool
+
+
+@strawberry.type
 class Query:
     @strawberry.field
     def contracts(self, is_active: Optional[bool] = None) -> list[ContractType]:
@@ -522,6 +534,104 @@ class Query:
                 context=f"Target: {log.subscription.target_url}"
             )
             for log in logs
+        ]
+
+    @strawberry.field
+    def contract_state(
+        self,
+        contract_id: str,
+        ledger: int,
+    ) -> Optional["ContractStateType"]:
+        """
+        Query contract state at or before a specific ledger.
+        
+        Returns the most recent snapshot at or before the specified ledger,
+        or None if no snapshot exists.
+        
+        Args:
+            contract_id: Contract address (C...)
+            ledger: Ledger sequence number
+            
+        Returns:
+            ContractStateType or None
+        """
+        from .models import ContractSnapshot
+        
+        try:
+            # Verify contract exists
+            contract = TrackedContract.objects.get(contract_id=contract_id)
+        except TrackedContract.DoesNotExist:
+            raise Exception(f"Contract not found: {contract_id}")
+        
+        # Find most recent snapshot at or before specified ledger
+        snapshot = ContractSnapshot.objects.filter(
+            contract=contract,
+            ledger_sequence__lte=ledger,
+        ).order_by("-ledger_sequence").first()
+        
+        if not snapshot:
+            return None
+        
+        return ContractStateType(
+            contract_id=snapshot.contract.contract_id,
+            ledger_sequence=snapshot.ledger_sequence,
+            state_data=snapshot.state_data,
+            captured_at=snapshot.captured_at,
+            is_truncated=snapshot.is_truncated,
+            is_compressed=snapshot.is_compressed,
+        )
+
+    @strawberry.field
+    def contract_snapshots(
+        self,
+        contract_id: str,
+        ledger_min: Optional[int] = None,
+        ledger_max: Optional[int] = None,
+        first: int = 20,
+    ) -> list["ContractStateType"]:
+        """
+        Query multiple snapshots for a contract with optional ledger range.
+        
+        Args:
+            contract_id: Contract address (C...)
+            ledger_min: Minimum ledger sequence (inclusive)
+            ledger_max: Maximum ledger sequence (inclusive)
+            first: Maximum number of results (default: 20, max: 100)
+            
+        Returns:
+            List of ContractStateType
+        """
+        from .models import ContractSnapshot
+        
+        try:
+            # Verify contract exists
+            contract = TrackedContract.objects.get(contract_id=contract_id)
+        except TrackedContract.DoesNotExist:
+            raise Exception(f"Contract not found: {contract_id}")
+        
+        # Build query
+        queryset = ContractSnapshot.objects.filter(contract=contract)
+        
+        if ledger_min is not None:
+            queryset = queryset.filter(ledger_sequence__gte=ledger_min)
+        
+        if ledger_max is not None:
+            queryset = queryset.filter(ledger_sequence__lte=ledger_max)
+        
+        # Limit results
+        first = max(1, min(first, 100))
+        snapshots = queryset.order_by("-ledger_sequence")[:first]
+        
+        return [
+            ContractStateType(
+                contract_id=snapshot.contract.contract_id,
+                ledger_sequence=snapshot.ledger_sequence,
+                state_data=snapshot.state_data,
+                captured_at=snapshot.captured_at,
+                is_truncated=snapshot.is_truncated,
+                is_compressed=snapshot.is_compressed,
+            )
+            for snapshot in snapshots
         ]
 
 

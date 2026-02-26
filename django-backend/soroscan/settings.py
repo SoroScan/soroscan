@@ -238,6 +238,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "soroscan.ingest.tasks.cleanup_silk_data",
         "schedule": 604800,  # weekly
     },
+    "capture-contract-snapshots": {
+        "task": "soroscan.ingest.tasks.capture_contract_snapshots",
+        "schedule": 300,  # every 5 minutes
+        "kwargs": {"snapshot_interval": 1000},
+    },
 }
 
 # Stellar / Soroban Configuration
@@ -248,6 +253,11 @@ STELLAR_NETWORK_PASSPHRASE = env(
 )
 SOROSCAN_CONTRACT_ID = env("SOROSCAN_CONTRACT_ID", default="")
 INDEXER_SECRET_KEY = env("INDEXER_SECRET_KEY", default="")
+
+# Contract State Snapshots Configuration
+SNAPSHOT_INTERVAL = env.int("SNAPSHOT_INTERVAL", default=1000)
+SNAPSHOT_MAX_SIZE_BYTES = env.int("SNAPSHOT_MAX_SIZE_BYTES", default=1048576)  # 1 MB
+SNAPSHOT_COMPRESSION_ENABLED = env.bool("SNAPSHOT_COMPRESSION_ENABLED", default=True)
 
 # Prometheus
 # Expose the /metrics endpoint without authentication.

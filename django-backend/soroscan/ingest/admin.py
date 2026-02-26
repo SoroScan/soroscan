@@ -16,8 +16,10 @@ from .models import (
     ContractABI,
     ContractEvent,
     ContractQuota,
+    ContractSnapshot,
     EventSchema,
     IndexerState,
+    StateChange,
     TrackedContract,
     WebhookDeliveryLog,
     WebhookSubscription,
@@ -575,3 +577,124 @@ class AlertExecutionAdmin(admin.ModelAdmin):
         color = "#28a745" if obj.status == "sent" else "#dc3545"
         return format_html('<span style="color:{};font-weight:bold">{}</span>', color, obj.status)
 
+
+
+# ---------------------------------------------------------------------------
+# Contract State Snapshots — ContractSnapshot and StateChange admin
+# ---------------------------------------------------------------------------
+
+@admin.register(ContractSnapshot)
+class ContractSnapshotAdmin(admin.ModelAdmin):
+    """Admin interface for contract state snapshots."""
+    
+    list_display = [
+        "contract_name",
+        "ledger_sequence",
+        "captured_at",
+        "is_truncated_display",
+        "is_compressed_display",
+    ]
+    list_filter = ["is_truncated", "is_compressed", "captured_at"]
+    search_fields = ["contract__contract_id", "contract__name"]
+    readonly_fields = ["captured_at"]
+    ordering = ["-ledger_sequence"]
+    date_hierarchy = "captured_at"
+
+    def get_queryset(self, request):
+        """Optimize queries with select_related to prevent N+1 issues."""
+        queryset = super().get_queryset(request)
+        return queryset.select_related("contract")
+
+    @admin.display(description="Contract")
+    def contract_name(self, obj):
+        """Display contract name."""
+        return obj.contract.name
+
+    @admin.display(description="Truncated", boolean=True)
+    def is_truncated_display(self, obj):
+        """Display truncated status as boolean."""
+        return obj.is_truncated
+
+    @admin.display(description="Compressed", boolean=True)
+    def is_compressed_display(self, obj):
+        """Display compressed status as boolean."""
+        return obj.is_compressed
+
+
+class StateChangeInline(admin.TabularInline):
+    """Inline display of state changes for a snapshot."""
+    
+    model = None  # Will be set dynamically
+    extra = 0
+    readonly_fields = ["previous_snapshot", "field_name", "old_value", "new_value", "created_at"]
+    can_delete = False
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from .models import StateChange
+        self.model = StateChange
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+# Add inline to ContractSnapshotAdmin
+ContractSnapshotAdmin.inlines = [StateChangeInline]
+
+
+@admin.register(StateChange)
+class StateChangeAdmin(admin.ModelAdmin):
+    """Admin interface for state changes between snapshots."""
+    
+    list_display = [
+        "snapshot_info",
+        "field_name",
+        "change_type",
+        "created_at",
+    ]
+    list_filter = ["field_name", "created_at"]
+    search_fields = ["field_name", "snapshot__contract__name"]
+    readonly_fields = ["created_at"]
+    ordering = ["-created_at"]
+    date_hierarchy = "created_at"
+
+    def get_queryset(self, request):
+        """Optimize queries with select_related to prevent N+1 issues."""
+        queryset = super().get_queryset(request)
+        return queryset.select_related("snapshot__contract", "previous_snapshot")
+
+    @admin.display(description="Snapshot")
+    def snapshot_info(self, obj):
+        """Display snapshot contract and ledger."""
+        return f"{obj.snapshot.contract.name} @ ledger {obj.snapshot.ledger_sequence}"
+
+    @admin.display(description="Change Type")
+    def change_type(self, obj):
+        """Display change type with color coding."""
+        if obj.old_value is None:
+            # Addition
+            return format_html(
+                '<span style="color: #28a745; font-weight: bold;">+ Added</span>'
+            )
+        elif obj.new_value is None:
+            # Deletion
+            return format_html(
+                '<span style="color: #dc3545; font-weight: bold;">- Deleted</span>'
+            )
+        else:
+            # Modification
+            return format_html(
+                '<span style="color: #ffc107; font-weight: bold;">~ Modified</span>'
+            )
+
+    def has_add_permission(self, request):
+        """Disable creating state changes via admin - they are computed automatically."""
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        """Disable editing of state changes - read-only interface."""
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        """Prevent deletion of state changes."""
+        return False

@@ -498,3 +498,110 @@ class AlertExecution(models.Model):
 
     def __str__(self):
         return f"Alert {self.rule.name}: {self.status} @ {self.created_at}"
+
+
+# ---------------------------------------------------------------------------
+# Contract State Snapshots: Capture and track contract state over time
+# ---------------------------------------------------------------------------
+
+class ContractSnapshot(models.Model):
+    """
+    Captures the complete state of a contract at a specific ledger.
+    
+    Snapshots are captured periodically (default: every 1000 ledgers) to enable
+    historical state queries and state change analysis.
+    """
+
+    contract = models.ForeignKey(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name="snapshots",
+        help_text="Contract this snapshot belongs to",
+    )
+    ledger_sequence = models.PositiveBigIntegerField(
+        db_index=True,
+        help_text="Ledger sequence at which this snapshot was captured",
+    )
+    state_data = models.JSONField(
+        help_text="Complete contract state as JSON",
+    )
+    captured_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="Timestamp when snapshot was captured",
+    )
+    is_truncated = models.BooleanField(
+        default=False,
+        help_text="True if state_data was truncated due to size constraints (1 MB limit)",
+    )
+    is_compressed = models.BooleanField(
+        default=False,
+        help_text="True if state_data is compressed",
+    )
+
+    class Meta:
+        ordering = ["-ledger_sequence"]
+        indexes = [
+            models.Index(fields=["contract", "-ledger_sequence"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["contract", "ledger_sequence"],
+                name="unique_contract_ledger_snapshot",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.contract.name} @ ledger {self.ledger_sequence}"
+
+
+class StateChange(models.Model):
+    """
+    Records a single field change between two consecutive snapshots.
+    
+    Tracks additions (old_value=null), deletions (new_value=null), and
+    modifications (both values present) at all nesting levels using
+    dot-notation field paths.
+    """
+
+    snapshot = models.ForeignKey(
+        ContractSnapshot,
+        on_delete=models.CASCADE,
+        related_name="changes",
+        help_text="Snapshot where this change was detected",
+    )
+    previous_snapshot = models.ForeignKey(
+        ContractSnapshot,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="next_changes",
+        help_text="Previous snapshot for comparison",
+    )
+    field_name = models.CharField(
+        max_length=255,
+        db_index=True,
+        help_text="Dot-notation path to the changed field (e.g., 'config.fee_rate')",
+    )
+    old_value = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Previous value (null for field additions)",
+    )
+    new_value = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="New value (null for field deletions)",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="Timestamp when change was recorded",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["snapshot", "field_name"]),
+        ]
+
+    def __str__(self):
+        return f"{self.field_name} changed @ {self.snapshot}"

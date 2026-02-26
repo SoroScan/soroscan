@@ -7,6 +7,8 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     APIKeyViewSet,
     ContractEventViewSet,
+    ContractSnapshotViewSet,
+    StateChangeViewSet,
     TrackedContractViewSet,
     contract_event_explorer_view,
     WebhookSubscriptionViewSet,
@@ -27,6 +29,26 @@ urlpatterns = [
         "contracts/<str:contract_id>/events/explorer/",
         contract_event_explorer_view,
         name="contract-event-explorer",
+    ),
+    path(
+        "contracts/<str:contract_id>/snapshots/",
+        ContractSnapshotViewSet.as_view({"get": "list"}),
+        name="contract-snapshots",
+    ),
+    path(
+        "contracts/<str:contract_id>/snapshots/<int:pk>/",
+        ContractSnapshotViewSet.as_view({"get": "retrieve"}),
+        name="contract-snapshot-detail",
+    ),
+    path(
+        "contracts/<str:contract_id>/state-changes/",
+        StateChangeViewSet.as_view({"get": "list"}),
+        name="contract-state-changes",
+    ),
+    path(
+        "contracts/<str:contract_id>/state-changes/<int:pk>/",
+        StateChangeViewSet.as_view({"get": "retrieve"}),
+        name="contract-state-change-detail",
     ),
     path("", include(router.urls)),
     path("record/", record_event_view, name="record-event"),

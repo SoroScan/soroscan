@@ -497,3 +497,158 @@ def contract_event_explorer_view(request, contract_id: str):
     contract = get_object_or_404(TrackedContract, contract_id=contract_id)
     frontend_base = _frontend_base_url()
     return redirect(f"{frontend_base}/contracts/{contract.contract_id}/events/explorer")
+
+
+
+class ContractSnapshotViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for querying contract state snapshots.
+
+    Endpoints:
+    - GET /api/contracts/{contract_id}/snapshots/ - List snapshots for a contract
+    - GET /api/contracts/{contract_id}/snapshots/{id}/ - Get snapshot details
+    """
+
+    serializer_class = None  # Will be set in __init__
+    filter_backends = [DjangoFilterBackend, OrderingFilter]
+    ordering_fields = ["ledger_sequence", "captured_at"]
+    ordering = ["-ledger_sequence"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Import here to avoid circular dependency
+        from .models import ContractSnapshot
+        from .serializers import ContractSnapshotSerializer
+        
+        self.queryset = ContractSnapshot.objects.all()
+        self.serializer_class = ContractSnapshotSerializer
+
+    def get_queryset(self):
+        """Filter snapshots by contract_id from URL."""
+        from .models import ContractSnapshot
+        
+        queryset = ContractSnapshot.objects.select_related("contract").all()
+        
+        # Filter by contract_id if provided in URL kwargs
+        contract_id = self.kwargs.get("contract_id")
+        if contract_id:
+            queryset = queryset.filter(contract__contract_id=contract_id)
+        
+        # Filter by ledger range if provided in query params
+        ledger_min = self.request.query_params.get("ledger_min")
+        if ledger_min:
+            try:
+                queryset = queryset.filter(ledger_sequence__gte=int(ledger_min))
+            except (ValueError, TypeError):
+                pass
+        
+        ledger_max = self.request.query_params.get("ledger_max")
+        if ledger_max:
+            try:
+                queryset = queryset.filter(ledger_sequence__lte=int(ledger_max))
+            except (ValueError, TypeError):
+                pass
+        
+        return queryset
+
+    def list(self, request, *args, **kwargs):
+        """List snapshots with pagination."""
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        # Check if contract exists
+        contract_id = self.kwargs.get("contract_id")
+        if contract_id:
+            if not TrackedContract.objects.filter(contract_id=contract_id).exists():
+                return Response(
+                    {"detail": "Contract not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+        
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+
+class StateChangeViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for querying state changes between snapshots.
+
+    Endpoints:
+    - GET /api/contracts/{contract_id}/state-changes/ - List state changes for a contract
+    - GET /api/contracts/{contract_id}/state-changes/{id}/ - Get state change details
+    """
+
+    serializer_class = None  # Will be set in __init__
+    filter_backends = [DjangoFilterBackend, OrderingFilter]
+    ordering_fields = ["created_at", "snapshot__ledger_sequence"]
+    ordering = ["-snapshot__ledger_sequence"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Import here to avoid circular dependency
+        from .models import StateChange
+        from .serializers import StateChangeSerializer
+        
+        self.queryset = StateChange.objects.all()
+        self.serializer_class = StateChangeSerializer
+
+    def get_queryset(self):
+        """Filter state changes by contract_id from URL."""
+        from .models import StateChange
+        
+        queryset = StateChange.objects.select_related(
+            "snapshot__contract",
+            "previous_snapshot",
+        ).all()
+        
+        # Filter by contract_id if provided in URL kwargs
+        contract_id = self.kwargs.get("contract_id")
+        if contract_id:
+            queryset = queryset.filter(snapshot__contract__contract_id=contract_id)
+        
+        # Filter by ledger range if provided in query params
+        ledger_min = self.request.query_params.get("ledger_min")
+        if ledger_min:
+            try:
+                queryset = queryset.filter(snapshot__ledger_sequence__gte=int(ledger_min))
+            except (ValueError, TypeError):
+                pass
+        
+        ledger_max = self.request.query_params.get("ledger_max")
+        if ledger_max:
+            try:
+                queryset = queryset.filter(snapshot__ledger_sequence__lte=int(ledger_max))
+            except (ValueError, TypeError):
+                pass
+        
+        # Filter by field_name if provided
+        field_name = self.request.query_params.get("field_name")
+        if field_name:
+            queryset = queryset.filter(field_name=field_name)
+        
+        return queryset
+
+    def list(self, request, *args, **kwargs):
+        """List state changes with pagination."""
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        # Check if contract exists
+        contract_id = self.kwargs.get("contract_id")
+        if contract_id:
+            if not TrackedContract.objects.filter(contract_id=contract_id).exists():
+                return Response(
+                    {"detail": "Contract not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+        
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)

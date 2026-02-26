@@ -180,3 +180,71 @@ class EventSearchSerializer(serializers.ModelSerializer):
     def get_relevance_score(self, obj) -> float:
         # Placeholder — set to 1.0 until full-text ranking is implemented.
         return 1.0
+
+
+class ContractSnapshotSerializer(serializers.ModelSerializer):
+    """
+    Serializer for ContractSnapshot model.
+    Provides read-only details of a contract state snapshot at a specific ledger.
+    """
+
+    contract_id = serializers.CharField(source="contract.contract_id", read_only=True)
+    contract_name = serializers.CharField(source="contract.name", read_only=True)
+
+    class Meta:
+        model = None  # Will be set dynamically
+        fields = [
+            "id",
+            "contract",
+            "contract_id",
+            "contract_name",
+            "ledger_sequence",
+            "state_data",
+            "captured_at",
+            "is_truncated",
+            "is_compressed",
+        ]
+        read_only_fields = fields
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Import here to avoid circular dependency
+        from .models import ContractSnapshot
+        self.Meta.model = ContractSnapshot
+
+
+class StateChangeSerializer(serializers.ModelSerializer):
+    """
+    Serializer for StateChange model.
+    Provides read-only details of a field change between two snapshots.
+    """
+
+    snapshot_ledger = serializers.IntegerField(source="snapshot.ledger_sequence", read_only=True)
+    previous_snapshot_ledger = serializers.IntegerField(
+        source="previous_snapshot.ledger_sequence",
+        read_only=True,
+        allow_null=True,
+    )
+    contract_id = serializers.CharField(source="snapshot.contract.contract_id", read_only=True)
+
+    class Meta:
+        model = None  # Will be set dynamically
+        fields = [
+            "id",
+            "snapshot",
+            "snapshot_ledger",
+            "previous_snapshot",
+            "previous_snapshot_ledger",
+            "contract_id",
+            "field_name",
+            "old_value",
+            "new_value",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Import here to avoid circular dependency
+        from .models import StateChange
+        self.Meta.model = StateChange

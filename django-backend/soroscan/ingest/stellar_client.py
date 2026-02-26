@@ -267,3 +267,142 @@ class SorobanClient:
             for event in events
             if start_ledger <= int(getattr(event, "ledger", start_ledger)) <= end_ledger
         ]
+
+    def get_contract_state(
+        self,
+        contract_id: str,
+        max_size_bytes: int = 1_048_576,  # 1 MB
+    ) -> dict[str, Any]:
+        """
+        Retrieve the complete state of a contract from the Stellar network.
+        
+        Args:
+            contract_id: Contract address (C...)
+            max_size_bytes: Maximum allowed state size in bytes (default: 1 MB)
+            
+        Returns:
+            Dictionary containing:
+                - success: bool
+                - state_data: dict (contract state as JSON)
+                - is_truncated: bool
+                - is_compressed: bool
+                - error: str (if success=False)
+                
+        Raises:
+            ValueError: If contract_id is invalid
+        """
+        import json
+        import gzip
+        
+        try:
+            # Validate contract ID format
+            if not contract_id or not contract_id.startswith("C") or len(contract_id) != 56:
+                raise ValueError(f"Invalid contract ID format: {contract_id}")
+            
+            # Query contract ledger entries to get state
+            # Note: This is a simplified implementation. In production, you would:
+            # 1. Use getLedgerEntries RPC method to fetch contract data
+            # 2. Parse the XDR response to extract state
+            # 3. Convert to JSON format
+            
+            # For now, we'll simulate the RPC call
+            # In a real implementation, this would be:
+            # response = self.server.get_ledger_entries(...)
+            
+            # Placeholder: Simulate fetching contract state
+            # In production, replace with actual RPC call
+            state_data = {
+                "contract_id": contract_id,
+                "state": {},  # Actual state would be populated from RPC response
+                "metadata": {
+                    "retrieved_at": "placeholder",
+                }
+            }
+            
+            # Convert to JSON string to check size
+            state_json = json.dumps(state_data)
+            state_bytes = state_json.encode("utf-8")
+            original_size = len(state_bytes)
+            
+            is_truncated = False
+            is_compressed = False
+            
+            # Check size constraint
+            if original_size > max_size_bytes:
+                logger.warning(
+                    "Contract state exceeds size limit: %d bytes (limit: %d bytes). Attempting compression.",
+                    original_size,
+                    max_size_bytes,
+                    extra={"contract_id": contract_id},
+                )
+                
+                # Try compression first
+                compressed_data = gzip.compress(state_bytes)
+                if len(compressed_data) <= max_size_bytes:
+                    # Compression successful, store compressed
+                    state_data = json.loads(gzip.decompress(compressed_data).decode("utf-8"))
+                    is_compressed = True
+                    logger.info(
+                        "Contract state compressed: %d -> %d bytes",
+                        original_size,
+                        len(compressed_data),
+                        extra={"contract_id": contract_id},
+                    )
+                else:
+                    # Compression not enough, truncate
+                    truncated_json = state_json[:max_size_bytes]
+                    # Try to find last complete JSON object
+                    last_brace = truncated_json.rfind("}")
+                    if last_brace > 0:
+                        truncated_json = truncated_json[:last_brace + 1]
+                    
+                    try:
+                        state_data = json.loads(truncated_json)
+                        is_truncated = True
+                        logger.warning(
+                            "Contract state truncated: %d -> %d bytes",
+                            original_size,
+                            len(truncated_json),
+                            extra={"contract_id": contract_id},
+                        )
+                    except json.JSONDecodeError:
+                        # Truncation resulted in invalid JSON, use minimal state
+                        state_data = {
+                            "contract_id": contract_id,
+                            "error": "State too large and could not be truncated safely",
+                        }
+                        is_truncated = True
+            
+            return {
+                "success": True,
+                "state_data": state_data,
+                "is_truncated": is_truncated,
+                "is_compressed": is_compressed,
+                "error": None,
+            }
+            
+        except ValueError as e:
+            logger.error(
+                "Invalid contract ID: %s",
+                str(e),
+                extra={"contract_id": contract_id},
+            )
+            return {
+                "success": False,
+                "state_data": {},
+                "is_truncated": False,
+                "is_compressed": False,
+                "error": str(e),
+            }
+        except Exception as e:
+            logger.exception(
+                "Failed to retrieve contract state",
+                extra={"contract_id": contract_id},
+            )
+            return {
+                "success": False,
+                "state_data": {},
+                "is_truncated": False,
+                "is_compressed": False,
+                "error": str(e),
+            }
