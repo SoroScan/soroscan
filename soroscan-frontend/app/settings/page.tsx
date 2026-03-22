@@ -1,22 +1,39 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import ThemeSelector from "./components/ThemeSelector";
 import NotificationPrefs from "./components/NotificationPrefs";
 import APIKeyManager from "./components/APIKeyManager";
 
 export default function SettingsPage() {
-  const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [fontSize, setFontSize] = useState("sm");
+  const [rowsPerPage, setRowsPerPage] = useState<number>(() => {
+    if (typeof window === "undefined") return 10;
+    const display = localStorage.getItem("displaySettings");
+    if (display) {
+      const { rowsPerPage } = JSON.parse(display);
+      return rowsPerPage;
+    }
+    return 10;
+  });
+  const [fontSize, setFontSize] = useState<number>(() => {
+    if (typeof window === "undefined") return 14;
+    const display = localStorage.getItem("displaySettings");
+    if (display) {
+      const { fontSize } = JSON.parse(display);
+      return fontSize;
+    }
+    return 14;
+  });
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => {
-    const display = localStorage.getItem("displayPrefs");
-    if (display) {
-      const { rowsPerPage, fontSize } = JSON.parse(display);
-      setRowsPerPage(rowsPerPage);
-      setFontSize(fontSize);
-    }
-  }, []);
+  // Commented out useEffect to avoid localStorage dependency
+  // useEffect(() => {
+  //   const display = localStorage.getItem("displayPrefs");
+  //   if (display) {
+  //     const { rowsPerPage, fontSize } = JSON.parse(display);
+  //     setRowsPerPage(rowsPerPage);
+  //     setFontSize(fontSize);
+  //   }
+  // }, []);
 
   const handleSaveDisplay = () => {
     localStorage.setItem("displayPrefs", JSON.stringify({ rowsPerPage, fontSize }));
