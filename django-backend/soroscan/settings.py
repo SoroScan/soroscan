@@ -238,6 +238,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "soroscan.ingest.tasks.cleanup_silk_data",
         "schedule": 604800,  # weekly
     },
+    "archive-old-events": {
+        "task": "soroscan.ingest.tasks.archive_old_events",
+        "schedule": 86400,  # daily
+    },
 }
 
 # Stellar / Soroban Configuration
@@ -334,6 +338,15 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@soroscan.io")
 
 # Alert settings
 SLACK_ALERT_TIMEOUT_SECONDS = env.int("SLACK_ALERT_TIMEOUT_SECONDS", default=10)
+
+# ---------------------------------------------------------------------------
+# S3 / Archive storage configuration
+# ---------------------------------------------------------------------------
+AWS_ACCESS_KEY_ID = env("AWS_ACCESS_KEY_ID", default="")
+AWS_SECRET_ACCESS_KEY = env("AWS_SECRET_ACCESS_KEY", default="")
+AWS_S3_REGION_NAME = env("AWS_S3_REGION_NAME", default="us-east-1")
+# Set AWS_S3_ENDPOINT_URL for S3-compatible stores (MinIO, Localstack, etc.)
+AWS_S3_ENDPOINT_URL = env("AWS_S3_ENDPOINT_URL", default="")
 
 # Sentry (optional): init only when SENTRY_DSN is set. Celery task failures reported via CeleryIntegration.
 SENTRY_DSN = env("SENTRY_DSN", default="")

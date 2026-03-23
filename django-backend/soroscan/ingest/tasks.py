@@ -992,6 +992,174 @@ def evaluate_alert_rules(event_id: int) -> int:
 # Issue: Performance monitoring — Silk cleanup Celery task
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Data Retention — archive_old_events periodic task
+# ---------------------------------------------------------------------------
+
+_MAX_BATCH_BYTES = 100 * 1024 * 1024  # 100 MB compressed limit per S3 object
+
+
+def _upload_to_s3(bucket: str, key: str, data: bytes) -> int:
+    """Upload *data* to S3 and return the byte size uploaded."""
+    import boto3  # noqa: PLC0415
+
+    s3 = boto3.client(
+        "s3",
+        region_name=getattr(settings, "AWS_S3_REGION_NAME", None),
+        endpoint_url=getattr(settings, "AWS_S3_ENDPOINT_URL", None),
+        aws_access_key_id=getattr(settings, "AWS_ACCESS_KEY_ID", None),
+        aws_secret_access_key=getattr(settings, "AWS_SECRET_ACCESS_KEY", None),
+    )
+    s3.put_object(Bucket=bucket, Key=key, Body=data, ContentEncoding="gzip", ContentType="application/json")
+    return len(data)
+
+
+def _export_batch_to_s3(
+    events_qs,
+    policy,
+    batch_index: int,
+) -> "ArchivedEventBatch | None":
+    """
+    Serialize up to 10 000 events from *events_qs* into a gzip-compressed
+    JSON batch, upload to S3, and return an ArchivedEventBatch record.
+
+    Returns None if the queryset is empty.
+    """
+    import gzip  # noqa: PLC0415
+    from .models import ArchivedEventBatch, ArchivalAuditLog  # noqa: PLC0415
+
+    rows = list(
+        events_qs.values(
+            "id", "contract__contract_id", "event_type", "payload",
+            "payload_hash", "ledger", "event_index", "timestamp", "tx_hash",
+        )
+    )
+    if not rows:
+        return None
+
+    # Serialize timestamps to ISO strings for JSON compatibility
+    for row in rows:
+        ts = row.get("timestamp")
+        if ts is not None:
+            row["timestamp"] = ts.isoformat()
+
+    raw_json = json.dumps(rows, default=str).encode("utf-8")
+    compressed = gzip.compress(raw_json)
+
+    if len(compressed) > _MAX_BATCH_BYTES:
+        logger.warning(
+            "Archive batch %d for policy %d exceeds 100 MB (%d bytes) — splitting not yet supported",
+            batch_index,
+            policy.id,
+            len(compressed),
+        )
+
+    contract_slug = (
+        policy.contract.contract_id[:12] if policy.contract else "global"
+    )
+    key = (
+        f"{policy.s3_prefix.rstrip('/')}/{contract_slug}/"
+        f"batch_{policy.id}_{batch_index}_{int(timezone.now().timestamp())}.json.gz"
+    )
+
+    size_bytes = _upload_to_s3(policy.s3_bucket, key, compressed)
+
+    timestamps = [r["timestamp"] for r in rows if r.get("timestamp")]
+    timestamps_sorted = sorted(timestamps)
+
+    from django.utils.dateparse import parse_datetime  # noqa: PLC0415
+
+    batch = ArchivedEventBatch.objects.create(
+        policy=policy,
+        s3_key=key,
+        event_count=len(rows),
+        size_bytes=size_bytes,
+        min_timestamp=parse_datetime(timestamps_sorted[0]) if timestamps_sorted else None,
+        max_timestamp=parse_datetime(timestamps_sorted[-1]) if timestamps_sorted else None,
+    )
+
+    ArchivalAuditLog.objects.create(
+        action=ArchivalAuditLog.ACTION_ARCHIVE,
+        batch=batch,
+        policy=policy,
+        event_count=len(rows),
+        detail=f"Uploaded to s3://{policy.s3_bucket}/{key}",
+    )
+
+    return batch
+
+
+@shared_task
+def archive_old_events() -> dict:
+    """
+    Periodic task: for each active DataRetentionPolicy, archive events older
+    than retention_days to S3 (gzip-compressed JSON) then delete them from PG.
+
+    Runs daily via Celery Beat.
+    """
+    from .models import DataRetentionPolicy, ArchivalAuditLog  # noqa: PLC0415
+
+    _start = time.monotonic()
+    total_archived = 0
+    total_deleted = 0
+    errors = []
+
+    policies = DataRetentionPolicy.objects.filter(archive_enabled=True).select_related("contract")
+
+    for policy in policies:
+        try:
+            cutoff = timezone.now() - timedelta(days=policy.retention_days)
+            base_qs = ContractEvent.objects.filter(timestamp__lt=cutoff)
+            if policy.contract:
+                base_qs = base_qs.filter(contract=policy.contract)
+
+            batch_index = 0
+            while True:
+                batch_qs = base_qs.order_by("timestamp")[:10000]
+                batch = _export_batch_to_s3(batch_qs, policy, batch_index)
+                if batch is None:
+                    break
+
+                # Delete only the IDs we just archived
+                archived_ids = list(
+                    base_qs.order_by("timestamp").values_list("id", flat=True)[:10000]
+                )
+                deleted_count, _ = ContractEvent.objects.filter(id__in=archived_ids).delete()
+                total_archived += batch.event_count
+                total_deleted += deleted_count
+                batch_index += 1
+
+                logger.info(
+                    "Archived batch %d for policy %d: %d events → s3://%s/%s",
+                    batch_index,
+                    policy.id,
+                    batch.event_count,
+                    policy.s3_bucket,
+                    batch.s3_key,
+                )
+
+        except Exception as exc:
+            err_msg = f"Policy {policy.id}: {exc}"
+            errors.append(err_msg)
+            logger.exception("archive_old_events failed for policy %d", policy.id)
+            ArchivalAuditLog.objects.create(
+                action=ArchivalAuditLog.ACTION_ARCHIVE,
+                policy=policy,
+                event_count=0,
+                detail=f"ERROR: {str(exc)[:500]}",
+            )
+
+    elapsed = time.monotonic() - _start
+    logger.info(
+        "archive_old_events complete: archived=%d deleted=%d errors=%d elapsed=%.2fs",
+        total_archived,
+        total_deleted,
+        len(errors),
+        elapsed,
+    )
+    return {"archived": total_archived, "deleted": total_deleted, "errors": errors}
+
+
 @shared_task
 def cleanup_silk_data() -> int:
     """

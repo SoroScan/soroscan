@@ -24,7 +24,7 @@ import requests as http_requests
 
 from soroscan.throttles import IngestRateThrottle
 
-from .models import APIKey, ContractEvent, ContractInvocation, TrackedContract, WebhookSubscription
+from .models import APIKey, ContractEvent, ContractInvocation, TrackedContract, WebhookSubscription, ArchivedEventBatch
 from .serializers import (
     APIKeySerializer,
     ContractEventSerializer,
@@ -561,3 +561,114 @@ def contract_event_explorer_view(request, contract_id: str):
     contract = get_object_or_404(TrackedContract, contract_id=contract_id)
     frontend_base = _frontend_base_url()
     return redirect(f"{frontend_base}/contracts/{contract.contract_id}/events/explorer")
+
+
+@extend_schema(
+    parameters=[
+        inline_serializer(
+            name="RestoreArchiveParams",
+            fields={"batch_id": serializers.IntegerField()},
+        )
+    ],
+    responses={
+        200: inline_serializer(
+            name="RestoreArchiveResponse",
+            fields={
+                "status": serializers.CharField(),
+                "restored_count": serializers.IntegerField(),
+                "batch_id": serializers.IntegerField(),
+            },
+        ),
+        404: inline_serializer(
+            name="RestoreNotFound",
+            fields={"detail": serializers.CharField()},
+        ),
+        429: inline_serializer(
+            name="RestoreRateLimited",
+            fields={"detail": serializers.CharField()},
+        ),
+    },
+)
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([UserRateThrottle])
+def restore_archived_events(request):
+    """
+    Retrieve an archived event batch from S3 and re-import events into PostgreSQL.
+
+    Query params:
+    - batch_id: ID of the ArchivedEventBatch to restore
+    """
+    batch_id = request.query_params.get("batch_id") or request.data.get("batch_id")
+    if not batch_id:
+        return Response({"detail": "batch_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    batch = get_object_or_404(ArchivedEventBatch, id=batch_id)
+
+    if batch.status == ArchivedEventBatch.STATUS_RESTORED:
+        return Response(
+            {"detail": "Batch already restored.", "batch_id": batch.id},
+            status=status.HTTP_200_OK,
+        )
+
+    try:
+        import boto3  # noqa: PLC0415
+        import gzip  # noqa: PLC0415
+
+        s3 = boto3.client(
+            "s3",
+            region_name=getattr(settings, "AWS_S3_REGION_NAME", None),
+            endpoint_url=getattr(settings, "AWS_S3_ENDPOINT_URL", None),
+            aws_access_key_id=getattr(settings, "AWS_ACCESS_KEY_ID", None),
+            aws_secret_access_key=getattr(settings, "AWS_SECRET_ACCESS_KEY", None),
+        )
+        policy = batch.policy
+        obj = s3.get_object(Bucket=policy.s3_bucket, Key=batch.s3_key)
+        compressed = obj["Body"].read()
+        raw_json = gzip.decompress(compressed)
+        rows = json.loads(raw_json)
+
+    except Exception as exc:
+        logger.exception("Failed to download archive batch %s from S3", batch_id)
+        return Response(
+            {"detail": f"S3 retrieval failed: {str(exc)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    restored_count = 0
+    for row in rows:
+        try:
+            contract = TrackedContract.objects.get(contract_id=row["contract__contract_id"])
+            ContractEvent.objects.get_or_create(
+                contract=contract,
+                ledger=row["ledger"],
+                event_index=row["event_index"],
+                defaults={
+                    "event_type": row["event_type"],
+                    "payload": row["payload"],
+                    "payload_hash": row.get("payload_hash", ""),
+                    "timestamp": row["timestamp"],
+                    "tx_hash": row.get("tx_hash", ""),
+                },
+            )
+            restored_count += 1
+        except Exception:
+            logger.warning("Skipped row during restore: %s", row.get("id"), exc_info=True)
+
+    batch.status = ArchivedEventBatch.STATUS_RESTORED
+    batch.save(update_fields=["status"])
+
+    from .models import ArchivalAuditLog  # noqa: PLC0415
+    ArchivalAuditLog.objects.create(
+        action=ArchivalAuditLog.ACTION_RESTORE,
+        batch=batch,
+        policy=batch.policy,
+        event_count=restored_count,
+        detail=f"Restored by user {request.user.id}",
+        performed_by=request.user,
+    )
+
+    return Response(
+        {"status": "restored", "restored_count": restored_count, "batch_id": batch.id},
+        status=status.HTTP_200_OK,
+    )

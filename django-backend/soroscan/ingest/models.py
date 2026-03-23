@@ -569,3 +569,157 @@ class AlertExecution(models.Model):
 
     def __str__(self):
         return f"Alert {self.rule.name}: {self.status} @ {self.created_at}"
+
+
+# ---------------------------------------------------------------------------
+# Data Retention Policies and Automated Archival
+# ---------------------------------------------------------------------------
+
+class DataRetentionPolicy(models.Model):
+    """
+    Configurable retention rule — per-contract or global (contract=None).
+    Events older than retention_days are archived to S3 and deleted from PG.
+    """
+
+    contract = models.OneToOneField(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="retention_policy",
+        help_text="Leave blank for a global default policy",
+    )
+    retention_days = models.PositiveIntegerField(
+        default=365,
+        help_text="Events older than this many days will be archived",
+    )
+    archive_enabled = models.BooleanField(
+        default=True,
+        help_text="When False, events are pruned without archiving to S3",
+    )
+    s3_bucket = models.CharField(
+        max_length=255,
+        help_text="S3 bucket name for archived event batches",
+    )
+    s3_prefix = models.CharField(
+        max_length=255,
+        blank=True,
+        default="soroscan/archives/",
+        help_text="Key prefix inside the S3 bucket",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Data Retention Policy"
+        verbose_name_plural = "Data Retention Policies"
+
+    def __str__(self):
+        scope = self.contract.name if self.contract else "Global"
+        return f"RetentionPolicy({scope}, {self.retention_days}d)"
+
+
+class ArchivedEventBatch(models.Model):
+    """
+    Metadata record for a single S3 archive object (gzip-compressed JSON).
+    The actual event data lives in S3; this record is the manifest.
+    """
+
+    STATUS_ARCHIVED = "archived"
+    STATUS_RESTORED = "restored"
+    STATUS_CHOICES = [
+        (STATUS_ARCHIVED, "Archived"),
+        (STATUS_RESTORED, "Restored"),
+    ]
+
+    policy = models.ForeignKey(
+        DataRetentionPolicy,
+        on_delete=models.CASCADE,
+        related_name="batches",
+    )
+    s3_key = models.CharField(
+        max_length=512,
+        unique=True,
+        help_text="Full S3 object key for this batch",
+    )
+    event_count = models.IntegerField(
+        help_text="Number of events in this batch",
+    )
+    size_bytes = models.BigIntegerField(
+        default=0,
+        help_text="Compressed size of the S3 object in bytes",
+    )
+    min_timestamp = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Earliest event timestamp in this batch",
+    )
+    max_timestamp = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Latest event timestamp in this batch",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=STATUS_CHOICES,
+        default=STATUS_ARCHIVED,
+        db_index=True,
+    )
+    archived_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-archived_at"]
+        indexes = [
+            models.Index(fields=["policy", "archived_at"]),
+            models.Index(fields=["status"]),
+        ]
+
+    def __str__(self):
+        return f"Batch({self.s3_key}, {self.event_count} events)"
+
+
+class ArchivalAuditLog(models.Model):
+    """
+    Immutable audit trail for every archival and restore operation.
+    Records are never deleted automatically.
+    """
+
+    ACTION_ARCHIVE = "archive"
+    ACTION_RESTORE = "restore"
+    ACTION_CHOICES = [
+        (ACTION_ARCHIVE, "Archive"),
+        (ACTION_RESTORE, "Restore"),
+    ]
+
+    action = models.CharField(max_length=16, choices=ACTION_CHOICES, db_index=True)
+    batch = models.ForeignKey(
+        ArchivedEventBatch,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="audit_logs",
+    )
+    policy = models.ForeignKey(
+        DataRetentionPolicy,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="audit_logs",
+    )
+    event_count = models.IntegerField(default=0)
+    detail = models.TextField(blank=True, help_text="Extra context or error message")
+    performed_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="User who triggered a restore (null for automated archival)",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"AuditLog({self.action}, {self.event_count} events, {self.created_at})"

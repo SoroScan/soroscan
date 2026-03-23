@@ -14,6 +14,7 @@ from .views import (
     contract_timeline_view,
     health_check,
     record_event_view,
+    restore_archived_events,
 )
 
 router = DefaultRouter()
@@ -33,4 +34,5 @@ urlpatterns = [
     path("", include(router.urls)),
     path("record/", record_event_view, name="record-event"),
     path("health/", health_check, name="health-check"),
+    path("events/restore-archive/", restore_archived_events, name="restore-archive"),
 ]

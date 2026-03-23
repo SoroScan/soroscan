@@ -13,9 +13,12 @@ from .models import (
     AlertExecution,
     AlertRule,
     APIKey,
+    ArchivalAuditLog,
+    ArchivedEventBatch,
     ContractABI,
     ContractEvent,
     ContractQuota,
+    DataRetentionPolicy,
     EventSchema,
     IndexerState,
     TrackedContract,
@@ -574,4 +577,81 @@ class AlertExecutionAdmin(admin.ModelAdmin):
     def status_colored(self, obj):
         color = "#28a745" if obj.status == "sent" else "#dc3545"
         return format_html('<span style="color:{};font-weight:bold">{}</span>', color, obj.status)
+
+
+# ---------------------------------------------------------------------------
+# Data Retention Policies and Archival
+# ---------------------------------------------------------------------------
+
+class ArchivedEventBatchInline(admin.TabularInline):
+    model = ArchivedEventBatch
+    extra = 0
+    readonly_fields = ["s3_key", "event_count", "size_bytes", "min_timestamp", "max_timestamp", "status", "archived_at"]
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(DataRetentionPolicy)
+class DataRetentionPolicyAdmin(admin.ModelAdmin):
+    list_display = ["scope", "retention_days", "archive_enabled", "s3_bucket", "batch_count", "created_at"]
+    list_filter = ["archive_enabled"]
+    search_fields = ["contract__name", "contract__contract_id", "s3_bucket"]
+    readonly_fields = ["created_at", "updated_at"]
+    inlines = [ArchivedEventBatchInline]
+
+    @admin.display(description="Scope")
+    def scope(self, obj):
+        return obj.contract.name if obj.contract else "Global"
+
+    @admin.display(description="Batches")
+    def batch_count(self, obj):
+        return obj.batches.count()
+
+
+@admin.register(ArchivedEventBatch)
+class ArchivedEventBatchAdmin(admin.ModelAdmin):
+    list_display = ["id", "policy_scope", "event_count", "size_bytes", "status", "archived_at"]
+    list_filter = ["status", "archived_at"]
+    search_fields = ["s3_key", "policy__contract__name"]
+    readonly_fields = ["s3_key", "event_count", "size_bytes", "min_timestamp", "max_timestamp", "status", "archived_at"]
+    ordering = ["-archived_at"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description="Policy Scope")
+    def policy_scope(self, obj):
+        return obj.policy.contract.name if obj.policy.contract else "Global"
+
+
+@admin.register(ArchivalAuditLog)
+class ArchivalAuditLogAdmin(admin.ModelAdmin):
+    list_display = ["id", "action_colored", "event_count", "performed_by", "created_at"]
+    list_filter = ["action", "created_at"]
+    search_fields = ["detail", "performed_by__username"]
+    readonly_fields = ["action", "batch", "policy", "event_count", "detail", "performed_by", "created_at"]
+    ordering = ["-created_at"]
+    date_hierarchy = "created_at"
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description="Action")
+    def action_colored(self, obj):
+        color = "#17a2b8" if obj.action == "archive" else "#28a745"
+        return format_html('<span style="color:{};font-weight:bold">{}</span>', color, obj.action.upper())
 
