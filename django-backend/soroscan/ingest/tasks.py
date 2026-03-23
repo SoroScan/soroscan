@@ -1018,7 +1018,7 @@ def _export_batch_to_s3(
     events_qs,
     policy,
     batch_index: int,
-) -> Optional[Any]:
+) -> Any:
     """
     Serialize up to 10 000 events from *events_qs* into a gzip-compressed
     JSON batch, upload to S3, and return an ArchivedEventBatch record.
