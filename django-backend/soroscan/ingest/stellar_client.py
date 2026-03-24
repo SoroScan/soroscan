@@ -474,3 +474,93 @@ class SorobanClient:
                 error=str(e),
             )
 
+
+
+def extract_transaction_costs(tx_response) -> dict:
+    """
+    Extract Soroban fee and resource usage from a Soroban RPC transaction response.
+
+    The RPC response structure for a completed Soroban transaction looks like:
+
+        tx_response.fee_charged          — total fee in stroops (int or str)
+        tx_response.result_meta_xdr      — XDR-encoded TransactionMeta v3
+
+    When the full sorobanMeta is available via the SDK's parsed objects we read
+    the resource fields directly; otherwise we fall back to safe defaults so
+    that cost records are always created (with zeros for unknown resource fields).
+
+    Returns a dict with keys:
+        total_fee_stroops       (int)
+        cpu_instructions_used   (int)
+        memory_bytes_used       (int)
+        network_bytes_used      (int)
+    """
+    result: dict = {
+        "total_fee_stroops": 0,
+        "cpu_instructions_used": 0,
+        "memory_bytes_used": 0,
+        "network_bytes_used": 0,
+    }
+
+    if tx_response is None:
+        return result
+
+    # --- total fee -----------------------------------------------------------
+    fee_charged = getattr(tx_response, "fee_charged", None)
+    if fee_charged is not None:
+        try:
+            result["total_fee_stroops"] = int(fee_charged)
+        except (TypeError, ValueError):
+            pass
+
+    # --- Soroban resource usage ----------------------------------------------
+    # The Stellar Python SDK exposes parsed soroban metadata on the response
+    # object when available.  We try several attribute paths that different SDK
+    # versions / response shapes may use.
+
+    def _safe_int(val, default: int = 0) -> int:
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return default
+
+    # Path 1: SDK-parsed soroban_meta object (newer SDK versions)
+    soroban_meta = getattr(tx_response, "soroban_meta", None)
+    if soroban_meta is not None:
+        resources = getattr(soroban_meta, "resources", None)
+        if resources is not None:
+            result["cpu_instructions_used"] = _safe_int(
+                getattr(resources, "instructions", None)
+                or getattr(resources, "cpu_instructions", None)
+            )
+            result["memory_bytes_used"] = _safe_int(
+                getattr(resources, "mem_bytes", None)
+                or getattr(resources, "memory_bytes", None)
+            )
+            result["network_bytes_used"] = _safe_int(
+                getattr(resources, "net_bytes", None)
+                or getattr(resources, "network_bytes", None)
+            )
+        return result
+
+    # Path 2: raw dict representation (e.g. from JSON-decoded RPC response)
+    if isinstance(tx_response, dict):
+        try:
+            meta = (
+                tx_response.get("result", {})
+                .get("result", {})
+                .get("txMeta", {})
+                .get("v3", {})
+                .get("sorobanMeta", {})
+            )
+            resources = meta.get("resources", {})
+            result["cpu_instructions_used"] = _safe_int(resources.get("cpuInstructions"))
+            result["memory_bytes_used"] = _safe_int(resources.get("memBytes"))
+            result["network_bytes_used"] = _safe_int(resources.get("netBytes"))
+            fee = tx_response.get("tx", {}).get("fee", {}).get("amount")
+            if fee is not None:
+                result["total_fee_stroops"] = _safe_int(fee)
+        except (AttributeError, TypeError):
+            pass
+
+    return result

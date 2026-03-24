@@ -672,3 +672,376 @@ def restore_archived_events(request):
         {"status": "restored", "restored_count": restored_count, "batch_id": batch.id},
         status=status.HTTP_200_OK,
     )
+
+
+# ---------------------------------------------------------------------------
+# Issue #111: Cost analytics API
+# ---------------------------------------------------------------------------
+
+class CostAnalyticsViewSet(viewsets.ViewSet):
+    """
+    Read-only analytics for transaction costs.
+
+    GET /api/analytics/costs/?contract_id=C...&groupby=function&range=7d
+    GET /api/analytics/costs/trends/?contract_id=C...&range=30d
+    GET /api/analytics/costs/outliers/?contract_id=C...
+    GET /api/analytics/costs/suggestions/?contract_id=C...
+    """
+
+    permission_classes = [AllowAny]
+
+    _RANGE_DAYS = {
+        "1d": 1,
+        "7d": 7,
+        "30d": 30,
+        "90d": 90,
+    }
+
+    def _parse_range(self, range_str: str) -> int:
+        """Return number of days for a range string like '7d'."""
+        return self._RANGE_DAYS.get(range_str, 7)
+
+    @extend_schema(
+        parameters=[
+            inline_serializer(
+                name="CostAnalyticsParams",
+                fields={
+                    "contract_id": serializers.CharField(required=True),
+                    "groupby": serializers.ChoiceField(
+                        choices=["function", "ledger", "hour"],
+                        required=False,
+                    ),
+                    "range": serializers.ChoiceField(
+                        choices=["1d", "7d", "30d", "90d"],
+                        required=False,
+                    ),
+                },
+            )
+        ],
+        responses=inline_serializer(
+            name="CostAnalyticsResponse",
+            fields={
+                "data": serializers.ListField(child=serializers.DictField()),
+            },
+        ),
+    )
+    def list(self, request):
+        """
+        Return aggregated cost breakdown.
+
+        Query params:
+        - contract_id  (required)
+        - groupby      function | ledger | hour  (default: function)
+        - range        1d | 7d | 30d | 90d       (default: 7d)
+        """
+        from django.db.models import Avg, Count, Max, Min, Sum  # noqa: PLC0415
+        from .models import TransactionCost  # noqa: PLC0415
+
+        contract_id = request.query_params.get("contract_id", "").strip()
+        if not contract_id:
+            return Response(
+                {"detail": "contract_id is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        groupby = request.query_params.get("groupby", "function")
+        range_days = self._parse_range(request.query_params.get("range", "7d"))
+        since = timezone.now() - timedelta(days=range_days)
+
+        qs = TransactionCost.objects.filter(
+            contract__contract_id=contract_id,
+            created_at__gte=since,
+        )
+
+        if groupby == "function":
+            rows = (
+                qs.values("function_name")
+                .annotate(
+                    avg_cost=Avg("total_fee_stroops"),
+                    min_cost=Min("total_fee_stroops"),
+                    max_cost=Max("total_fee_stroops"),
+                    total_cost=Sum("total_fee_stroops"),
+                    call_count=Count("id"),
+                )
+                .order_by("-total_cost")
+            )
+            data = [
+                {
+                    "function": r["function_name"] or "(unknown)",
+                    "avgCost": int(r["avg_cost"] or 0),
+                    "minCost": int(r["min_cost"] or 0),
+                    "maxCost": int(r["max_cost"] or 0),
+                    "totalCost": int(r["total_cost"] or 0),
+                    "callCount": r["call_count"],
+                }
+                for r in rows
+            ]
+        elif groupby == "hour":
+            from django.db.models.functions import TruncHour  # noqa: PLC0415
+
+            rows = (
+                qs.annotate(hour=TruncHour("created_at"))
+                .values("hour")
+                .annotate(
+                    avg_cost=Avg("total_fee_stroops"),
+                    total_cost=Sum("total_fee_stroops"),
+                    call_count=Count("id"),
+                )
+                .order_by("hour")
+            )
+            data = [
+                {
+                    "hour": r["hour"].isoformat(),
+                    "avgCost": int(r["avg_cost"] or 0),
+                    "totalCost": int(r["total_cost"] or 0),
+                    "callCount": r["call_count"],
+                }
+                for r in rows
+            ]
+        else:
+            # groupby=ledger
+            rows = (
+                qs.values("ledger_sequence")
+                .annotate(
+                    avg_cost=Avg("total_fee_stroops"),
+                    total_cost=Sum("total_fee_stroops"),
+                    call_count=Count("id"),
+                )
+                .order_by("-ledger_sequence")[:200]
+            )
+            data = [
+                {
+                    "ledger": r["ledger_sequence"],
+                    "avgCost": int(r["avg_cost"] or 0),
+                    "totalCost": int(r["total_cost"] or 0),
+                    "callCount": r["call_count"],
+                }
+                for r in rows
+            ]
+
+        return Response({"data": data})
+
+    @extend_schema(
+        parameters=[
+            inline_serializer(
+                name="CostTrendsParams",
+                fields={
+                    "contract_id": serializers.CharField(required=True),
+                    "range": serializers.ChoiceField(
+                        choices=["7d", "30d", "90d"], required=False
+                    ),
+                },
+            )
+        ],
+        responses=inline_serializer(
+            name="CostTrendsResponse",
+            fields={"trends": serializers.ListField(child=serializers.DictField())},
+        ),
+    )
+    @action(detail=False, methods=["get"])
+    def trends(self, request):
+        """
+        Week-over-week and month-over-month cost trend comparison per function.
+        """
+        from django.db.models import Avg, Count, Sum  # noqa: PLC0415
+        from .models import CostAggregate  # noqa: PLC0415
+
+        contract_id = request.query_params.get("contract_id", "").strip()
+        if not contract_id:
+            return Response(
+                {"detail": "contract_id is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        now = timezone.now()
+        week_ago = now - timedelta(days=7)
+        two_weeks_ago = now - timedelta(days=14)
+        month_ago = now - timedelta(days=30)
+        two_months_ago = now - timedelta(days=60)
+
+        def _agg(since, until):
+            return (
+                CostAggregate.objects.filter(
+                    contract__contract_id=contract_id,
+                    period_start__gte=since,
+                    period_start__lt=until,
+                )
+                .values("function_name")
+                .annotate(
+                    avg_fee=Avg("avg_fee_stroops"),
+                    total_fee=Sum("total_fee_stroops"),
+                    calls=Sum("call_count"),
+                )
+            )
+
+        this_week = {r["function_name"]: r for r in _agg(week_ago, now)}
+        last_week = {r["function_name"]: r for r in _agg(two_weeks_ago, week_ago)}
+        this_month = {r["function_name"]: r for r in _agg(month_ago, now)}
+        last_month = {r["function_name"]: r for r in _agg(two_months_ago, month_ago)}
+
+        all_functions = set(this_week) | set(last_week) | set(this_month) | set(last_month)
+
+        def _pct_change(current, previous):
+            if not previous:
+                return None
+            return round((current - previous) / previous * 100, 2)
+
+        trends = []
+        for fn in sorted(all_functions):
+            tw = this_week.get(fn, {})
+            lw = last_week.get(fn, {})
+            tm = this_month.get(fn, {})
+            lm = last_month.get(fn, {})
+            trends.append(
+                {
+                    "function": fn or "(unknown)",
+                    "thisWeekAvgCost": int(tw.get("avg_fee") or 0),
+                    "lastWeekAvgCost": int(lw.get("avg_fee") or 0),
+                    "weekOverWeekChange": _pct_change(
+                        tw.get("avg_fee") or 0, lw.get("avg_fee") or 0
+                    ),
+                    "thisMonthAvgCost": int(tm.get("avg_fee") or 0),
+                    "lastMonthAvgCost": int(lm.get("avg_fee") or 0),
+                    "monthOverMonthChange": _pct_change(
+                        tm.get("avg_fee") or 0, lm.get("avg_fee") or 0
+                    ),
+                    "thisWeekCalls": int(tw.get("calls") or 0),
+                }
+            )
+
+        return Response({"trends": trends})
+
+    @extend_schema(
+        parameters=[
+            inline_serializer(
+                name="OutliersParams",
+                fields={
+                    "contract_id": serializers.CharField(required=True),
+                    "range": serializers.ChoiceField(
+                        choices=["1d", "7d", "30d", "90d"], required=False
+                    ),
+                },
+            )
+        ],
+        responses=inline_serializer(
+            name="OutliersResponse",
+            fields={"outliers": serializers.ListField(child=serializers.DictField())},
+        ),
+    )
+    @action(detail=False, methods=["get"])
+    def outliers(self, request):
+        """
+        Return transactions flagged as outliers (cost > 2 std deviations from mean).
+        """
+        from .models import TransactionCost  # noqa: PLC0415
+
+        contract_id = request.query_params.get("contract_id", "").strip()
+        if not contract_id:
+            return Response(
+                {"detail": "contract_id is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        range_days = self._parse_range(request.query_params.get("range", "7d"))
+        since = timezone.now() - timedelta(days=range_days)
+
+        qs = (
+            TransactionCost.objects.filter(
+                contract__contract_id=contract_id,
+                is_outlier=True,
+                created_at__gte=since,
+            )
+            .order_by("-total_fee_stroops")[:100]
+        )
+
+        data = [
+            {
+                "txHash": tc.tx_hash,
+                "functionName": tc.function_name or "(unknown)",
+                "ledgerSequence": tc.ledger_sequence,
+                "totalFeeStroops": tc.total_fee_stroops,
+                "cpuInstructionsUsed": tc.cpu_instructions_used,
+                "memoryBytesUsed": tc.memory_bytes_used,
+                "networkBytesUsed": tc.network_bytes_used,
+                "createdAt": tc.created_at.isoformat(),
+            }
+            for tc in qs
+        ]
+        return Response({"outliers": data})
+
+    @extend_schema(
+        parameters=[
+            inline_serializer(
+                name="SuggestionsParams",
+                fields={"contract_id": serializers.CharField(required=True)},
+            )
+        ],
+        responses=inline_serializer(
+            name="SuggestionsResponse",
+            fields={"suggestions": serializers.ListField(child=serializers.DictField())},
+        ),
+    )
+    @action(detail=False, methods=["get"])
+    def suggestions(self, request):
+        """
+        Return optimization suggestions for high-variance or high-cost functions.
+
+        A suggestion is generated when:
+        - A function's stddev > 20% of its mean (high variance)
+        - A function's avg cost is in the top 25% across all functions
+        """
+        from django.db.models import Avg, StdDev  # noqa: PLC0415
+        from .models import TransactionCost  # noqa: PLC0415
+
+        contract_id = request.query_params.get("contract_id", "").strip()
+        if not contract_id:
+            return Response(
+                {"detail": "contract_id is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        stats = (
+            TransactionCost.objects.filter(contract__contract_id=contract_id)
+            .values("function_name")
+            .annotate(avg_fee=Avg("total_fee_stroops"), stddev=StdDev("total_fee_stroops"))
+            .order_by("-avg_fee")
+        )
+
+        if not stats:
+            return Response({"suggestions": []})
+
+        all_avgs = [float(r["avg_fee"] or 0) for r in stats]
+        if not all_avgs:
+            return Response({"suggestions": []})
+
+        top25_threshold = sorted(all_avgs, reverse=True)[max(0, len(all_avgs) // 4 - 1)]
+
+        suggestions = []
+        for row in stats:
+            avg = float(row["avg_fee"] or 0)
+            stddev = float(row["stddev"] or 0)
+            fn = row["function_name"] or "(unknown)"
+            reasons = []
+
+            if avg > 0 and stddev / avg > 0.20:
+                reasons.append(
+                    f"High cost variance (stddev={int(stddev):,} stroops, "
+                    f"{stddev/avg*100:.0f}% of mean) — consider caching or batching."
+                )
+            if avg >= top25_threshold and top25_threshold > 0:
+                reasons.append(
+                    f"Above-average cost ({int(avg):,} stroops avg) — "
+                    "review resource usage and storage reads."
+                )
+
+            if reasons:
+                suggestions.append(
+                    {
+                        "function": fn,
+                        "avgCostStroops": int(avg),
+                        "stddevStroops": int(stddev),
+                        "suggestions": reasons,
+                    }
+                )
+
+        return Response({"suggestions": suggestions})

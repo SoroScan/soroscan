@@ -18,10 +18,12 @@ from .models import (
     ContractABI,
     ContractEvent,
     ContractQuota,
+    CostAggregate,
     DataRetentionPolicy,
     EventSchema,
     IndexerState,
     TrackedContract,
+    TransactionCost,
     WebhookDeliveryLog,
     WebhookSubscription,
 )
@@ -655,3 +657,117 @@ class ArchivalAuditLogAdmin(admin.ModelAdmin):
         color = "#17a2b8" if obj.action == "archive" else "#28a745"
         return format_html('<span style="color:{};font-weight:bold">{}</span>', color, obj.action.upper())
 
+
+
+# ---------------------------------------------------------------------------
+# Issue #111: Transaction cost tracking and analytics
+# ---------------------------------------------------------------------------
+
+@admin.register(TransactionCost)
+class TransactionCostAdmin(admin.ModelAdmin):
+    """
+    Admin view for TransactionCost records.
+    Outlier transactions are highlighted in red.
+    """
+
+    list_display = [
+        "tx_hash_short",
+        "contract_name",
+        "function_name",
+        "ledger_sequence",
+        "total_fee_stroops",
+        "cpu_instructions_used",
+        "memory_bytes_used",
+        "is_outlier_display",
+        "created_at",
+    ]
+    list_filter = ["is_outlier", "function_name", "created_at"]
+    search_fields = ["tx_hash", "contract__name", "contract__contract_id", "function_name"]
+    readonly_fields = [
+        "tx_hash",
+        "contract",
+        "function_name",
+        "ledger_sequence",
+        "total_fee_stroops",
+        "cpu_instructions_used",
+        "memory_bytes_used",
+        "network_bytes_used",
+        "is_outlier",
+        "created_at",
+    ]
+    ordering = ["-created_at"]
+    date_hierarchy = "created_at"
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("contract")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description="Tx Hash")
+    def tx_hash_short(self, obj):
+        return f"{obj.tx_hash[:12]}…"
+
+    @admin.display(description="Contract")
+    def contract_name(self, obj):
+        return obj.contract.name
+
+    @admin.display(description="Outlier", boolean=False)
+    def is_outlier_display(self, obj):
+        if obj.is_outlier:
+            return format_html(
+                '<span style="color:#dc3545;font-weight:bold">⚠ Outlier</span>'
+            )
+        return format_html('<span style="color:#28a745">✓ Normal</span>')
+
+
+@admin.register(CostAggregate)
+class CostAggregateAdmin(admin.ModelAdmin):
+    """
+    Admin view for pre-computed hourly cost aggregates.
+    Read-only — populated by the aggregate_transaction_costs Celery task.
+    """
+
+    list_display = [
+        "contract_name",
+        "function_name",
+        "period_start",
+        "avg_fee_stroops",
+        "min_fee_stroops",
+        "max_fee_stroops",
+        "call_count",
+        "stddev_fee_stroops",
+        "computed_at",
+    ]
+    list_filter = ["function_name", "period_start"]
+    search_fields = ["contract__name", "contract__contract_id", "function_name"]
+    readonly_fields = [
+        "contract",
+        "function_name",
+        "period_start",
+        "avg_fee_stroops",
+        "min_fee_stroops",
+        "max_fee_stroops",
+        "total_fee_stroops",
+        "call_count",
+        "stddev_fee_stroops",
+        "computed_at",
+    ]
+    ordering = ["-period_start"]
+    date_hierarchy = "period_start"
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("contract")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description="Contract")
+    def contract_name(self, obj):
+        return obj.contract.name

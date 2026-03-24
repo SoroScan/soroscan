@@ -1179,3 +1179,166 @@ def cleanup_silk_data() -> int:
         extra={},
     )
     return deleted_count
+
+
+# ---------------------------------------------------------------------------
+# Issue #111: Transaction cost tracking and analytics
+# ---------------------------------------------------------------------------
+
+@shared_task
+def ingest_transaction_cost(tx_hash: str, contract_id: str, function_name: str = "") -> bool:
+    """
+    Fetch a transaction from the Soroban RPC and persist a TransactionCost record.
+
+    Called from the event ingestion pipeline after a new ContractEvent is created.
+    Safe to call multiple times — uses get_or_create on tx_hash.
+    """
+    from .models import TransactionCost  # noqa: PLC0415
+
+    try:
+        contract = TrackedContract.objects.get(contract_id=contract_id)
+    except TrackedContract.DoesNotExist:
+        logger.warning(
+            "ingest_transaction_cost: contract %s not found", contract_id,
+            extra={"contract_id": contract_id},
+        )
+        return False
+
+    # Avoid duplicate work
+    if TransactionCost.objects.filter(tx_hash=tx_hash).exists():
+        return False
+
+    client = SorobanClient()
+    try:
+        tx_response = client.server.get_transaction(tx_hash)
+    except Exception:
+        logger.exception(
+            "ingest_transaction_cost: RPC error fetching tx %s", tx_hash,
+            extra={"contract_id": contract_id},
+        )
+        return False
+
+    from .stellar_client import extract_transaction_costs  # noqa: PLC0415
+
+    cost_data = extract_transaction_costs(tx_response)
+    ledger = getattr(tx_response, "ledger", 0) or 0
+
+    TransactionCost.objects.get_or_create(
+        tx_hash=tx_hash,
+        defaults={
+            "contract": contract,
+            "function_name": function_name or "",
+            "ledger_sequence": int(ledger),
+            "total_fee_stroops": cost_data["total_fee_stroops"],
+            "cpu_instructions_used": cost_data["cpu_instructions_used"],
+            "memory_bytes_used": cost_data["memory_bytes_used"],
+            "network_bytes_used": cost_data["network_bytes_used"],
+        },
+    )
+    logger.info(
+        "Ingested cost for tx=%s contract=%s fee=%d stroops",
+        tx_hash[:12],
+        contract_id[:8],
+        cost_data["total_fee_stroops"],
+        extra={"contract_id": contract_id},
+    )
+    return True
+
+
+@shared_task
+def aggregate_transaction_costs() -> dict:
+    """
+    Hourly task: pre-compute CostAggregate rows for every contract+function
+    combination that has new TransactionCost records since the last run.
+
+    Also flags outliers: transactions whose total_fee_stroops is more than
+    2 standard deviations above the per-function mean are marked is_outlier=True.
+
+    Returns a summary dict with counts of aggregates written and outliers flagged.
+    """
+    from django.db.models import Avg, Count, Max, Min, StdDev, Sum  # noqa: PLC0415
+    from django.db.models.functions import TruncHour  # noqa: PLC0415
+    from .models import TransactionCost, CostAggregate  # noqa: PLC0415
+
+    _start = time.monotonic()
+    aggregates_written = 0
+    outliers_flagged = 0
+
+    # --- 1. Compute hourly aggregates ----------------------------------------
+    rows = (
+        TransactionCost.objects
+        .annotate(hour=TruncHour("created_at"))
+        .values("contract_id", "function_name", "hour")
+        .annotate(
+            avg_fee=Avg("total_fee_stroops"),
+            min_fee=Min("total_fee_stroops"),
+            max_fee=Max("total_fee_stroops"),
+            total_fee=Sum("total_fee_stroops"),
+            cnt=Count("id"),
+            stddev=StdDev("total_fee_stroops"),
+        )
+        .order_by("contract_id", "function_name", "hour")
+    )
+
+    for row in rows:
+        obj, created = CostAggregate.objects.update_or_create(
+            contract_id=row["contract_id"],
+            function_name=row["function_name"],
+            period_start=row["hour"],
+            defaults={
+                "avg_fee_stroops": int(row["avg_fee"] or 0),
+                "min_fee_stroops": int(row["min_fee"] or 0),
+                "max_fee_stroops": int(row["max_fee"] or 0),
+                "total_fee_stroops": int(row["total_fee"] or 0),
+                "call_count": row["cnt"],
+                "stddev_fee_stroops": float(row["stddev"] or 0.0),
+            },
+        )
+        aggregates_written += 1
+
+    # --- 2. Flag outliers per contract+function ------------------------------
+    # For each (contract, function_name) group compute mean+stddev across ALL
+    # time and mark individual records that exceed mean + 2*stddev.
+    groups = (
+        TransactionCost.objects
+        .values("contract_id", "function_name")
+        .annotate(mean=Avg("total_fee_stroops"), stddev=StdDev("total_fee_stroops"))
+    )
+
+    for group in groups:
+        mean = group["mean"] or 0
+        stddev = group["stddev"] or 0
+        threshold = mean + 2 * stddev
+
+        if threshold <= 0:
+            continue
+
+        flagged = TransactionCost.objects.filter(
+            contract_id=group["contract_id"],
+            function_name=group["function_name"],
+            total_fee_stroops__gt=threshold,
+            is_outlier=False,
+        ).update(is_outlier=True)
+        outliers_flagged += flagged
+
+        # Also clear the flag for records that no longer qualify
+        TransactionCost.objects.filter(
+            contract_id=group["contract_id"],
+            function_name=group["function_name"],
+            total_fee_stroops__lte=threshold,
+            is_outlier=True,
+        ).update(is_outlier=False)
+
+    elapsed = time.monotonic() - _start
+    logger.info(
+        "aggregate_transaction_costs: wrote=%d outliers=%d elapsed=%.2fs",
+        aggregates_written,
+        outliers_flagged,
+        elapsed,
+        extra={},
+    )
+    _get_metrics().task_duration_seconds.labels(
+        task_name="aggregate_transaction_costs"
+    ).observe(elapsed)
+
+    return {"aggregates_written": aggregates_written, "outliers_flagged": outliers_flagged}

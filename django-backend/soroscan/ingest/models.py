@@ -723,3 +723,114 @@ class ArchivalAuditLog(models.Model):
 
     def __str__(self):
         return f"AuditLog({self.action}, {self.event_count} events, {self.created_at})"
+
+
+# ---------------------------------------------------------------------------
+# Issue #111: Transaction cost tracking and analytics
+# ---------------------------------------------------------------------------
+
+class TransactionCost(models.Model):
+    """
+    Records fee and resource usage for every ingested Soroban transaction.
+    Enables cost analytics, outlier detection, and trend analysis.
+    """
+
+    contract = models.ForeignKey(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name="transaction_costs",
+        help_text="Contract this transaction was invoked on",
+    )
+    tx_hash = models.CharField(
+        max_length=64,
+        unique=True,
+        db_index=True,
+        help_text="Transaction hash",
+    )
+    function_name = models.CharField(
+        max_length=128,
+        blank=True,
+        db_index=True,
+        help_text="Contract function name (empty if unknown)",
+    )
+    ledger_sequence = models.PositiveIntegerField(
+        db_index=True,
+        help_text="Ledger sequence number",
+    )
+    total_fee_stroops = models.BigIntegerField(
+        help_text="Total transaction fee in stroops (1 stroop = 1e-7 XLM)",
+    )
+    cpu_instructions_used = models.BigIntegerField(
+        default=0,
+        help_text="CPU instructions consumed by the Soroban host",
+    )
+    memory_bytes_used = models.BigIntegerField(
+        default=0,
+        help_text="Memory bytes consumed by the Soroban host",
+    )
+    network_bytes_used = models.BigIntegerField(
+        default=0,
+        help_text="Network bytes (read/write ledger entries) consumed",
+    )
+    is_outlier = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="True when total_fee_stroops is >2 std deviations from the function mean",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["contract", "-created_at"]),
+            models.Index(fields=["function_name"]),
+            models.Index(fields=["contract", "function_name", "-created_at"]),
+        ]
+
+    def __str__(self):
+        return f"TxCost({self.tx_hash[:8]}… fn={self.function_name} fee={self.total_fee_stroops})"
+
+
+class CostAggregate(models.Model):
+    """
+    Pre-computed hourly cost aggregates per contract+function.
+    Populated by the ``aggregate_transaction_costs`` Celery task.
+    """
+
+    contract = models.ForeignKey(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name="cost_aggregates",
+    )
+    function_name = models.CharField(max_length=128, blank=True)
+    # Truncated to the hour (minute/second = 0)
+    period_start = models.DateTimeField(
+        db_index=True,
+        help_text="Start of the 1-hour aggregation window (UTC, truncated to hour)",
+    )
+    avg_fee_stroops = models.BigIntegerField(default=0)
+    min_fee_stroops = models.BigIntegerField(default=0)
+    max_fee_stroops = models.BigIntegerField(default=0)
+    total_fee_stroops = models.BigIntegerField(default=0)
+    call_count = models.PositiveIntegerField(default=0)
+    stddev_fee_stroops = models.FloatField(
+        default=0.0,
+        help_text="Population standard deviation of fees in this window",
+    )
+    computed_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-period_start"]
+        unique_together = ("contract", "function_name", "period_start")
+        indexes = [
+            models.Index(fields=["contract", "function_name", "-period_start"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"CostAgg({self.contract.name} fn={self.function_name} "
+            f"@ {self.period_start:%Y-%m-%dT%H:00Z})"
+        )
