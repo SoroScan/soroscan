@@ -242,6 +242,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "soroscan.ingest.tasks.archive_old_events",
         "schedule": 86400,  # daily
     },
+    "check-contract-health": {
+        "task": "soroscan.ingest.tasks.check_contract_health",
+        "schedule": 300,  # every 5 minutes
+    },
 }
 
 # Stellar / Soroban Configuration

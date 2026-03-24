@@ -17,6 +17,7 @@ from .models import (
     ArchivedEventBatch,
     ContractABI,
     ContractEvent,
+    ContractHealthCheck,
     ContractQuota,
     DataRetentionPolicy,
     EventSchema,
@@ -655,3 +656,66 @@ class ArchivalAuditLogAdmin(admin.ModelAdmin):
         color = "#17a2b8" if obj.action == "archive" else "#28a745"
         return format_html('<span style="color:{};font-weight:bold">{}</span>', color, obj.action.upper())
 
+
+
+# ---------------------------------------------------------------------------
+# Issue #110: Contract health checks
+# ---------------------------------------------------------------------------
+
+@admin.register(ContractHealthCheck)
+class ContractHealthCheckAdmin(admin.ModelAdmin):
+    """
+    Read-only admin view for contract health check snapshots.
+    Unhealthy/degraded records are highlighted for quick triage.
+    """
+
+    list_display = [
+        "contract_name",
+        "status_colored",
+        "ledger_lag",
+        "rpc_reachable",
+        "response_time_ms",
+        "checked_at",
+    ]
+    list_filter = ["status", "rpc_reachable", "checked_at"]
+    search_fields = ["contract__name", "contract__contract_id", "error_detail"]
+    readonly_fields = [
+        "contract",
+        "status",
+        "last_ledger_on_chain",
+        "last_indexed_ledger",
+        "ledger_lag",
+        "rpc_reachable",
+        "error_detail",
+        "response_time_ms",
+        "checked_at",
+    ]
+    ordering = ["-checked_at"]
+    date_hierarchy = "checked_at"
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("contract")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description="Contract")
+    def contract_name(self, obj):
+        return obj.contract.name
+
+    @admin.display(description="Status")
+    def status_colored(self, obj):
+        colors = {
+            ContractHealthCheck.STATUS_HEALTHY: "#28a745",
+            ContractHealthCheck.STATUS_DEGRADED: "#ffc107",
+            ContractHealthCheck.STATUS_UNREACHABLE: "#dc3545",
+        }
+        color = colors.get(obj.status, "#6c757d")
+        return format_html(
+            '<span style="color:{};font-weight:bold">{}</span>',
+            color,
+            obj.get_status_display(),
+        )

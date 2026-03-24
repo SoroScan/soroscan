@@ -1179,3 +1179,102 @@ def cleanup_silk_data() -> int:
         extra={},
     )
     return deleted_count
+
+
+# ---------------------------------------------------------------------------
+# Issue #110: Contract health checks
+# ---------------------------------------------------------------------------
+
+@shared_task
+def check_contract_health(contract_id: str | None = None) -> dict:
+    """
+    Periodic health check for tracked contracts.
+
+    For each active contract (or a single one when contract_id is given):
+    1. Ping the Soroban RPC to get the latest ledger sequence.
+    2. Compare against the contract's last_indexed_ledger.
+    3. Derive a status: healthy / degraded / unreachable.
+    4. Persist a ContractHealthCheck snapshot.
+
+    Returns a summary dict with counts per status.
+    """
+    from .models import ContractHealthCheck  # noqa: PLC0415
+
+    _start = time.monotonic()
+
+    qs = TrackedContract.objects.filter(is_active=True)
+    if contract_id:
+        qs = qs.filter(contract_id=contract_id)
+
+    summary: dict[str, int] = {"healthy": 0, "degraded": 0, "unreachable": 0, "total": 0}
+
+    for contract in qs:
+        rpc_reachable = False
+        last_ledger_on_chain = None
+        error_detail = ""
+        response_time_ms = 0.0
+
+        try:
+            client = SorobanClient()
+            t0 = time.monotonic()
+            # get_latest_ledger is a lightweight RPC ping
+            ledger_response = client.server.get_latest_ledger()
+            response_time_ms = (time.monotonic() - t0) * 1000
+            last_ledger_on_chain = int(getattr(ledger_response, "sequence", 0) or 0)
+            rpc_reachable = True
+        except Exception as exc:
+            error_detail = str(exc)[:500]
+            logger.warning(
+                "Health check RPC error for contract=%s: %s",
+                contract.contract_id,
+                error_detail,
+                extra={"contract_id": contract.contract_id},
+            )
+
+        last_indexed = contract.last_indexed_ledger or 0
+        ledger_lag = max(0, (last_ledger_on_chain or 0) - last_indexed) if rpc_reachable else 0
+
+        if not rpc_reachable:
+            status = ContractHealthCheck.STATUS_UNREACHABLE
+        elif ledger_lag >= ContractHealthCheck.UNHEALTHY_LEDGER_LAG:
+            status = ContractHealthCheck.STATUS_UNREACHABLE
+        elif ledger_lag >= ContractHealthCheck.DEGRADED_LEDGER_LAG:
+            status = ContractHealthCheck.STATUS_DEGRADED
+        else:
+            status = ContractHealthCheck.STATUS_HEALTHY
+
+        ContractHealthCheck.objects.create(
+            contract=contract,
+            status=status,
+            last_ledger_on_chain=last_ledger_on_chain,
+            last_indexed_ledger=last_indexed or None,
+            ledger_lag=ledger_lag,
+            rpc_reachable=rpc_reachable,
+            error_detail=error_detail,
+            response_time_ms=round(response_time_ms, 2),
+        )
+
+        summary[status] += 1
+        summary["total"] += 1
+
+        logger.info(
+            "Health check contract=%s status=%s lag=%d rpc_ok=%s",
+            contract.contract_id[:8],
+            status,
+            ledger_lag,
+            rpc_reachable,
+            extra={"contract_id": contract.contract_id},
+        )
+
+    elapsed = time.monotonic() - _start
+    logger.info(
+        "check_contract_health complete: %s elapsed=%.2fs",
+        summary,
+        elapsed,
+        extra={},
+    )
+    _get_metrics().task_duration_seconds.labels(
+        task_name="check_contract_health"
+    ).observe(elapsed)
+
+    return summary

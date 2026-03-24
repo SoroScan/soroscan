@@ -723,3 +723,87 @@ class ArchivalAuditLog(models.Model):
 
     def __str__(self):
         return f"AuditLog({self.action}, {self.event_count} events, {self.created_at})"
+
+
+# ---------------------------------------------------------------------------
+# Issue #110: Contract health checks
+# ---------------------------------------------------------------------------
+
+class ContractHealthCheck(models.Model):
+    """
+    Periodic health snapshot for a tracked contract.
+
+    Records whether the contract is reachable on the Soroban RPC, how far
+    behind indexing is, and any error detail from the last check.
+    """
+
+    STATUS_HEALTHY = "healthy"
+    STATUS_DEGRADED = "degraded"
+    STATUS_UNREACHABLE = "unreachable"
+    STATUS_CHOICES = [
+        (STATUS_HEALTHY, "Healthy"),
+        (STATUS_DEGRADED, "Degraded"),
+        (STATUS_UNREACHABLE, "Unreachable"),
+    ]
+
+    contract = models.ForeignKey(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name="health_checks",
+        help_text="Contract this health snapshot belongs to",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=STATUS_CHOICES,
+        default=STATUS_HEALTHY,
+        db_index=True,
+        help_text="Overall health status of the contract at check time",
+    )
+    last_ledger_on_chain = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        help_text="Latest ledger sequence reported by the Soroban RPC at check time",
+    )
+    last_indexed_ledger = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        help_text="Last ledger indexed for this contract at check time",
+    )
+    ledger_lag = models.IntegerField(
+        default=0,
+        help_text="Difference between last_ledger_on_chain and last_indexed_ledger (0 = in sync)",
+    )
+    rpc_reachable = models.BooleanField(
+        default=True,
+        help_text="Whether the Soroban RPC endpoint responded successfully",
+    )
+    error_detail = models.TextField(
+        blank=True,
+        help_text="Error message if the check failed or the contract is unreachable",
+    )
+    response_time_ms = models.FloatField(
+        default=0.0,
+        help_text="RPC round-trip time in milliseconds",
+    )
+    checked_at = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,
+        help_text="UTC timestamp when this health check was performed",
+    )
+
+    # Thresholds used to derive status
+    DEGRADED_LEDGER_LAG = 100   # ledgers behind before status → degraded
+    UNHEALTHY_LEDGER_LAG = 500  # ledgers behind before status → unreachable
+
+    class Meta:
+        ordering = ["-checked_at"]
+        indexes = [
+            models.Index(fields=["contract", "-checked_at"]),
+            models.Index(fields=["status", "-checked_at"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"HealthCheck({self.contract.name} "
+            f"status={self.status} lag={self.ledger_lag} @ {self.checked_at:%Y-%m-%dT%H:%M}Z)"
+        )

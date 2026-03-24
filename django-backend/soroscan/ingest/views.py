@@ -672,3 +672,144 @@ def restore_archived_events(request):
         {"status": "restored", "restored_count": restored_count, "batch_id": batch.id},
         status=status.HTTP_200_OK,
     )
+
+
+# ---------------------------------------------------------------------------
+# Issue #110: Contract health checks
+# ---------------------------------------------------------------------------
+
+class ContractHealthCheckViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Read-only ViewSet for contract health check snapshots.
+
+    Endpoints:
+    - GET /contracts/{contract_id}/health/         — latest health snapshot
+    - GET /contracts/{contract_id}/health/history/ — paginated history
+    - POST /contracts/{contract_id}/health/run/    — trigger an on-demand check
+    """
+
+    permission_classes = [AllowAny]
+
+    def _get_contract(self, contract_id: str):
+        return get_object_or_404(TrackedContract, contract_id=contract_id)
+
+    @extend_schema(
+        responses=inline_serializer(
+            name="HealthCheckLatest",
+            fields={
+                "contract_id": serializers.CharField(),
+                "status": serializers.CharField(),
+                "ledger_lag": serializers.IntegerField(),
+                "last_ledger_on_chain": serializers.IntegerField(allow_null=True),
+                "last_indexed_ledger": serializers.IntegerField(allow_null=True),
+                "rpc_reachable": serializers.BooleanField(),
+                "error_detail": serializers.CharField(),
+                "response_time_ms": serializers.FloatField(),
+                "checked_at": serializers.DateTimeField(),
+            },
+        )
+    )
+    def retrieve(self, request, contract_id=None):
+        """Return the most recent health check snapshot for a contract."""
+        from .models import ContractHealthCheck  # noqa: PLC0415
+
+        contract = self._get_contract(contract_id)
+        check = (
+            ContractHealthCheck.objects.filter(contract=contract)
+            .order_by("-checked_at")
+            .first()
+        )
+        if check is None:
+            return Response(
+                {"detail": "No health checks recorded yet. Trigger one via POST .../health/run/"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(_serialize_health_check(check))
+
+    @extend_schema(
+        responses=inline_serializer(
+            name="HealthCheckHistory",
+            fields={
+                "count": serializers.IntegerField(),
+                "results": serializers.ListField(child=serializers.DictField()),
+            },
+        )
+    )
+    @action(detail=False, methods=["get"], url_path="history")
+    def history(self, request, contract_id=None):
+        """Return paginated health check history for a contract (newest first)."""
+        from .models import ContractHealthCheck  # noqa: PLC0415
+
+        contract = self._get_contract(contract_id)
+        try:
+            limit = min(int(request.query_params.get("limit", 50)), 500)
+        except (ValueError, TypeError):
+            limit = 50
+
+        checks = ContractHealthCheck.objects.filter(contract=contract).order_by("-checked_at")[:limit]
+        return Response(
+            {
+                "count": ContractHealthCheck.objects.filter(contract=contract).count(),
+                "results": [_serialize_health_check(c) for c in checks],
+            }
+        )
+
+    @extend_schema(
+        responses=inline_serializer(
+            name="HealthCheckRunResponse",
+            fields={
+                "detail": serializers.CharField(),
+                "status": serializers.CharField(),
+                "ledger_lag": serializers.IntegerField(),
+                "rpc_reachable": serializers.BooleanField(),
+                "checked_at": serializers.DateTimeField(),
+            },
+        )
+    )
+    @action(detail=False, methods=["post"], url_path="run", permission_classes=[IsAuthenticated])
+    def run(self, request, contract_id=None):
+        """Trigger an on-demand health check for a contract (runs synchronously)."""
+        from .models import ContractHealthCheck  # noqa: PLC0415
+        from .tasks import check_contract_health  # noqa: PLC0415
+
+        contract = self._get_contract(contract_id)
+        check_contract_health(contract_id=contract.contract_id)
+
+        check = (
+            ContractHealthCheck.objects.filter(contract=contract)
+            .order_by("-checked_at")
+            .first()
+        )
+        if check is None:
+            return Response({"detail": "Check ran but no record found."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response(
+            {
+                "detail": "Health check completed.",
+                **_serialize_health_check(check),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # Required by ReadOnlyModelViewSet but unused (routing is by contract_id)
+    def get_queryset(self):
+        from .models import ContractHealthCheck  # noqa: PLC0415
+        return ContractHealthCheck.objects.none()
+
+    def get_serializer_class(self):
+        from rest_framework import serializers as s  # noqa: PLC0415
+        return s.Serializer
+
+
+def _serialize_health_check(check) -> dict:
+    return {
+        "contract_id": check.contract.contract_id,
+        "status": check.status,
+        "ledger_lag": check.ledger_lag,
+        "last_ledger_on_chain": check.last_ledger_on_chain,
+        "last_indexed_ledger": check.last_indexed_ledger,
+        "rpc_reachable": check.rpc_reachable,
+        "error_detail": check.error_detail,
+        "response_time_ms": check.response_time_ms,
+        "checked_at": check.checked_at.isoformat(),
+    }
