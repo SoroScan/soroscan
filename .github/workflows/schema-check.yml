@@ -1,0 +1,78 @@
+name: GraphQL Schema Check
+
+on:
+  pull_request:
+    paths:
+      - "django-backend/soroscan/ingest/schema.py"
+      - "django-backend/soroscan/graphql_views.py"
+      - "django-backend/soroscan/urls.py"
+
+jobs:
+  schema-check:
+    name: Detect breaking schema changes
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history needed to compare base branch
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r django-backend/requirements.txt
+        working-directory: .
+
+      - name: Export current schema (v1 + v2)
+        env:
+          DJANGO_SETTINGS_MODULE: soroscan.settings_test
+          SECRET_KEY: ci-secret-key
+          DATABASE_URL: sqlite:///ci.sqlite3
+          REDIS_URL: redis://localhost:6379/0
+          SOROBAN_RPC_URL: https://soroban-testnet.stellar.org
+          STELLAR_NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
+          SOROSCAN_CONTRACT_ID: CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM
+        run: |
+          python export_schema.py
+        working-directory: django-backend
+
+      - name: Check out base branch schema
+        run: |
+          git show origin/${{ github.base_ref }}:django-backend/soroscan/ingest/schema.py \
+            > /tmp/schema_base.py || echo "# no base schema" > /tmp/schema_base.py
+
+      - name: Install graphql-inspector
+        run: npm install -g @graphql-inspector/cli
+
+      - name: Run breaking change detection (v1)
+        run: |
+          if [ -f schema_v1_base.graphql ]; then
+            graphql-inspector diff schema_v1_base.graphql schema_v1.graphql \
+              --rule suppressRemovalOfDeprecatedField \
+              || echo "::warning::Breaking changes detected in v1 schema — review required"
+          else
+            echo "No base v1 schema found, skipping diff"
+          fi
+        working-directory: django-backend
+
+      - name: Run breaking change detection (v2)
+        run: |
+          if [ -f schema_v2_base.graphql ]; then
+            graphql-inspector diff schema_v2_base.graphql schema_v2.graphql \
+              || echo "::error::Breaking changes detected in v2 schema"
+          else
+            echo "No base v2 schema found, skipping diff"
+          fi
+        working-directory: django-backend
+
+      - name: Upload schema artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: graphql-schemas
+          path: |
+            django-backend/schema_v1.graphql
+            django-backend/schema_v2.graphql

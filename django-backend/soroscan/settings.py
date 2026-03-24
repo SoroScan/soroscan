@@ -81,6 +81,9 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # GraphQL deprecation tracking — adds X-GraphQL-Deprecations header and
+    # logs deprecated field usage to Sentry for analytics.
+    "soroscan.ingest.middleware.GraphQLDeprecationMiddleware",
     # PrometheusAfterMiddleware must be last to record response codes/latencies.
     "django_prometheus.middleware.PrometheusAfterMiddleware",
 ]

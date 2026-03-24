@@ -1,4 +1,21 @@
-"""GraphQL schema for SoroScan API using Strawberry."""
+"""GraphQL schema for SoroScan API using Strawberry.
+
+Versioning strategy
+-------------------
+- /graphql/     — alias for v1 (backwards-compatible, deprecated fields present)
+- /graphql/v1/  — v1 schema: all fields, deprecated ones marked with sunset dates
+- /graphql/v2/  — v2 schema: deprecated fields removed, new fields added
+
+Deprecation policy
+------------------
+Fields deprecated in v1 carry a ``deprecation_reason`` with a sunset date of
+at least 6 months from the date of deprecation.  After the sunset date the
+field is removed from v2 and eventually from v1.
+
+Current deprecations (v1 → v2):
+  ContractType.event_count  → use ContractStats.total_events  (sunset: 2026-12-31)
+  Query.recent_errors       → use Query.system_metrics        (sunset: 2026-12-31)
+"""
 
 from __future__ import annotations
 
@@ -17,6 +34,11 @@ from .models import ContractEvent, ContractInvocation, TrackedContract, WebhookD
 from .services.timeline import build_timeline
 from django.utils import timezone
 from django.db.models import Count, Max
+
+# Sentinel used by the deprecation-tracking middleware to identify which
+# schema version is handling a request.
+SCHEMA_VERSION_V1 = "v1"
+SCHEMA_VERSION_V2 = "v2"
 
 
 def _get_authenticated_user(info: Info):
@@ -49,8 +71,14 @@ class ContractType:
     is_active: auto
     created_at: auto
 
-    @strawberry.field
+    @strawberry.field(
+        deprecation_reason=(
+            "Use contractStats(contractId: ...).totalEvents instead. "
+            "Sunset: 2026-12-31"
+        )
+    )
     def event_count(self) -> int:
+        """Deprecated: use contractStats.totalEvents. Sunset: 2026-12-31."""
         return self.events.count()
 
 
@@ -541,9 +569,14 @@ class Query:
             redis_status="CONNECTED",
         )
 
-    @strawberry.field
+    @strawberry.field(
+        deprecation_reason=(
+            "Use systemMetrics for aggregated error data instead. "
+            "Sunset: 2026-12-31"
+        )
+    )
     def recent_errors(self, info: Info, limit: int = 10) -> list[ErrorLog]:
-        """Get recent system errors and warnings."""
+        """Deprecated: use systemMetrics. Sunset: 2026-12-31."""
         user = _get_authenticated_user(info)
         if not user or not user.is_staff:
             raise Exception("Admin access required")
@@ -673,3 +706,116 @@ class Subscription:
 
 
 schema = strawberry.Schema(query=Query, mutation=Mutation, subscription=Subscription)
+
+# ---------------------------------------------------------------------------
+# Versioned schemas
+# ---------------------------------------------------------------------------
+
+# v1 — full schema including deprecated fields (backwards-compatible)
+schema_v1 = schema  # alias; same object, version tag applied in the view
+
+
+# v2 — deprecated fields removed, new fields added
+# ContractType without event_count, Query without recent_errors
+
+@strawberry_django.type(TrackedContract)
+class ContractTypeV2:
+    """ContractType for v2: event_count removed (use contractStats instead)."""
+    id: auto
+    contract_id: auto
+    name: auto
+    description: auto
+    is_active: auto
+    created_at: auto
+
+
+@strawberry.type
+class QueryV2:
+    """v2 Query: deprecated fields removed."""
+
+    @strawberry.field
+    def contracts(self, is_active: Optional[bool] = None) -> list[ContractTypeV2]:
+        qs = TrackedContract.objects.all()
+        if is_active is not None:
+            qs = qs.filter(is_active=is_active)
+        return qs
+
+    @strawberry.field
+    def contract(self, contract_id: str) -> Optional[ContractTypeV2]:
+        try:
+            return TrackedContract.objects.get(contract_id=contract_id)
+        except TrackedContract.DoesNotExist:
+            return None
+
+    @strawberry.field
+    def events(
+        self,
+        contract_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+        ledger_min: Optional[int] = None,
+        ledger_max: Optional[int] = None,
+        first: int = 20,
+        after: Optional[str] = None,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+    ) -> EventConnection:
+        # Identical implementation — reuse v1 resolver logic
+        return Query().events(
+            contract_id=contract_id,
+            event_type=event_type,
+            ledger_min=ledger_min,
+            ledger_max=ledger_max,
+            first=first,
+            after=after,
+            since=since,
+            until=until,
+        )
+
+    @strawberry.field
+    def event(self, id: int) -> Optional[EventType]:
+        try:
+            return ContractEvent.objects.get(id=id)
+        except ContractEvent.DoesNotExist:
+            return None
+
+    @strawberry.field
+    def search_events(self, query: EventSearchQuery) -> list[EventSearchResult]:
+        return Query().search_events(query=query)
+
+    @strawberry.field
+    def contract_stats(self, contract_id: str) -> Optional[ContractStats]:
+        return Query().contract_stats(contract_id=contract_id)
+
+    @strawberry.field
+    def event_types(self, contract_id: str) -> list[str]:
+        return Query().event_types(contract_id=contract_id)
+
+    @strawberry.field
+    def event_timeline(
+        self,
+        contract_id: str,
+        bucket_size: TimelineBucketSize = TimelineBucketSize.THIRTY_MINUTES,
+        event_types: Optional[list[str]] = None,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+        timezone: str = "UTC",
+        limit_groups: int = 500,
+        include_events: bool = True,
+    ) -> EventTimelineResult:
+        return Query().event_timeline(
+            contract_id=contract_id,
+            bucket_size=bucket_size,
+            event_types=event_types,
+            since=since,
+            until=until,
+            timezone=timezone,
+            limit_groups=limit_groups,
+            include_events=include_events,
+        )
+
+    @strawberry.field
+    def system_metrics(self, info: Info) -> SystemMetrics:
+        return Query().system_metrics(info=info)
+
+
+schema_v2 = strawberry.Schema(query=QueryV2, mutation=Mutation, subscription=Subscription)
