@@ -206,7 +206,7 @@ class TestAggregateTransactionCostsTask:
 
 @pytest.mark.django_db
 class TestCostAnalyticsViewSet:
-    BASE = "/api/analytics/costs/"
+    BASE = "/api/ingest/analytics/costs/"
 
     def _make_costs(self, contract, function_name, fees):
         for i, fee in enumerate(fees):
