@@ -685,10 +685,16 @@ class ContractHealthCheckViewSet(viewsets.ReadOnlyModelViewSet):
     Endpoints:
     - GET /contracts/{contract_id}/health/         — latest health snapshot
     - GET /contracts/{contract_id}/health/history/ — paginated history
-    - POST /contracts/{contract_id}/health/run/    — trigger an on-demand check
+    - POST /contracts/{contract_id}/health/run/    — trigger an on-demand check (auth required)
     """
 
     permission_classes = [AllowAny]
+
+    def get_permissions(self):
+        """Require authentication only for the on-demand run action."""
+        if self.action == "run":
+            return [IsAuthenticated()]
+        return [AllowAny()]
 
     def _get_contract(self, contract_id: str):
         return get_object_or_404(TrackedContract, contract_id=contract_id)
@@ -766,7 +772,7 @@ class ContractHealthCheckViewSet(viewsets.ReadOnlyModelViewSet):
             },
         )
     )
-    @action(detail=False, methods=["post"], url_path="run", permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=["post"], url_path="run")
     def run(self, request, contract_id=None):
         """Trigger an on-demand health check for a contract (runs synchronously)."""
         from .models import ContractHealthCheck  # noqa: PLC0415
