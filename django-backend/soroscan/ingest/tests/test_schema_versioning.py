@@ -129,18 +129,19 @@ class TestSchemaV2Structure:
         assert "eventCount" not in names
 
     def test_query_has_no_recent_errors(self):
-        names = _field_names(schema_v2, "Query")
+        # v2 query type is named QueryV2
+        names = _field_names(schema_v2, "QueryV2")
         assert "recentErrors" not in names
 
     def test_core_fields_still_present(self):
-        names = _field_names(schema_v2, "Query")
+        names = _field_names(schema_v2, "QueryV2")
         assert "contracts" in names
         assert "events" in names
         assert "contractStats" in names
         assert "systemMetrics" in names
 
     def test_v2_has_no_deprecated_fields_on_query(self):
-        deprecated = _deprecated_fields(schema_v2, "Query")
+        deprecated = _deprecated_fields(schema_v2, "QueryV2")
         assert deprecated == {}
 
 
@@ -197,7 +198,11 @@ class TestVersionedEndpoints:
 
     def test_v1_and_v2_work_independently(self, client_auth):
         """Both endpoints respond with valid GraphQL JSON."""
-        for path in ["/graphql/v1/", "/graphql/v2/"]:
+        expected_names = {
+            "/graphql/v1/": "Query",
+            "/graphql/v2/": "QueryV2",
+        }
+        for path, expected_name in expected_names.items():
             resp = client_auth.post(
                 path,
                 data=INTROSPECT_QUERY,
@@ -205,7 +210,7 @@ class TestVersionedEndpoints:
             )
             data = resp.json()
             assert "data" in data
-            assert data["data"]["__schema"]["queryType"]["name"] == "Query"
+            assert data["data"]["__schema"]["queryType"]["name"] == expected_name
 
 
 # ---------------------------------------------------------------------------

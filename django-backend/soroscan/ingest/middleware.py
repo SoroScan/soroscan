@@ -39,12 +39,17 @@ class GraphQLDeprecationMiddleware:
         if not request.path.startswith(self.GRAPHQL_PATH_PREFIX):
             return response
 
+        # Always attach schema version header when set by the view
+        schema_version = getattr(request, "_graphql_schema_version", None)
+        if schema_version:
+            response["X-GraphQL-Schema-Version"] = schema_version
+
         # Only inspect JSON responses from POST requests (GraphQL operations)
         if request.method != "POST":
             return response
 
         content_type = response.get("Content-Type", "")
-        if "application/json" not in content_type:
+        if "json" not in content_type and "graphql" not in content_type:
             return response
 
         try:
@@ -70,11 +75,6 @@ class GraphQLDeprecationMiddleware:
             )
 
             _report_to_sentry(deprecated_fields, request)
-
-        # Attach schema version header if set by the view
-        schema_version = getattr(request, "_graphql_schema_version", None)
-        if schema_version:
-            response["X-GraphQL-Schema-Version"] = schema_version
 
         return response
 
