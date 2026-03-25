@@ -1008,13 +1008,6 @@ def evaluate_condition(condition: dict, event_data: dict) -> bool:
     return False
 
 
-@shared_task(
-    bind=True,
-    autoretry_for=(Exception,),
-    retry_backoff=True,
-    retry_backoff_max=300,
-    max_retries=5,
-)
 def _alert_channel_targets(rule) -> list[tuple[str, str]]:
     """
     Build (action_type, target) pairs: multi-channel JSON or legacy single field.
@@ -1036,6 +1029,13 @@ def _alert_channel_targets(rule) -> list[tuple[str, str]]:
     return []
 
 
+@shared_task(
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    max_retries=5,
+)
 def send_alert(self, rule_id: int, event_id: int) -> str:
     """
     Send alert(s) for a matched AlertRule / ContractEvent pair.
