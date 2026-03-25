@@ -13,6 +13,7 @@ from channels.layers import get_channel_layer
 from strawberry import auto
 from strawberry.types import Info
 
+from .cache_utils import get_or_set_json, query_cache_ttl, stable_cache_key
 from .models import ContractEvent, ContractInvocation, TrackedContract, WebhookDeliveryLog
 from .services.timeline import build_timeline
 from django.utils import timezone
@@ -48,6 +49,11 @@ class ContractType:
     description: auto
     is_active: auto
     created_at: auto
+
+    @strawberry.field
+    def team_id(self) -> Optional[int]:
+        tid = getattr(self, "team_id", None)
+        return int(tid) if tid is not None else None
 
     @strawberry.field
     def event_count(self) -> int:
@@ -426,25 +432,29 @@ class Query:
     @strawberry.field
     def contract_stats(self, contract_id: str) -> Optional[ContractStats]:
         """Get aggregate statistics for a contract."""
-        try:
-            contract = TrackedContract.objects.get(contract_id=contract_id)
-        except TrackedContract.DoesNotExist:
-            return None
+        key = stable_cache_key("gql_contract_stats", {"contract_id": contract_id})
 
+        def _stats():
+            try:
+                contract = TrackedContract.objects.get(contract_id=contract_id)
+            except TrackedContract.DoesNotExist:
+                return None
 
-        stats = contract.events.aggregate(
-            total=Count("id"),
-            unique_types=Count("event_type", distinct=True),
-            last=Max("timestamp"),
-        )
+            stats = contract.events.aggregate(
+                total=Count("id"),
+                unique_types=Count("event_type", distinct=True),
+                last=Max("timestamp"),
+            )
 
-        return ContractStats(
-            contract_id=contract.contract_id,
-            name=contract.name,
-            total_events=stats["total"] or 0,
-            unique_event_types=stats["unique_types"] or 0,
-            last_activity=stats["last"],
-        )
+            return ContractStats(
+                contract_id=contract.contract_id,
+                name=contract.name,
+                total_events=stats["total"] or 0,
+                unique_event_types=stats["unique_types"] or 0,
+                last_activity=stats["last"],
+            )
+
+        return get_or_set_json(key, query_cache_ttl(), _stats)
 
     @strawberry.field
     def event_types(self, contract_id: str) -> list[str]:
@@ -572,17 +582,30 @@ class Mutation:
         contract_id: str,
         name: str,
         description: str = "",
+        team_id: Optional[int] = None,
     ) -> ContractType:
         """Register a new contract for indexing."""
         user = _get_authenticated_user(info)
         if not user:
             raise Exception("Authentication required")
-        
+
+        from .models import Team, TeamMembership
+
+        team = None
+        if team_id is not None:
+            try:
+                team = Team.objects.get(pk=team_id)
+            except Team.DoesNotExist:
+                raise Exception("Team not found")
+            if not TeamMembership.objects.filter(team=team, user=user).exists():
+                raise Exception("Not a member of this team")
+
         contract = TrackedContract.objects.create(
             contract_id=contract_id,
             name=name,
             description=description,
             owner=user,
+            team=team,
         )
         return contract
 

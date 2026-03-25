@@ -533,6 +533,26 @@ class SendAlertTests(TestCase):
         self.assertEqual(result, "sent")
         mock_email.assert_called_once()
 
+    @patch("soroscan.ingest.tasks._send_webhook_alert")
+    @patch("soroscan.ingest.tasks._send_slack_alert")
+    @patch("soroscan.ingest.tasks._send_email_alert")
+    def test_send_alert_multiple_channels(self, mock_email, mock_slack, mock_webhook):
+        """Issue #130: one rule can notify email, Slack, and webhook together."""
+        from soroscan.ingest.tasks import send_alert
+
+        self.rule.channels = [
+            {"type": "email", "target": "a@example.com"},
+            {"type": "slack", "target": "https://hooks.slack.com/services/FAKE"},
+            {"type": "webhook", "target": "https://example.com/hook"},
+        ]
+        self.rule.save()
+        result = send_alert(self.rule.id, self.event.id)
+        self.assertEqual(result, "sent")
+        mock_email.assert_called_once()
+        mock_slack.assert_called_once()
+        mock_webhook.assert_called_once()
+        self.assertEqual(AlertExecution.objects.filter(status="sent").count(), 3)
+
     def test_send_alert_rule_not_found(self):
         from soroscan.ingest.tasks import send_alert
 

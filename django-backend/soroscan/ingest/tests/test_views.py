@@ -5,7 +5,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from soroscan.ingest.models import TrackedContract, WebhookSubscription
+from soroscan.ingest.models import Team, TeamMembership, TrackedContract, WebhookSubscription
 
 from .factories import (
     ContractEventFactory,
@@ -110,6 +110,41 @@ class TestTrackedContractViewSet:
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not TrackedContract.objects.filter(id=contract.id).exists()
+
+
+@pytest.mark.django_db
+class TestTeamViewSet:
+    def test_create_and_list_team(self, authenticated_client, user):
+        url = reverse("team-list")
+        response = authenticated_client.post(url, {"name": "Platform"}, format="json")
+        assert response.status_code == status.HTTP_201_CREATED
+        assert Team.objects.filter(name="Platform").exists()
+        assert TeamMembership.objects.filter(
+            team__name="Platform", user=user, role=TeamMembership.Role.ADMIN
+        ).exists()
+
+        listed = authenticated_client.get(url)
+        assert listed.status_code == status.HTTP_200_OK
+        assert len(listed.data["results"]) >= 1
+
+    def test_team_member_sees_team_contract(self, api_client):
+        owner = UserFactory()
+        member = UserFactory()
+        team = Team.objects.create(name="Shared", slug="shared", created_by=owner)
+        TeamMembership.objects.create(
+            team=team, user=owner, role=TeamMembership.Role.ADMIN
+        )
+        TeamMembership.objects.create(
+            team=team, user=member, role=TeamMembership.Role.MEMBER
+        )
+        shared = TrackedContractFactory(owner=owner, team=team)
+
+        api_client.force_authenticate(user=member)
+        url = reverse("contract-list")
+        response = api_client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        cids = [row["contract_id"] for row in response.data["results"]]
+        assert shared.contract_id in cids
 
 
 @pytest.mark.django_db
