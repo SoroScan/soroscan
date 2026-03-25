@@ -22,12 +22,14 @@ from rest_framework_simplejwt.views import (
 
 from soroscan.graphql_views import GraphQLViewV1, GraphQLViewV2, ThrottledGraphQLView
 from soroscan.ingest.schema import schema_v1, schema_v2
+from soroscan.ingest.views import audit_trail_view
 
 urlpatterns = [
     # Prometheus metrics — unauthenticated; placed before any auth middleware.
     path("", include("django_prometheus.urls")),
 
     path("admin/", admin.site.urls),
+    path("api/audit-trail/", audit_trail_view, name="audit-trail"),
     path("api/ingest/", include("soroscan.ingest.urls")),
 
     # GraphQL — versioned endpoints
