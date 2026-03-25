@@ -14,7 +14,7 @@ from strawberry import auto
 from strawberry.types import Info
 
 from .cache_utils import get_or_set_json, query_cache_ttl, stable_cache_key
-from .models import ContractEvent, ContractInvocation, TrackedContract, WebhookDeliveryLog
+from .models import ContractEvent, ContractInvocation, Notification, TrackedContract, WebhookDeliveryLog
 from .services.timeline import build_timeline
 from django.utils import timezone
 from django.db.models import Count, Max
