@@ -2,6 +2,7 @@
 Celery tasks for SoroScan background processing.
 """
 import cProfile
+import base64
 import hashlib
 import hmac
 import io
@@ -15,12 +16,15 @@ from typing import Any
 import jsonschema
 import requests
 from celery import shared_task
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec, ed25519
 from celery.signals import task_postrun, task_prerun
 from django.conf import settings
 from django.db.models import F
 from django.utils import timezone
 
-from .models import ContractABI, ContractEvent, TrackedContract, WebhookSubscription, IndexerState, EventSchema
+from .models import ContractABI, ContractEvent, ContractSigningKey, TrackedContract, WebhookSubscription, IndexerState, EventSchema, RemediationRule, RemediationIncident, AdminAction
 from .stellar_client import SorobanClient
 
 logger = logging.getLogger(__name__)
@@ -118,6 +122,136 @@ def _extract_event_index(event: Any, fallback_index: int = 0) -> int:
     return fallback_index
 
 
+def _decode_key_or_sig(value: Any) -> bytes | None:
+    if value is None:
+        return None
+    if isinstance(value, bytes):
+        return value
+
+    raw = str(value).strip()
+    if not raw:
+        return None
+    if raw.startswith("0x"):
+        raw = raw[2:]
+
+    if len(raw) % 2 == 0 and all(c in "0123456789abcdefABCDEF" for c in raw):
+        try:
+            return bytes.fromhex(raw)
+        except ValueError:
+            pass
+
+    try:
+        return base64.b64decode(raw, validate=True)
+    except Exception:
+        return raw.encode("utf-8")
+
+
+def _extract_signature(event: Any, payload: dict[str, Any]) -> Any:
+    return (
+        _event_attr(event, "signature", "event_signature")
+        or payload.get("signature")
+        or payload.get("event_signature")
+        or payload.get("sig")
+    )
+
+
+def _message_for_signature(event: Any, payload: dict[str, Any]) -> bytes:
+    payload_hash = _event_attr(event, "payload_hash") or payload.get("payload_hash")
+    payload_hash_bytes = _decode_key_or_sig(payload_hash)
+    if payload_hash_bytes:
+        return payload_hash_bytes
+
+    # Build canonical payload bytes excluding signature metadata fields.
+    signing_payload = {
+        k: v
+        for k, v in payload.items()
+        if k not in {"signature", "event_signature", "sig"}
+    }
+    return json.dumps(signing_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _load_signing_public_key(key: ContractSigningKey):
+    value = (key.public_key or "").strip()
+    if not value:
+        return None
+
+    if "-----BEGIN" in value:
+        return serialization.load_pem_public_key(value.encode("utf-8"))
+
+    key_bytes = _decode_key_or_sig(value)
+    if not key_bytes:
+        return None
+
+    if key.algorithm == ContractSigningKey.Algorithm.ED25519:
+        return ed25519.Ed25519PublicKey.from_public_bytes(key_bytes)
+
+    # ECDSA flexibility: accept uncompressed points for common curves.
+    for curve in (ec.SECP256R1(), ec.SECP256K1()):
+        try:
+            return ec.EllipticCurvePublicKey.from_encoded_point(curve, key_bytes)
+        except ValueError:
+            continue
+    return None
+
+
+def resolve_signature_status(
+    contract: TrackedContract,
+    event: Any,
+    payload: dict[str, Any],
+) -> str:
+    """
+    Return one of: valid, invalid, missing.
+
+    Verification never raises and never blocks ingest.
+    """
+    signing_key = (
+        ContractSigningKey.objects.filter(contract=contract, is_active=True)
+        .only("algorithm", "public_key")
+        .first()
+    )
+    if signing_key is None:
+        return "missing"
+
+    signature_value = _extract_signature(event, payload)
+    signature = _decode_key_or_sig(signature_value)
+    if not signature:
+        return "missing"
+
+    message = _message_for_signature(event, payload)
+
+    try:
+        public_key = _load_signing_public_key(signing_key)
+        if public_key is None:
+            logger.warning(
+                "Signing key not usable for contract=%s",
+                contract.contract_id,
+                extra={"contract_id": contract.contract_id},
+            )
+            return "invalid"
+
+        if signing_key.algorithm == ContractSigningKey.Algorithm.ED25519:
+            public_key.verify(signature, message)
+        else:
+            public_key.verify(signature, message, ec.ECDSA(hashes.SHA256()))
+
+        return "valid"
+    except InvalidSignature:
+        logger.warning(
+            "Invalid event signature for contract=%s",
+            contract.contract_id,
+            extra={"contract_id": contract.contract_id},
+        )
+        return "invalid"
+    except Exception:
+        logger.warning(
+            "Event signature verification error for contract=%s",
+            contract.contract_id,
+            extra={"contract_id": contract.contract_id},
+            exc_info=True,
+        )
+        return "invalid"
+
+
 def _upsert_contract_event(
     contract: TrackedContract,
     event: Any,
@@ -131,6 +265,7 @@ def _upsert_contract_event(
     event_type = str(_event_attr(event, "type", "event_type", default="unknown") or "unknown")
     payload = _event_attr(event, "value", "payload", default={}) or {}
     raw_xdr = str(_event_attr(event, "xdr", "raw_xdr", default="") or "")
+    signature_status = resolve_signature_status(contract, event, payload)
 
     timestamp = _event_attr(event, "timestamp", default=timezone.now())
     if isinstance(timestamp, datetime) and timezone.is_naive(timestamp):
@@ -148,6 +283,7 @@ def _upsert_contract_event(
             "payload": payload,
             "timestamp": timestamp,
             "raw_xdr": raw_xdr,
+            "signature_status": signature_status,
         },
     )
     obj, created = result
@@ -626,6 +762,11 @@ def sync_events_from_horizon() -> int:
             )
             validation_status = "passed" if passed else "failed"
             schema_version = version_used
+            signature_status = resolve_signature_status(
+                contract,
+                event,
+                payload,
+            )
 
             event_record, created = ContractEvent.objects.get_or_create(
                 tx_hash=event.tx_hash,
@@ -638,6 +779,7 @@ def sync_events_from_horizon() -> int:
                     "raw_xdr": event.xdr if hasattr(event, "xdr") else "",
                     "validation_status": validation_status,
                     "schema_version": schema_version,
+                    "signature_status": signature_status,
                 },
             )
             
@@ -646,10 +788,12 @@ def sync_events_from_horizon() -> int:
                 if (
                     event_record.validation_status != validation_status
                     or event_record.schema_version != schema_version
+                    or event_record.signature_status != signature_status
                 ):
                     event_record.validation_status = validation_status
                     event_record.schema_version = schema_version
-                    event_record.save(update_fields=["validation_status", "schema_version"])
+                    event_record.signature_status = signature_status
+                    event_record.save(update_fields=["validation_status", "schema_version", "signature_status"])
 
             if created:
                 new_events += 1
@@ -788,6 +932,38 @@ def backfill_contract_events(
         ).observe(time.monotonic() - _start)
 
 
+@shared_task(bind=True, queue="backfill")
+def reprocess_events(
+    self,
+    contract_id: str,
+    dry_run: bool = False,
+    batch_size: int = 500,
+    checkpoint_id: int = 0,
+    rollback_on_error: bool = True,
+) -> dict[str, Any]:
+    """Reprocess historical events for a contract in batches."""
+    from .reprocessing import reprocess_contract_events  # noqa: PLC0415
+
+    result = reprocess_contract_events(
+        contract_id,
+        dry_run=dry_run,
+        batch_size=batch_size,
+        checkpoint_id=checkpoint_id,
+        rollback_on_error=rollback_on_error,
+    )
+    return {
+        "contract_id": result.contract_id,
+        "total_events": result.total_events,
+        "processed_events": result.processed_events,
+        "updated_events": result.updated_events,
+        "failed_events": result.failed_events,
+        "last_checkpoint_id": result.last_checkpoint_id,
+        "progress_percent": result.progress_percent,
+        "dry_run": result.dry_run,
+        "rolled_back": result.rolled_back,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Issue: Event-driven alerts — condition evaluator and dispatch tasks
 # ---------------------------------------------------------------------------
@@ -849,6 +1025,27 @@ def evaluate_condition(condition: dict, event_data: dict) -> bool:
     return False
 
 
+def _alert_channel_targets(rule) -> list[tuple[str, str]]:
+    """
+    Build (action_type, target) pairs: multi-channel JSON or legacy single field.
+    """
+    raw = getattr(rule, "channels", None) or []
+    if isinstance(raw, list) and len(raw) > 0:
+        out: list[tuple[str, str]] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            ch_type = (item.get("type") or "").strip().lower()
+            target = (item.get("target") or "").strip()
+            if ch_type in ("slack", "email", "webhook") and target:
+                out.append((ch_type, target))
+        if out:
+            return out
+    if rule.action_target:
+        return [(rule.action_type, rule.action_target)]
+    return []
+
+
 @shared_task(
     bind=True,
     autoretry_for=(Exception,),
@@ -858,8 +1055,10 @@ def evaluate_condition(condition: dict, event_data: dict) -> bool:
 )
 def send_alert(self, rule_id: int, event_id: int) -> str:
     """
-    Send a single alert for a matched AlertRule / ContractEvent pair.
-    Retries with exponential backoff on failure.
+    Send alert(s) for a matched AlertRule / ContractEvent pair.
+    When ``channels`` is set, delivers to email, Slack, and webhook in one task
+    (real-time via the existing Celery path). Retries with exponential backoff
+    if any channel fails.
     """
     from .models import AlertRule, AlertExecution
 
@@ -882,38 +1081,72 @@ def send_alert(self, rule_id: int, event_id: int) -> str:
         "timestamp": event.timestamp.isoformat(),
     }
 
-    try:
-        if rule.action_type == "slack":
-            _send_slack_alert(rule.action_target, payload)
-        elif rule.action_type == "email":
-            _send_email_alert(rule.action_target, rule.name, payload)
-        elif rule.action_type == "webhook":
-            _send_webhook_alert(rule.action_target, payload)
-        else:
-            raise ValueError(f"Unknown action_type: {rule.action_type}")
+    targets = _alert_channel_targets(rule)
+    if not targets:
+        logger.warning(
+            "Alert rule %s has no channels or action_target",
+            rule_id,
+            extra={"rule_id": rule_id, "event_id": event_id},
+        )
+        return "skipped:no_targets"
 
-        AlertExecution.objects.create(rule=rule, event=event, status="sent", response="ok")
+    successes = 0
+    failures: list[Exception] = []
+
+    for action_type, target in targets:
+        try:
+            if action_type == "slack":
+                _send_slack_alert(target, payload)
+            elif action_type == "email":
+                _send_email_alert(target, rule.name, payload)
+            elif action_type == "webhook":
+                _send_webhook_alert(target, payload)
+            else:
+                raise ValueError(f"Unknown action_type: {action_type}")
+            AlertExecution.objects.create(
+                rule=rule, event=event, status="sent", response="ok", channel=action_type
+            )
+            successes += 1
+        except Exception as exc:
+            failures.append(exc)
+            AlertExecution.objects.create(
+                rule=rule,
+                event=event,
+                status="failed",
+                response=str(exc)[:500],
+                channel=action_type,
+            )
+
+    if successes:
         logger.info(
-            "Alert '%s' sent via %s for event %s",
+            "Alert '%s': %d/%d channel(s) ok for event %s",
             rule.name,
-            rule.action_type,
+            successes,
+            len(targets),
             event_id,
             extra={"rule_id": rule_id, "event_id": event_id},
         )
-        return "sent"
 
-    except Exception as exc:
-        AlertExecution.objects.create(
-            rule=rule, event=event, status="failed", response=str(exc)[:500]
-        )
+    if failures and successes == 0:
+        err = failures[0]
         logger.warning(
-            "Alert '%s' failed (attempt %d): %s",
+            "Alert '%s' all channels failed (attempt %d): %s",
             rule.name,
             self.request.retries + 1,
-            exc,
+            err,
             extra={"rule_id": rule_id, "event_id": event_id},
         )
-        raise
+        raise err
+
+    if failures:
+        logger.warning(
+            "Alert '%s' partial failure: %s",
+            rule.name,
+            failures[0],
+            extra={"rule_id": rule_id, "event_id": event_id},
+        )
+
+    return "sent" if successes else "failed"
 
 
 def _send_slack_alert(channel_or_url: str, payload: dict) -> None:
@@ -1006,8 +1239,440 @@ def evaluate_alert_rules(event_id: int) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Automated incident response (remediation)
+# ---------------------------------------------------------------------------
+
+def _send_ops_alert(alert_type: str, target: str, message: str, payload: dict[str, Any]) -> None:
+    if not target:
+        logger.warning("Remediation alert target is empty; skipping alert")
+        return
+
+    if alert_type == RemediationRule.ALERT_SLACK:
+        timeout = getattr(settings, "SLACK_ALERT_TIMEOUT_SECONDS", 10)
+        resp = requests.post(target, json={"text": f"{message}\n```{json.dumps(payload, indent=2)[:1500]}```"}, timeout=timeout)
+        resp.raise_for_status()
+        return
+
+    if alert_type == RemediationRule.ALERT_EMAIL:
+        from django.core.mail import send_mail
+
+        send_mail(
+            subject="[SoroScan] Automated remediation alert",
+            message=f"{message}\n\n{json.dumps(payload, indent=2)}",
+            from_email=None,
+            recipient_list=[target],
+            fail_silently=False,
+        )
+        return
+
+    if alert_type == RemediationRule.ALERT_WEBHOOK:
+        resp = requests.post(target, json={"message": message, "payload": payload}, timeout=10)
+        resp.raise_for_status()
+        return
+
+    logger.warning("Unknown remediation alert type: %s", alert_type)
+
+
+def _resolve_contract_for_rule(rule: RemediationRule) -> TrackedContract | None:
+    contract_id = (rule.condition or {}).get("contract_id")
+    if not contract_id:
+        return None
+    return TrackedContract.objects.filter(contract_id=contract_id).first()
+
+
+def _detect_anomaly(rule: RemediationRule, contract: TrackedContract) -> tuple[bool, dict[str, Any]]:
+    condition = rule.condition or {}
+    condition_type = condition.get("type")
+    now = timezone.now()
+
+    if condition_type == RemediationRule.CONDITION_NO_EVENTS:
+        minutes = int(condition.get("minutes", 60))
+        cutoff = now - timedelta(minutes=minutes)
+        has_recent = ContractEvent.objects.filter(contract=contract, timestamp__gte=cutoff).exists()
+        return (not has_recent, {"type": condition_type, "minutes": minutes, "cutoff": cutoff.isoformat()})
+
+    if condition_type == RemediationRule.CONDITION_DECODE_ERROR_SPIKE:
+        window_minutes = int(condition.get("window_minutes", 60))
+        threshold_percent = float(condition.get("threshold_percent", 50))
+        min_events = int(condition.get("min_events", 10))
+        cutoff = now - timedelta(minutes=window_minutes)
+        qs = ContractEvent.objects.filter(contract=contract, timestamp__gte=cutoff)
+        total = qs.count()
+        failed = qs.filter(decoding_status="failed").count()
+        ratio = (failed / total * 100.0) if total > 0 else 0.0
+        triggered = total >= min_events and ratio >= threshold_percent
+        return (
+            triggered,
+            {
+                "type": condition_type,
+                "window_minutes": window_minutes,
+                "threshold_percent": threshold_percent,
+                "min_events": min_events,
+                "total": total,
+                "failed": failed,
+                "ratio": ratio,
+            },
+        )
+
+    logger.warning("Unknown remediation condition type for rule=%s", rule.id)
+    return (False, {"type": condition_type, "error": "unknown_condition_type"})
+
+
+def _execute_remediation_actions(
+    incident: RemediationIncident,
+    *,
+    effective_dry_run: bool,
+) -> list[dict[str, Any]]:
+    executed: list[dict[str, Any]] = []
+
+    for action in incident.rule.actions or []:
+        action_type = (action or {}).get("type")
+        entry: dict[str, Any] = {"type": action_type, "dry_run": effective_dry_run, "status": "skipped"}
+
+        if action_type == "pause_contract":
+            if not effective_dry_run:
+                incident.contract.is_active = False
+                incident.contract.save(update_fields=["is_active"])
+            entry["status"] = "executed"
+
+        elif action_type == "disable_webhooks":
+            if not effective_dry_run:
+                disabled = WebhookSubscription.objects.filter(contract=incident.contract, is_active=True).update(
+                    is_active=False,
+                    status=WebhookSubscription.STATUS_SUSPENDED,
+                )
+                entry["disabled_count"] = disabled
+            entry["status"] = "executed"
+
+        elif action_type == "send_alert":
+            target = action.get("target") or incident.rule.alert_target
+            alert_type = action.get("alert_type") or incident.rule.alert_type
+            message = action.get("message") or (
+                f"Remediation action requested for rule '{incident.rule.name}' "
+                f"on contract {incident.contract.contract_id}"
+            )
+            if not effective_dry_run:
+                _send_ops_alert(
+                    alert_type,
+                    target,
+                    message,
+                    {
+                        "rule_id": incident.rule_id,
+                        "incident_id": incident.id,
+                        "contract_id": incident.contract.contract_id,
+                        "snapshot": incident.anomaly_snapshot,
+                    },
+                )
+            entry["status"] = "executed"
+
+        else:
+            entry["error"] = "unknown_action"
+
+        executed.append(entry)
+
+    return executed
+
+
+@shared_task
+def evaluate_remediation_rules(dry_run: bool = False) -> dict[str, Any]:
+    """
+    Evaluate remediation rules and execute actions after grace period.
+
+    Flow:
+      1. Detect anomaly from rule.condition
+      2. Alert ops immediately (always before actions)
+      3. Wait grace_period_minutes
+      4. Execute actions (or simulate in dry-run)
+    """
+    now = timezone.now()
+    summary = {
+        "evaluated": 0,
+        "detected": 0,
+        "alerted": 0,
+        "executed": 0,
+        "resolved": 0,
+        "dry_run": dry_run,
+    }
+
+    rules = RemediationRule.objects.filter(enabled=True).order_by("id")
+
+    for rule in rules:
+        summary["evaluated"] += 1
+        contract = _resolve_contract_for_rule(rule)
+        if contract is None:
+            continue
+
+        triggered, snapshot = _detect_anomaly(rule, contract)
+
+        open_incident = (
+            RemediationIncident.objects.filter(
+                rule=rule,
+                contract=contract,
+                status__in=[RemediationIncident.STATUS_ALERTED, RemediationIncident.STATUS_EXECUTED],
+                resolved_at__isnull=True,
+            )
+            .order_by("-first_detected_at")
+            .first()
+        )
+
+        if not triggered:
+            if open_incident and open_incident.status != RemediationIncident.STATUS_RESOLVED:
+                open_incident.status = RemediationIncident.STATUS_RESOLVED
+                open_incident.resolved_at = now
+                open_incident.save(update_fields=["status", "resolved_at", "last_seen_at"])
+                AdminAction.objects.create(
+                    user=None,
+                    action="remediation_resolved",
+                    object_type="tracked_contract",
+                    object_id=str(contract.pk),
+                    ip_address="0.0.0.0",
+                    changes={"rule_id": rule.id, "incident_id": open_incident.id},
+                )
+                summary["resolved"] += 1
+            continue
+
+        summary["detected"] += 1
+
+        if open_incident is None:
+            open_incident = RemediationIncident.objects.create(
+                rule=rule,
+                contract=contract,
+                status=RemediationIncident.STATUS_ALERTED,
+                anomaly_snapshot=snapshot,
+                alerted_at=now,
+                action_after_at=now + timedelta(minutes=rule.grace_period_minutes),
+            )
+            summary["alerted"] += 1
+
+            message = (
+                f"Remediation alert: anomaly detected for rule '{rule.name}' on contract "
+                f"{contract.contract_id}. Actions scheduled after {rule.grace_period_minutes} minute(s)."
+            )
+            try:
+                _send_ops_alert(rule.alert_type, rule.alert_target, message, snapshot)
+            except Exception:
+                logger.warning("Failed to send remediation pre-alert for rule=%s", rule.id, exc_info=True)
+
+            AdminAction.objects.create(
+                user=None,
+                action="remediation_alerted",
+                object_type="tracked_contract",
+                object_id=str(contract.pk),
+                ip_address="0.0.0.0",
+                changes={
+                    "rule_id": rule.id,
+                    "incident_id": open_incident.id,
+                    "grace_period_minutes": rule.grace_period_minutes,
+                    "snapshot": snapshot,
+                },
+            )
+            continue
+
+        if open_incident.status == RemediationIncident.STATUS_EXECUTED:
+            open_incident.last_seen_at = now
+            open_incident.save(update_fields=["last_seen_at"])
+            continue
+
+        if open_incident.action_after_at and now < open_incident.action_after_at:
+            continue
+
+        effective_dry_run = dry_run or rule.dry_run
+        executed = _execute_remediation_actions(open_incident, effective_dry_run=effective_dry_run)
+
+        open_incident.status = RemediationIncident.STATUS_EXECUTED
+        open_incident.executed_at = now
+        open_incident.anomaly_snapshot = snapshot
+        open_incident.save(update_fields=["status", "executed_at", "anomaly_snapshot", "last_seen_at"])
+
+        AdminAction.objects.create(
+            user=None,
+            action="remediation_executed",
+            object_type="tracked_contract",
+            object_id=str(contract.pk),
+            ip_address="0.0.0.0",
+            changes={
+                "rule_id": rule.id,
+                "incident_id": open_incident.id,
+                "dry_run": effective_dry_run,
+                "actions": executed,
+            },
+        )
+        summary["executed"] += 1
+
+    return summary
+
+
+# ---------------------------------------------------------------------------
 # Issue: Performance monitoring — Silk cleanup Celery task
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Data Retention — archive_old_events periodic task
+# ---------------------------------------------------------------------------
+
+_MAX_BATCH_BYTES = 100 * 1024 * 1024  # 100 MB compressed limit per S3 object
+
+
+def _upload_to_s3(bucket: str, key: str, data: bytes) -> int:
+    """Upload *data* to S3 and return the byte size uploaded."""
+    import boto3  # noqa: PLC0415
+
+    s3 = boto3.client(
+        "s3",
+        region_name=getattr(settings, "AWS_S3_REGION_NAME", None),
+        endpoint_url=getattr(settings, "AWS_S3_ENDPOINT_URL", None),
+        aws_access_key_id=getattr(settings, "AWS_ACCESS_KEY_ID", None),
+        aws_secret_access_key=getattr(settings, "AWS_SECRET_ACCESS_KEY", None),
+    )
+    s3.put_object(Bucket=bucket, Key=key, Body=data, ContentEncoding="gzip", ContentType="application/json")
+    return len(data)
+
+
+def _export_batch_to_s3(
+    events_qs,
+    policy,
+    batch_index: int,
+) -> Any:
+    """
+    Serialize up to 10 000 events from *events_qs* into a gzip-compressed
+    JSON batch, upload to S3, and return an ArchivedEventBatch record.
+
+    Returns None if the queryset is empty.
+    """
+    import gzip  # noqa: PLC0415
+    from .models import ArchivedEventBatch, ArchivalAuditLog  # noqa: PLC0415
+
+    rows = list(
+        events_qs.values(
+            "id", "contract__contract_id", "event_type", "payload",
+            "payload_hash", "ledger", "event_index", "timestamp", "tx_hash",
+        )
+    )
+    if not rows:
+        return None
+
+    # Serialize timestamps to ISO strings for JSON compatibility
+    for row in rows:
+        ts = row.get("timestamp")
+        if ts is not None:
+            row["timestamp"] = ts.isoformat()
+
+    raw_json = json.dumps(rows, default=str).encode("utf-8")
+    compressed = gzip.compress(raw_json)
+
+    if len(compressed) > _MAX_BATCH_BYTES:
+        logger.warning(
+            "Archive batch %d for policy %d exceeds 100 MB (%d bytes) — splitting not yet supported",
+            batch_index,
+            policy.id,
+            len(compressed),
+        )
+
+    contract_slug = (
+        policy.contract.contract_id[:12] if policy.contract else "global"
+    )
+    key = (
+        f"{policy.s3_prefix.rstrip('/')}/{contract_slug}/"
+        f"batch_{policy.id}_{batch_index}_{int(timezone.now().timestamp())}.json.gz"
+    )
+
+    size_bytes = _upload_to_s3(policy.s3_bucket, key, compressed)
+
+    timestamps = [r["timestamp"] for r in rows if r.get("timestamp")]
+    timestamps_sorted = sorted(timestamps)
+
+    from django.utils.dateparse import parse_datetime  # noqa: PLC0415
+
+    batch = ArchivedEventBatch.objects.create(
+        policy=policy,
+        s3_key=key,
+        event_count=len(rows),
+        size_bytes=size_bytes,
+        min_timestamp=parse_datetime(timestamps_sorted[0]) if timestamps_sorted else None,
+        max_timestamp=parse_datetime(timestamps_sorted[-1]) if timestamps_sorted else None,
+    )
+
+    ArchivalAuditLog.objects.create(
+        action=ArchivalAuditLog.ACTION_ARCHIVE,
+        batch=batch,
+        policy=policy,
+        event_count=len(rows),
+        detail=f"Uploaded to s3://{policy.s3_bucket}/{key}",
+    )
+
+    return batch
+
+
+@shared_task
+def archive_old_events() -> dict:
+    """
+    Periodic task: for each active DataRetentionPolicy, archive events older
+    than retention_days to S3 (gzip-compressed JSON) then delete them from PG.
+
+    Runs daily via Celery Beat.
+    """
+    from .models import DataRetentionPolicy, ArchivalAuditLog  # noqa: PLC0415
+
+    _start = time.monotonic()
+    total_archived = 0
+    total_deleted = 0
+    errors = []
+
+    policies = DataRetentionPolicy.objects.filter(archive_enabled=True).select_related("contract")
+
+    for policy in policies:
+        try:
+            cutoff = timezone.now() - timedelta(days=policy.retention_days)
+            base_qs = ContractEvent.objects.filter(timestamp__lt=cutoff)
+            if policy.contract:
+                base_qs = base_qs.filter(contract=policy.contract)
+
+            batch_index = 0
+            while True:
+                batch_qs = base_qs.order_by("timestamp")[:10000]
+                batch = _export_batch_to_s3(batch_qs, policy, batch_index)
+                if batch is None:
+                    break
+
+                # Delete only the IDs we just archived
+                archived_ids = list(
+                    base_qs.order_by("timestamp").values_list("id", flat=True)[:10000]
+                )
+                deleted_count, _ = ContractEvent.objects.filter(id__in=archived_ids).delete()
+                total_archived += batch.event_count
+                total_deleted += deleted_count
+                batch_index += 1
+
+                logger.info(
+                    "Archived batch %d for policy %d: %d events → s3://%s/%s",
+                    batch_index,
+                    policy.id,
+                    batch.event_count,
+                    policy.s3_bucket,
+                    batch.s3_key,
+                )
+
+        except Exception as exc:
+            err_msg = f"Policy {policy.id}: {exc}"
+            errors.append(err_msg)
+            logger.exception("archive_old_events failed for policy %d", policy.id)
+            ArchivalAuditLog.objects.create(
+                action=ArchivalAuditLog.ACTION_ARCHIVE,
+                policy=policy,
+                event_count=0,
+                detail=f"ERROR: {str(exc)[:500]}",
+            )
+
+    elapsed = time.monotonic() - _start
+    logger.info(
+        "archive_old_events complete: archived=%d deleted=%d errors=%d elapsed=%.2fs",
+        total_archived,
+        total_deleted,
+        len(errors),
+        elapsed,
+    )
+    return {"archived": total_archived, "deleted": total_deleted, "errors": errors}
+
 
 @shared_task
 def cleanup_silk_data() -> int:

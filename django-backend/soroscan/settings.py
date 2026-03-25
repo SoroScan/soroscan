@@ -141,13 +141,15 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # Default primary key field type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Cache (used for rate limiting)
+# Cache (used for rate limiting and expensive query results — issue #131)
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": env("REDIS_URL", default="redis://localhost:6379/1"),
     }
 }
+# TTL for REST/GraphQL search, stats, and timeline responses (seconds)
+QUERY_CACHE_TTL_SECONDS = env.int("QUERY_CACHE_TTL_SECONDS", default=60)
 
 # Rate limiting configuration (via environment variables)
 RATE_LIMIT_ANON = env("RATE_LIMIT_ANON", default="60/minute")
@@ -226,6 +228,7 @@ CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_ROUTES = {
     "soroscan.ingest.tasks.backfill_contract_events": {"queue": "backfill"},
+    "soroscan.ingest.tasks.evaluate_remediation_rules": {"queue": "default"},
 }
 
 # Celery Beat periodic task schedule
@@ -237,6 +240,14 @@ CELERY_BEAT_SCHEDULE = {
     "cleanup-silk-data": {
         "task": "soroscan.ingest.tasks.cleanup_silk_data",
         "schedule": 604800,  # weekly
+    },
+    "archive-old-events": {
+        "task": "soroscan.ingest.tasks.archive_old_events",
+        "schedule": 86400,  # daily
+    },
+    "evaluate-remediation-rules": {
+        "task": "soroscan.ingest.tasks.evaluate_remediation_rules",
+        "schedule": 300,  # every 5 minutes
     },
 }
 
@@ -334,6 +345,15 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@soroscan.io")
 
 # Alert settings
 SLACK_ALERT_TIMEOUT_SECONDS = env.int("SLACK_ALERT_TIMEOUT_SECONDS", default=10)
+
+# ---------------------------------------------------------------------------
+# S3 / Archive storage configuration
+# ---------------------------------------------------------------------------
+AWS_ACCESS_KEY_ID = env("AWS_ACCESS_KEY_ID", default="")
+AWS_SECRET_ACCESS_KEY = env("AWS_SECRET_ACCESS_KEY", default="")
+AWS_S3_REGION_NAME = env("AWS_S3_REGION_NAME", default="us-east-1")
+# Set AWS_S3_ENDPOINT_URL for S3-compatible stores (MinIO, Localstack, etc.)
+AWS_S3_ENDPOINT_URL = env("AWS_S3_ENDPOINT_URL", default="")
 
 # Sentry (optional): init only when SENTRY_DSN is set. Celery task failures reported via CeleryIntegration.
 SENTRY_DSN = env("SENTRY_DSN", default="")

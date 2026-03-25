@@ -5,9 +5,77 @@ import hashlib
 import secrets
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils.text import slugify
 
 User = get_user_model()
+
+
+class Team(models.Model):
+    """
+    Multi-tenant organization: groups users and shared tracked contracts.
+    """
+
+    name = models.CharField(max_length=128)
+    slug = models.SlugField(max_length=160, unique=True, db_index=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_teams",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            base = slugify(self.name) or "team"
+            slug = base
+            n = 0
+            while Team.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                n += 1
+                slug = f"{base}-{n}"
+            self.slug = slug
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
+
+class TeamMembership(models.Model):
+    """Links a user to a team with a role."""
+
+    class Role(models.TextChoices):
+        ADMIN = "admin", "Admin"
+        MEMBER = "member", "Member"
+
+    team = models.ForeignKey(
+        Team,
+        on_delete=models.CASCADE,
+        related_name="memberships",
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="team_memberships",
+    )
+    role = models.CharField(
+        max_length=16,
+        choices=Role.choices,
+        default=Role.MEMBER,
+    )
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [("team", "user")]
+        ordering = ["-joined_at"]
+
+    def __str__(self):
+        return f"{self.user} @ {self.team} ({self.role})"
 
 
 class TrackedContract(models.Model):
@@ -28,6 +96,14 @@ class TrackedContract(models.Model):
         on_delete=models.CASCADE,
         related_name="tracked_contracts",
         help_text="User who registered this contract",
+    )
+    team = models.ForeignKey(
+        Team,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tracked_contracts",
+        help_text="Optional team scope for multi-tenant access",
     )
     abi_schema = models.JSONField(
         null=True,
@@ -175,6 +251,40 @@ class ContractABI(models.Model):
         return f"ABI for {self.contract}"
 
 
+class ContractSigningKey(models.Model):
+    """
+    Public verification key registered per contract for event signature checks.
+    """
+
+    class Algorithm(models.TextChoices):
+        ED25519 = "ed25519", "Ed25519"
+        ECDSA = "ecdsa", "ECDSA"
+
+    contract = models.OneToOneField(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name="signing_key",
+    )
+    algorithm = models.CharField(
+        max_length=16,
+        choices=Algorithm.choices,
+        default=Algorithm.ED25519,
+    )
+    public_key = models.TextField(
+        help_text="Public key for signature verification (hex/base64/raw PEM)",
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Contract Signing Key"
+        verbose_name_plural = "Contract Signing Keys"
+
+    def __str__(self):
+        return f"SigningKey({self.contract.contract_id[:8]}..., {self.algorithm})"
+
+
 class ContractEvent(models.Model):
     """
     Individual events emitted by tracked contracts.
@@ -247,6 +357,17 @@ class ContractEvent(models.Model):
         db_index=True,
         help_text="Result of ABI-based XDR decoding",
     )
+    signature_status = models.CharField(
+        max_length=16,
+        choices=[
+            ("valid", "Valid"),
+            ("invalid", "Invalid"),
+            ("missing", "Missing"),
+        ],
+        default="missing",
+        db_index=True,
+        help_text="Result of event signature verification",
+    )
 
     class Meta:
         ordering = ["-timestamp"]
@@ -257,6 +378,7 @@ class ContractEvent(models.Model):
             models.Index(fields=["tx_hash"]),
             models.Index(fields=["contract", "ledger", "event_index"]),
             models.Index(fields=["invocation"]),
+            models.Index(fields=["signature_status"]),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -518,6 +640,14 @@ class AlertRule(models.Model):
     condition = models.JSONField(
         help_text="Condition AST: {'op': 'and', 'conditions': [...]}"
     )
+    channels = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            'Optional list of destinations: [{"type": "slack|email|webhook", "target": "..."}]. '
+            "When non-empty, the rule fires to every channel in real time (same Celery task)."
+        ),
+    )
     action_type = models.CharField(
         max_length=16,
         choices=[
@@ -527,7 +657,8 @@ class AlertRule(models.Model):
         ],
     )
     action_target = models.TextField(
-        help_text="Slack channel, email address, or webhook URL"
+        blank=True,
+        help_text="Legacy single destination when channels is empty",
     )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -554,6 +685,11 @@ class AlertExecution(models.Model):
         on_delete=models.CASCADE,
         related_name="alert_executions",
     )
+    channel = models.CharField(
+        max_length=32,
+        blank=True,
+        help_text="slack, email, webhook, or empty for legacy single-channel rows",
+    )
     status = models.CharField(
         max_length=16,
         choices=[("sent", "Sent"), ("failed", "Failed")],
@@ -571,45 +707,294 @@ class AlertExecution(models.Model):
         return f"Alert {self.rule.name}: {self.status} @ {self.created_at}"
 
 
-# ---------------------------------------------------------------------------
-# Issue #137: Notification center
-# ---------------------------------------------------------------------------
-
-class Notification(models.Model):
+class RemediationRule(models.Model):
     """
-    In-app notification for a user. Covers contract events, webhook failures,
-    rate-limit warnings, and system maintenance messages.
+    Automated incident response rule.
+
+    ``condition`` describes anomaly detection criteria.
+    ``actions`` is a list of action objects, e.g.:
+      [{"type": "pause_contract"}, {"type": "disable_webhooks"}]
     """
 
-    class NotificationType(models.TextChoices):
-        CONTRACT_PAUSED = "contract_paused", "Contract Paused"
-        WEBHOOK_FAILURE = "webhook_failure", "Webhook Failure"
-        RATE_LIMIT = "rate_limit", "Rate Limit Warning"
-        SYSTEM = "system", "System"
-        ALERT = "alert", "Alert"
+    CONDITION_NO_EVENTS = "no_events_for_minutes"
+    CONDITION_DECODE_ERROR_SPIKE = "decode_error_spike"
+    CONDITION_CHOICES = [
+        (CONDITION_NO_EVENTS, "No events for N minutes"),
+        (CONDITION_DECODE_ERROR_SPIKE, "Decode error spike"),
+    ]
 
-    user = models.ForeignKey(
-        User,
-        on_delete=models.CASCADE,
-        related_name="notifications",
+    ALERT_SLACK = "slack"
+    ALERT_EMAIL = "email"
+    ALERT_WEBHOOK = "webhook"
+    ALERT_TYPE_CHOICES = [
+        (ALERT_SLACK, "Slack"),
+        (ALERT_EMAIL, "Email"),
+        (ALERT_WEBHOOK, "Webhook"),
+    ]
+
+    name = models.CharField(max_length=256)
+    condition = models.JSONField(
+        help_text="Condition JSON, e.g. {'type': 'no_events_for_minutes', 'contract_id': 'C...', 'minutes': 60}",
     )
-    notification_type = models.CharField(
-        max_length=32,
-        choices=NotificationType.choices,
+    actions = models.JSONField(
+        default=list,
+        help_text="List of action objects: pause_contract, send_alert, disable_webhooks",
+    )
+    enabled = models.BooleanField(default=True)
+    grace_period_minutes = models.PositiveIntegerField(default=10)
+    alert_type = models.CharField(
+        max_length=16,
+        choices=ALERT_TYPE_CHOICES,
+        default=ALERT_SLACK,
+    )
+    alert_target = models.TextField(
+        blank=True,
+        help_text="Ops destination (Slack webhook URL, email, or webhook URL)",
+    )
+    dry_run = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"RemediationRule({self.name})"
+
+
+class RemediationIncident(models.Model):
+    """
+    Tracks lifecycle of a detected anomaly for one remediation rule.
+    """
+
+    STATUS_ALERTED = "alerted"
+    STATUS_EXECUTED = "executed"
+    STATUS_RESOLVED = "resolved"
+    STATUS_CHOICES = [
+        (STATUS_ALERTED, "Alerted"),
+        (STATUS_EXECUTED, "Executed"),
+        (STATUS_RESOLVED, "Resolved"),
+    ]
+
+    rule = models.ForeignKey(
+        RemediationRule,
+        on_delete=models.CASCADE,
+        related_name="incidents",
+    )
+    contract = models.ForeignKey(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name="remediation_incidents",
+    )
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_ALERTED)
+    anomaly_snapshot = models.JSONField(default=dict)
+    first_detected_at = models.DateTimeField(auto_now_add=True)
+    alerted_at = models.DateTimeField(null=True, blank=True)
+    action_after_at = models.DateTimeField(null=True, blank=True)
+    executed_at = models.DateTimeField(null=True, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-first_detected_at"]
+        indexes = [
+            models.Index(fields=["rule", "contract", "status"]),
+            models.Index(fields=["action_after_at"]),
+        ]
+
+    def __str__(self):
+        return f"Incident(rule={self.rule_id}, contract={self.contract_id}, status={self.status})"
+
+
+# ---------------------------------------------------------------------------
+# Data Retention Policies and Automated Archival
+# ---------------------------------------------------------------------------
+
+class DataRetentionPolicy(models.Model):
+    """
+    Configurable retention rule — per-contract or global (contract=None).
+    Events older than retention_days are archived to S3 and deleted from PG.
+    """
+
+    contract = models.OneToOneField(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="retention_policy",
+        help_text="Leave blank for a global default policy",
+    )
+    retention_days = models.PositiveIntegerField(
+        default=365,
+        help_text="Events older than this many days will be archived",
+    )
+    archive_enabled = models.BooleanField(
+        default=True,
+        help_text="When False, events are pruned without archiving to S3",
+    )
+    s3_bucket = models.CharField(
+        max_length=255,
+        help_text="S3 bucket name for archived event batches",
+    )
+    s3_prefix = models.CharField(
+        max_length=255,
+        blank=True,
+        default="soroscan/archives/",
+        help_text="Key prefix inside the S3 bucket",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Data Retention Policy"
+        verbose_name_plural = "Data Retention Policies"
+
+    def __str__(self):
+        scope = self.contract.name if self.contract else "Global"
+        return f"RetentionPolicy({scope}, {self.retention_days}d)"
+
+
+class ArchivedEventBatch(models.Model):
+    """
+    Metadata record for a single S3 archive object (gzip-compressed JSON).
+    The actual event data lives in S3; this record is the manifest.
+    """
+
+    STATUS_ARCHIVED = "archived"
+    STATUS_RESTORED = "restored"
+    STATUS_CHOICES = [
+        (STATUS_ARCHIVED, "Archived"),
+        (STATUS_RESTORED, "Restored"),
+    ]
+
+    policy = models.ForeignKey(
+        DataRetentionPolicy,
+        on_delete=models.CASCADE,
+        related_name="batches",
+    )
+    s3_key = models.CharField(
+        max_length=512,
+        unique=True,
+        help_text="Full S3 object key for this batch",
+    )
+    event_count = models.IntegerField(
+        help_text="Number of events in this batch",
+    )
+    size_bytes = models.BigIntegerField(
+        default=0,
+        help_text="Compressed size of the S3 object in bytes",
+    )
+    min_timestamp = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Earliest event timestamp in this batch",
+    )
+    max_timestamp = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Latest event timestamp in this batch",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=STATUS_CHOICES,
+        default=STATUS_ARCHIVED,
         db_index=True,
     )
-    title = models.CharField(max_length=256)
-    message = models.TextField()
-    # Optional link target — e.g. "/contracts/CXXX" or "/webhooks/42"
-    link = models.CharField(max_length=512, blank=True)
-    is_read = models.BooleanField(default=False, db_index=True)
+    archived_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-archived_at"]
+        indexes = [
+            models.Index(fields=["policy", "archived_at"]),
+            models.Index(fields=["status"]),
+        ]
+
+    def __str__(self):
+        return f"Batch({self.s3_key}, {self.event_count} events)"
+
+
+class ArchivalAuditLog(models.Model):
+    """
+    Immutable audit trail for every archival and restore operation.
+    Records are never deleted automatically.
+    """
+
+    ACTION_ARCHIVE = "archive"
+    ACTION_RESTORE = "restore"
+    ACTION_CHOICES = [
+        (ACTION_ARCHIVE, "Archive"),
+        (ACTION_RESTORE, "Restore"),
+    ]
+
+    action = models.CharField(max_length=16, choices=ACTION_CHOICES, db_index=True)
+    batch = models.ForeignKey(
+        ArchivedEventBatch,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="audit_logs",
+    )
+    policy = models.ForeignKey(
+        DataRetentionPolicy,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="audit_logs",
+    )
+    event_count = models.IntegerField(default=0)
+    detail = models.TextField(blank=True, help_text="Extra context or error message")
+    performed_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="User who triggered a restore (null for automated archival)",
+    )
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
         ordering = ["-created_at"]
-        indexes = [
-            models.Index(fields=["user", "is_read", "created_at"]),
-        ]
 
     def __str__(self):
-        return f"[{self.notification_type}] {self.title} → {self.user}"
+        return f"AuditLog({self.action}, {self.event_count} events, {self.created_at})"
+
+
+class AdminAction(models.Model):
+    """
+    Immutable audit trail for admin actions.
+
+    Records are append-only and retained for at least 7 years.
+    """
+
+    RETENTION_YEARS = 7
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+    )
+    action = models.CharField(max_length=128)
+    object_type = models.CharField(max_length=32)
+    object_id = models.CharField(max_length=255)
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+    ip_address = models.GenericIPAddressField(default="0.0.0.0")
+    changes = models.JSONField(default=dict)
+
+    class Meta:
+        ordering = ["-timestamp"]
+        indexes = [
+            models.Index(fields=["action", "timestamp"]),
+            models.Index(fields=["object_type", "object_id"]),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValidationError("AdminAction is immutable and cannot be updated.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("AdminAction is immutable and cannot be deleted.")
+
+    def __str__(self):
+        return f"{self.action} {self.object_type}:{self.object_id}"

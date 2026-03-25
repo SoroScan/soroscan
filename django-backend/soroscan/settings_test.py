@@ -99,6 +99,15 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # Default primary key field type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# In-memory cache for tests (query result caching — issue #131)
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "soroscan-test",
+    }
+}
+QUERY_CACHE_TTL_SECONDS = 60
+
 # REST Framework
 REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",

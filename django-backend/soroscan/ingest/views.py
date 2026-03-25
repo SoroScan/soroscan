@@ -7,7 +7,7 @@ import json
 import logging
 
 from django.conf import settings
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Q
 from django.db.models.functions import Cast
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
@@ -24,19 +24,49 @@ import requests as http_requests
 
 from soroscan.throttles import IngestRateThrottle
 
-from .models import APIKey, ContractEvent, ContractInvocation, TrackedContract, WebhookSubscription
+from .cache_utils import get_or_set_json, query_cache_ttl, stable_cache_key
+from .models import (
+    APIKey,
+    AdminAction,
+    ContractEvent,
+    ContractInvocation,
+    Team,
+    TeamMembership,
+    TrackedContract,
+    WebhookSubscription,
+    ArchivedEventBatch,
+)
 from .serializers import (
     APIKeySerializer,
     ContractEventSerializer,
     ContractInvocationSerializer,
     EventSearchSerializer,
     RecordEventRequestSerializer,
+    TeamMemberAddSerializer,
+    TeamSerializer,
     TrackedContractSerializer,
     WebhookSubscriptionSerializer,
 )
 from .stellar_client import SorobanClient
 
 logger = logging.getLogger(__name__)
+
+
+class AdminActionSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source="user.username", read_only=True)
+
+    class Meta:
+        model = AdminAction
+        fields = [
+            "id",
+            "username",
+            "action",
+            "object_type",
+            "object_id",
+            "timestamp",
+            "ip_address",
+            "changes",
+        ]
 
 
 def _frontend_base_url() -> str:
@@ -69,10 +99,13 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         serializer.save(owner=self.request.user)
 
     def get_queryset(self):
-        # Public read access, but filter by owner for write operations
-        if self.request.method in ['GET', 'HEAD', 'OPTIONS']:
-            return TrackedContract.objects.all()
-        return TrackedContract.objects.filter(owner=self.request.user)
+        qs = TrackedContract.objects.all()
+        user = self.request.user
+        if self.request.method in ["GET", "HEAD", "OPTIONS"]:
+            if user.is_authenticated:
+                return qs.filter(Q(owner=user) | Q(team__memberships__user=user)).distinct()
+            return qs
+        return qs.filter(owner=self.request.user)
 
     @extend_schema(responses=ContractEventSerializer(many=True))
     @action(detail=True, methods=["get"])
@@ -100,14 +133,23 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
     def stats(self, request, pk=None):
         """Get statistics for a contract."""
         contract = self.get_object()
-        stats = contract.events.aggregate(
-            total_events=Count("id"),
-            unique_event_types=Count("event_type", distinct=True),
-            latest_ledger=Max("ledger"),
-            last_activity=Max("timestamp"),
+        cache_key = stable_cache_key(
+            "rest_contract_stats",
+            {"contract_pk": contract.pk, "cid": contract.contract_id},
         )
-        stats["contract_id"] = contract.contract_id
-        stats["name"] = contract.name
+
+        def _build():
+            agg = contract.events.aggregate(
+                total_events=Count("id"),
+                unique_event_types=Count("event_type", distinct=True),
+                latest_ledger=Max("ledger"),
+                last_activity=Max("timestamp"),
+            )
+            agg["contract_id"] = contract.contract_id
+            agg["name"] = contract.name
+            return agg
+
+        stats = get_or_set_json(cache_key, query_cache_ttl(), _build)
         return Response(stats)
 
 
@@ -124,7 +166,14 @@ class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = ContractEvent.objects.all()
     serializer_class = ContractEventSerializer
     filter_backends = [DjangoFilterBackend, OrderingFilter]
-    filterset_fields = ["contract__contract_id", "event_type", "ledger", "validation_status", "decoding_status"]
+    filterset_fields = [
+        "contract__contract_id",
+        "event_type",
+        "ledger",
+        "validation_status",
+        "decoding_status",
+        "signature_status",
+    ]
     ordering_fields = ["timestamp", "ledger"]
     ordering = ["-timestamp"]
 
@@ -240,19 +289,25 @@ class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
             page_size = 50
 
         qs = qs.order_by("-timestamp")
-        total = qs.count()
-        offset = (page - 1) * page_size
-        items = list(qs[offset: offset + page_size])
+        cache_key = stable_cache_key(
+            "rest_event_search",
+            dict(request.GET.items()),
+        )
 
-        serializer = EventSearchSerializer(items, many=True)
-        return Response(
-            {
+        def _build():
+            total = qs.count()
+            offset = (page - 1) * page_size
+            items = list(qs[offset : offset + page_size])
+            ser = EventSearchSerializer(items, many=True)
+            return {
                 "count": total,
                 "page": page,
                 "page_size": page_size,
-                "results": serializer.data,
+                "results": ser.data,
             }
-        )
+
+        payload = get_or_set_json(cache_key, query_cache_ttl(), _build)
+        return Response(payload)
 
 
 class ContractInvocationViewSet(viewsets.ReadOnlyModelViewSet):
@@ -395,6 +450,65 @@ class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
             )
 
         return Response({"status": "test_webhook_queued"})
+
+
+class TeamViewSet(viewsets.ModelViewSet):
+    """
+    Teams: multi-tenant organization of contracts and members.
+
+    - GET /teams/ — teams the current user belongs to
+    - POST /teams/ — create a team (creator becomes admin)
+    - POST /teams/{id}/members/ — add a user (admin only)
+    """
+
+    serializer_class = TeamSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [OrderingFilter]
+    ordering_fields = ["name", "created_at"]
+    ordering = ["name"]
+
+    def get_queryset(self):
+        return Team.objects.filter(memberships__user=self.request.user).distinct()
+
+    @extend_schema(
+        request=TeamMemberAddSerializer,
+        responses={
+            201: inline_serializer(
+                name="TeamMemberAdded",
+                fields={"status": serializers.CharField()},
+            )
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="members")
+    def members(self, request, pk=None):
+        team = self.get_object()
+        admin = TeamMembership.objects.filter(
+            team=team,
+            user=request.user,
+            role=TeamMembership.Role.ADMIN,
+        ).exists()
+        if not admin:
+            return Response(
+                {"detail": "Only team admins can add members."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        ser = TeamMemberAddSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        try:
+            new_user = User.objects.get(pk=ser.validated_data["user_id"])
+        except User.DoesNotExist:
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+        _, created = TeamMembership.objects.get_or_create(
+            team=team,
+            user=new_user,
+            defaults={"role": ser.validated_data["role"]},
+        )
+        if not created:
+            return Response({"status": "already_member"}, status=status.HTTP_200_OK)
+        return Response({"status": "created"}, status=status.HTTP_201_CREATED)
 
 
 class APIKeyViewSet(viewsets.ModelViewSet):
@@ -561,3 +675,166 @@ def contract_event_explorer_view(request, contract_id: str):
     contract = get_object_or_404(TrackedContract, contract_id=contract_id)
     frontend_base = _frontend_base_url()
     return redirect(f"{frontend_base}/contracts/{contract.contract_id}/events/explorer")
+
+
+@extend_schema(
+    parameters=[
+        inline_serializer(
+            name="RestoreArchiveParams",
+            fields={"batch_id": serializers.IntegerField()},
+        )
+    ],
+    responses={
+        200: inline_serializer(
+            name="RestoreArchiveResponse",
+            fields={
+                "status": serializers.CharField(),
+                "restored_count": serializers.IntegerField(),
+                "batch_id": serializers.IntegerField(),
+            },
+        ),
+        404: inline_serializer(
+            name="RestoreNotFound",
+            fields={"detail": serializers.CharField()},
+        ),
+        429: inline_serializer(
+            name="RestoreRateLimited",
+            fields={"detail": serializers.CharField()},
+        ),
+    },
+)
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([UserRateThrottle])
+def restore_archived_events(request):
+    """
+    Retrieve an archived event batch from S3 and re-import events into PostgreSQL.
+
+    Query params:
+    - batch_id: ID of the ArchivedEventBatch to restore
+    """
+    batch_id = request.query_params.get("batch_id") or request.data.get("batch_id")
+    if not batch_id:
+        return Response({"detail": "batch_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    batch = get_object_or_404(ArchivedEventBatch, id=batch_id)
+
+    if batch.status == ArchivedEventBatch.STATUS_RESTORED:
+        return Response(
+            {"detail": "Batch already restored.", "batch_id": batch.id},
+            status=status.HTTP_200_OK,
+        )
+
+    try:
+        import boto3  # noqa: PLC0415
+        import gzip  # noqa: PLC0415
+
+        s3 = boto3.client(
+            "s3",
+            region_name=getattr(settings, "AWS_S3_REGION_NAME", None),
+            endpoint_url=getattr(settings, "AWS_S3_ENDPOINT_URL", None),
+            aws_access_key_id=getattr(settings, "AWS_ACCESS_KEY_ID", None),
+            aws_secret_access_key=getattr(settings, "AWS_SECRET_ACCESS_KEY", None),
+        )
+        policy = batch.policy
+        obj = s3.get_object(Bucket=policy.s3_bucket, Key=batch.s3_key)
+        compressed = obj["Body"].read()
+        raw_json = gzip.decompress(compressed)
+        rows = json.loads(raw_json)
+
+    except Exception as exc:
+        logger.exception("Failed to download archive batch %s from S3", batch_id)
+        return Response(
+            {"detail": f"S3 retrieval failed: {str(exc)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    restored_count = 0
+    for row in rows:
+        try:
+            contract = TrackedContract.objects.get(contract_id=row["contract__contract_id"])
+            ContractEvent.objects.get_or_create(
+                contract=contract,
+                ledger=row["ledger"],
+                event_index=row["event_index"],
+                defaults={
+                    "event_type": row["event_type"],
+                    "payload": row["payload"],
+                    "payload_hash": row.get("payload_hash", ""),
+                    "timestamp": row["timestamp"],
+                    "tx_hash": row.get("tx_hash", ""),
+                },
+            )
+            restored_count += 1
+        except Exception:
+            logger.warning("Skipped row during restore: %s", row.get("id"), exc_info=True)
+
+    batch.status = ArchivedEventBatch.STATUS_RESTORED
+    batch.save(update_fields=["status"])
+
+    from .models import ArchivalAuditLog  # noqa: PLC0415
+    ArchivalAuditLog.objects.create(
+        action=ArchivalAuditLog.ACTION_RESTORE,
+        batch=batch,
+        policy=batch.policy,
+        event_count=restored_count,
+        detail=f"Restored by user {request.user.id}",
+        performed_by=request.user,
+    )
+
+    return Response(
+        {"status": "restored", "restored_count": restored_count, "batch_id": batch.id},
+        status=status.HTTP_200_OK,
+    )
+
+
+@extend_schema(
+    parameters=[
+        inline_serializer(
+            name="AuditTrailParams",
+            fields={
+                "action": serializers.CharField(required=False),
+                "object_type": serializers.CharField(required=False),
+                "object_id": serializers.CharField(required=False),
+                "user": serializers.CharField(required=False),
+                "since": serializers.DateTimeField(required=False),
+                "until": serializers.DateTimeField(required=False),
+                "limit": serializers.IntegerField(required=False),
+            },
+        )
+    ],
+    responses=AdminActionSerializer(many=True),
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def audit_trail_view(request):
+    """Query immutable admin audit trail entries."""
+    qs = AdminAction.objects.select_related("user").all().order_by("-timestamp")
+
+    action = request.query_params.get("action")
+    object_type = request.query_params.get("object_type")
+    object_id = request.query_params.get("object_id")
+    username = request.query_params.get("user")
+    since = request.query_params.get("since")
+    until = request.query_params.get("until")
+
+    if action:
+        qs = qs.filter(action=action)
+    if object_type:
+        qs = qs.filter(object_type=object_type)
+    if object_id:
+        qs = qs.filter(object_id=object_id)
+    if username:
+        qs = qs.filter(user__username=username)
+    if since:
+        qs = qs.filter(timestamp__gte=since)
+    if until:
+        qs = qs.filter(timestamp__lte=until)
+
+    try:
+        limit = max(1, min(int(request.query_params.get("limit", 100)), 1000))
+    except (TypeError, ValueError):
+        limit = 100
+
+    serializer = AdminActionSerializer(qs[:limit], many=True)
+    return Response(serializer.data)
