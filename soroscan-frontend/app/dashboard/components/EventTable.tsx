@@ -86,11 +86,6 @@ export function EventTable({ events, loading, onEventClick }: EventTableProps) {
                     <button
                       type="button"
                       className={styles.btn}
-                      style={{
-                        padding: "0.2rem 0.4rem",
-                        fontSize: "0.7rem",
-                        minWidth: "auto",
-                      }}
                       onClick={(e) => {
                         e.stopPropagation();
                         copyToClipboard(event.contractId, `contract-${event.id}`);
@@ -117,10 +112,6 @@ export function EventTable({ events, loading, onEventClick }: EventTableProps) {
                   <button
                     type="button"
                     className={styles.btn}
-                    style={{
-                      padding: "0.2rem 0.5rem",
-                      fontSize: "0.75rem",
-                    }}
                     onClick={(e) => {
                       e.stopPropagation();
                     }}
@@ -135,11 +126,6 @@ export function EventTable({ events, loading, onEventClick }: EventTableProps) {
                     <button
                       type="button"
                       className={styles.btn}
-                      style={{
-                        padding: "0.2rem 0.4rem",
-                        fontSize: "0.7rem",
-                        minWidth: "auto",
-                      }}
                       onClick={(e) => {
                         e.stopPropagation();
                         copyToClipboard(event.txHash, `tx-${event.id}`);
@@ -154,10 +140,6 @@ export function EventTable({ events, loading, onEventClick }: EventTableProps) {
                   <button
                     type="button"
                     className={styles.btn}
-                    style={{
-                      padding: "0.3rem 0.6rem",
-                      fontSize: "0.75rem",
-                    }}
                     onClick={() => onEventClick(event)}
                   >
                     View

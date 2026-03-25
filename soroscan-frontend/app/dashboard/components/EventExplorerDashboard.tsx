@@ -11,6 +11,7 @@ import type { EventRecord } from "@/components/ingest/types";
 import styles from "@/components/ingest/ingest-terminal.module.css";
 import { useToast } from "@/context/ToastContext";
 import { parseSearchQuery, matchesFilters } from "@/lib/search-parser";
+import { Navbar } from "@/components/terminal/landing/Navbar";
 
 const PAGE_SIZE = 20;
 
@@ -176,6 +177,7 @@ export function EventExplorerDashboard() {
 
   return (
     <div className={styles.page}>
+      <Navbar />
       <main className={`${styles.timelineApp} ${styles.explorerApp}`}>
         <header className={styles.hero}>
           <p className={styles.kicker}>SoroScan</p>

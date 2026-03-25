@@ -46,6 +46,13 @@
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
 
+  /* Responsive Breakpoints */
+  --breakpoint-xs: 375px;
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+
   /* Terminal Theme tokens */
   --color-terminal-black: #0a0e27;
   --color-terminal-green: #00ff41;
@@ -175,5 +182,27 @@
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     border-width: 0;
+  }
+
+  /* ── Mobile Touch Targets & Interaction ───────────────────────────
+     Ensure interactive elements are at least 44x44px on mobile
+     (WCAG 2.1 AA §2.5.5). Disable hover effects on touch devices.
+  ──────────────────────────────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    button, 
+    input, 
+    select,
+    [role="button"] {
+      min-height: 44px;
+    }
+  }
+
+  @media (hover: none) {
+    button:hover,
+    a:hover,
+    [role="button"]:hover {
+      transform: none !important;
+      box-shadow: none !important;
+    }
   }
 }

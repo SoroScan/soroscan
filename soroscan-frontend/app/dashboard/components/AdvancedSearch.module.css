@@ -177,3 +177,47 @@
 .saveBtn:hover {
   background: rgba(0, 255, 156, 0.2);
 }
+@media (max-width: 768px) {
+  .searchContainer {
+    flex-wrap: wrap;
+    gap: 0.8rem;
+  }
+
+  .searchInput {
+    flex: 1 1 100%;
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .saveBtn, .helpToggle {
+    flex: 1;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  .suggestionItem {
+    padding: 0.85rem 1rem;
+    font-size: 1rem;
+  }
+
+  .quickFilters {
+    gap: 0.8rem;
+  }
+
+  .filterBtn {
+    min-height: 44px;
+    padding: 0.6rem 1rem;
+    font-size: 0.85rem;
+  }
+
+  .listItem {
+    min-height: 44px;
+    padding: 0.6rem 1rem;
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .helpContent {
+    padding: 1.25rem;
+  }
+}

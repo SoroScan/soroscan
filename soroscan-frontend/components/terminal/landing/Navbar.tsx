@@ -10,6 +10,8 @@ import { useRouter } from "next/navigation"
 
 const navLinks = [
   { href: "/docs",      label: "DOCS" },
+  { href: "/dashboard", label: "DASHBOARD" },
+  { href: "/admin",     label: "ADMIN", adminOnly: true },
   { href: "/features",  label: "FEATURES" },
   { href: "/api/docs/", label: "API_DOCS", external: true },
   { href: "https://github.com/SoroScan/soroscan", label: "GITHUB", external: true },
@@ -44,7 +46,9 @@ export function Navbar() {
 
         {/* Desktop links */}
         <div className="hidden md:flex gap-6 lg:gap-8 text-xs text-terminal-gray uppercase tracking-widest items-center">
-          {navLinks.map((link) =>
+          {navLinks
+            .filter(link => !link.adminOnly || authenticated)
+            .map((link) =>
             link.external ? (
               <a
                 key={link.href}
@@ -117,7 +121,9 @@ export function Navbar() {
           aria-label="Mobile navigation"
           className="md:hidden mt-4 pb-2 border-t border-terminal-green/20 pt-4 flex flex-col gap-4 text-xs uppercase tracking-widest text-terminal-gray"
         >
-          {navLinks.map((link) =>
+          {navLinks
+            .filter(link => !link.adminOnly || authenticated)
+            .map((link) =>
             link.external ? (
               <a
                 key={link.href}
