@@ -102,15 +102,19 @@ class TestImportJSON:
         buf = io.StringIO()
         export_json(contract.contract_id, buf)
 
-        # Import twice — second run should skip all as duplicates
+        # First import: rows already exist in DB, all should be skipped as duplicates
         buf.seek(0)
         r1 = import_json(buf, ImportResult())
+        assert r1.imported == 0
+        assert r1.skipped == 3
+        assert r1.errors == 0
+
+        # Second import: same result
         buf.seek(0)
         r2 = import_json(buf, ImportResult())
-
-        assert r1.imported == 0  # already existed
         assert r2.imported == 0
         assert r2.skipped == 3
+
         assert ContractEvent.objects.count() == 3
 
     def test_import_missing_contract_records_error(self):

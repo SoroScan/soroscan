@@ -287,13 +287,23 @@ def _import_batch(batch: list[dict], contracts: dict, result: ImportResult, dry_
             result.error_details.append(str(exc))
 
     if dry_run or not events:
-        result.imported += len(events)
+        # In dry-run mode we validate but don't write; count as "would import"
+        if dry_run:
+            result.imported += len(events)
         return
 
-    # Use ignore_conflicts for idempotent import (unique_contract_ledger_event_index)
-    created = ContractEvent.objects.bulk_create(events, ignore_conflicts=True)
-    result.imported += len(created)
-    result.skipped += len(events) - len(created)
+    # Use ignore_conflicts for idempotent import (unique_contract_ledger_event_index).
+    # bulk_create with ignore_conflicts=True on PostgreSQL returns all objects with PKs
+    # set (both inserted and skipped), so we can't use len(created) to count inserts.
+    # Instead, snapshot the count before and after to get the true insert count.
+    contract_pks = {e.contract_id for e in events}
+    before = ContractEvent.objects.filter(contract_id__in=contract_pks).count()
+    ContractEvent.objects.bulk_create(events, ignore_conflicts=True)
+    after = ContractEvent.objects.filter(contract_id__in=contract_pks).count()
+
+    actually_inserted = after - before
+    result.imported += actually_inserted
+    result.skipped += len(events) - actually_inserted
 
 
 def import_json(src: IO, result: ImportResult, dry_run: bool = False) -> ImportResult:
