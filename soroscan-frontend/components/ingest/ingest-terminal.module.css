@@ -59,6 +59,7 @@
 
 .hero {
   padding: 1rem;
+  position: relative;
 }
 
 .kicker {
