@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ("ingest", "0011_data_retention"),
+        ("ingest", "0013_remediationincident_remediationrule_and_more"),
     ]
 
     operations = [
