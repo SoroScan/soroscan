@@ -5,6 +5,7 @@ import hashlib
 import secrets
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db import models
 
 User = get_user_model()
@@ -175,6 +176,40 @@ class ContractABI(models.Model):
         return f"ABI for {self.contract}"
 
 
+class ContractSigningKey(models.Model):
+    """
+    Public verification key registered per contract for event signature checks.
+    """
+
+    class Algorithm(models.TextChoices):
+        ED25519 = "ed25519", "Ed25519"
+        ECDSA = "ecdsa", "ECDSA"
+
+    contract = models.OneToOneField(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name="signing_key",
+    )
+    algorithm = models.CharField(
+        max_length=16,
+        choices=Algorithm.choices,
+        default=Algorithm.ED25519,
+    )
+    public_key = models.TextField(
+        help_text="Public key for signature verification (hex/base64/raw PEM)",
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Contract Signing Key"
+        verbose_name_plural = "Contract Signing Keys"
+
+    def __str__(self):
+        return f"SigningKey({self.contract.contract_id[:8]}..., {self.algorithm})"
+
+
 class ContractEvent(models.Model):
     """
     Individual events emitted by tracked contracts.
@@ -247,6 +282,17 @@ class ContractEvent(models.Model):
         db_index=True,
         help_text="Result of ABI-based XDR decoding",
     )
+    signature_status = models.CharField(
+        max_length=16,
+        choices=[
+            ("valid", "Valid"),
+            ("invalid", "Invalid"),
+            ("missing", "Missing"),
+        ],
+        default="missing",
+        db_index=True,
+        help_text="Result of event signature verification",
+    )
 
     class Meta:
         ordering = ["-timestamp"]
@@ -257,6 +303,7 @@ class ContractEvent(models.Model):
             models.Index(fields=["tx_hash"]),
             models.Index(fields=["contract", "ledger", "event_index"]),
             models.Index(fields=["invocation"]),
+            models.Index(fields=["signature_status"]),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -571,6 +618,105 @@ class AlertExecution(models.Model):
         return f"Alert {self.rule.name}: {self.status} @ {self.created_at}"
 
 
+class RemediationRule(models.Model):
+    """
+    Automated incident response rule.
+
+    ``condition`` describes anomaly detection criteria.
+    ``actions`` is a list of action objects, e.g.:
+      [{"type": "pause_contract"}, {"type": "disable_webhooks"}]
+    """
+
+    CONDITION_NO_EVENTS = "no_events_for_minutes"
+    CONDITION_DECODE_ERROR_SPIKE = "decode_error_spike"
+    CONDITION_CHOICES = [
+        (CONDITION_NO_EVENTS, "No events for N minutes"),
+        (CONDITION_DECODE_ERROR_SPIKE, "Decode error spike"),
+    ]
+
+    ALERT_SLACK = "slack"
+    ALERT_EMAIL = "email"
+    ALERT_WEBHOOK = "webhook"
+    ALERT_TYPE_CHOICES = [
+        (ALERT_SLACK, "Slack"),
+        (ALERT_EMAIL, "Email"),
+        (ALERT_WEBHOOK, "Webhook"),
+    ]
+
+    name = models.CharField(max_length=256)
+    condition = models.JSONField(
+        help_text="Condition JSON, e.g. {'type': 'no_events_for_minutes', 'contract_id': 'C...', 'minutes': 60}",
+    )
+    actions = models.JSONField(
+        default=list,
+        help_text="List of action objects: pause_contract, send_alert, disable_webhooks",
+    )
+    enabled = models.BooleanField(default=True)
+    grace_period_minutes = models.PositiveIntegerField(default=10)
+    alert_type = models.CharField(
+        max_length=16,
+        choices=ALERT_TYPE_CHOICES,
+        default=ALERT_SLACK,
+    )
+    alert_target = models.TextField(
+        blank=True,
+        help_text="Ops destination (Slack webhook URL, email, or webhook URL)",
+    )
+    dry_run = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"RemediationRule({self.name})"
+
+
+class RemediationIncident(models.Model):
+    """
+    Tracks lifecycle of a detected anomaly for one remediation rule.
+    """
+
+    STATUS_ALERTED = "alerted"
+    STATUS_EXECUTED = "executed"
+    STATUS_RESOLVED = "resolved"
+    STATUS_CHOICES = [
+        (STATUS_ALERTED, "Alerted"),
+        (STATUS_EXECUTED, "Executed"),
+        (STATUS_RESOLVED, "Resolved"),
+    ]
+
+    rule = models.ForeignKey(
+        RemediationRule,
+        on_delete=models.CASCADE,
+        related_name="incidents",
+    )
+    contract = models.ForeignKey(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name="remediation_incidents",
+    )
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_ALERTED)
+    anomaly_snapshot = models.JSONField(default=dict)
+    first_detected_at = models.DateTimeField(auto_now_add=True)
+    alerted_at = models.DateTimeField(null=True, blank=True)
+    action_after_at = models.DateTimeField(null=True, blank=True)
+    executed_at = models.DateTimeField(null=True, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-first_detected_at"]
+        indexes = [
+            models.Index(fields=["rule", "contract", "status"]),
+            models.Index(fields=["action_after_at"]),
+        ]
+
+    def __str__(self):
+        return f"Incident(rule={self.rule_id}, contract={self.contract_id}, status={self.status})"
+
+
 # ---------------------------------------------------------------------------
 # Data Retention Policies and Automated Archival
 # ---------------------------------------------------------------------------
@@ -732,55 +878,18 @@ class ArchivalAuditLog(models.Model):
 class TransactionCost(models.Model):
     """
     Records fee and resource usage for every ingested Soroban transaction.
-    Enables cost analytics, outlier detection, and trend analysis.
     """
 
-    contract = models.ForeignKey(
-        TrackedContract,
-        on_delete=models.CASCADE,
-        related_name="transaction_costs",
-        help_text="Contract this transaction was invoked on",
-    )
-    tx_hash = models.CharField(
-        max_length=64,
-        unique=True,
-        db_index=True,
-        help_text="Transaction hash",
-    )
-    function_name = models.CharField(
-        max_length=128,
-        blank=True,
-        db_index=True,
-        help_text="Contract function name (empty if unknown)",
-    )
-    ledger_sequence = models.PositiveIntegerField(
-        db_index=True,
-        help_text="Ledger sequence number",
-    )
-    total_fee_stroops = models.BigIntegerField(
-        help_text="Total transaction fee in stroops (1 stroop = 1e-7 XLM)",
-    )
-    cpu_instructions_used = models.BigIntegerField(
-        default=0,
-        help_text="CPU instructions consumed by the Soroban host",
-    )
-    memory_bytes_used = models.BigIntegerField(
-        default=0,
-        help_text="Memory bytes consumed by the Soroban host",
-    )
-    network_bytes_used = models.BigIntegerField(
-        default=0,
-        help_text="Network bytes (read/write ledger entries) consumed",
-    )
-    is_outlier = models.BooleanField(
-        default=False,
-        db_index=True,
-        help_text="True when total_fee_stroops is >2 std deviations from the function mean",
-    )
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-        db_index=True,
-    )
+    contract = models.ForeignKey(TrackedContract, on_delete=models.CASCADE, related_name="transaction_costs", help_text="Contract this transaction was invoked on")
+    tx_hash = models.CharField(max_length=64, unique=True, db_index=True, help_text="Transaction hash")
+    function_name = models.CharField(max_length=128, blank=True, db_index=True, help_text="Contract function name (empty if unknown)")
+    ledger_sequence = models.PositiveIntegerField(db_index=True, help_text="Ledger sequence number")
+    total_fee_stroops = models.BigIntegerField(help_text="Total transaction fee in stroops (1 stroop = 1e-7 XLM)")
+    cpu_instructions_used = models.BigIntegerField(default=0)
+    memory_bytes_used = models.BigIntegerField(default=0)
+    network_bytes_used = models.BigIntegerField(default=0)
+    is_outlier = models.BooleanField(default=False, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
         ordering = ["-created_at"]
@@ -795,42 +904,57 @@ class TransactionCost(models.Model):
 
 
 class CostAggregate(models.Model):
-    """
-    Pre-computed hourly cost aggregates per contract+function.
-    Populated by the ``aggregate_transaction_costs`` Celery task.
-    """
+    """Pre-computed hourly cost aggregates per contract+function."""
 
-    contract = models.ForeignKey(
-        TrackedContract,
-        on_delete=models.CASCADE,
-        related_name="cost_aggregates",
-    )
+    contract = models.ForeignKey(TrackedContract, on_delete=models.CASCADE, related_name="cost_aggregates")
     function_name = models.CharField(max_length=128, blank=True)
-    # Truncated to the hour (minute/second = 0)
-    period_start = models.DateTimeField(
-        db_index=True,
-        help_text="Start of the 1-hour aggregation window (UTC, truncated to hour)",
-    )
+    period_start = models.DateTimeField(db_index=True, help_text="Start of the 1-hour aggregation window (UTC, truncated to hour)")
     avg_fee_stroops = models.BigIntegerField(default=0)
     min_fee_stroops = models.BigIntegerField(default=0)
     max_fee_stroops = models.BigIntegerField(default=0)
     total_fee_stroops = models.BigIntegerField(default=0)
     call_count = models.PositiveIntegerField(default=0)
-    stddev_fee_stroops = models.FloatField(
-        default=0.0,
-        help_text="Population standard deviation of fees in this window",
-    )
+    stddev_fee_stroops = models.FloatField(default=0.0)
     computed_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["-period_start"]
         unique_together = ("contract", "function_name", "period_start")
-        indexes = [
-            models.Index(fields=["contract", "function_name", "-period_start"]),
-        ]
+        indexes = [models.Index(fields=["contract", "function_name", "-period_start"])]
 
     def __str__(self):
-        return (
-            f"CostAgg({self.contract.name} fn={self.function_name} "
-            f"@ {self.period_start:%Y-%m-%dT%H:00Z})"
-        )
+        return f"CostAgg({self.contract.name} fn={self.function_name} @ {self.period_start:%Y-%m-%dT%H:00Z})"
+
+
+class AdminAction(models.Model):
+    """Immutable audit trail for admin actions. Append-only, retained 7 years."""
+
+    RETENTION_YEARS = 7
+
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    action = models.CharField(max_length=128)
+    object_type = models.CharField(max_length=32)
+    object_id = models.CharField(max_length=255)
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+    ip_address = models.GenericIPAddressField(default="0.0.0.0")
+    changes = models.JSONField(default=dict)
+
+    class Meta:
+        ordering = ["-timestamp"]
+        indexes = [
+            models.Index(fields=["action", "timestamp"]),
+            models.Index(fields=["object_type", "object_id"]),
+        ]
+
+    def save(self, *args, **kwargs):
+        from django.core.exceptions import ValidationError
+        if self.pk:
+            raise ValidationError("AdminAction is immutable and cannot be updated.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        from django.core.exceptions import ValidationError
+        raise ValidationError("AdminAction is immutable and cannot be deleted.")
+
+    def __str__(self):
+        return f"{self.action} {self.object_type}:{self.object_id}"
