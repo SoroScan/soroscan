@@ -5,13 +5,10 @@ Supports Parquet, CSV, JSON, and Avro formats with idempotent import
 (deduplication via the unique_contract_ledger_event_index constraint).
 """
 import csv
-import io
 import json
 import logging
 from datetime import datetime, timezone
-from typing import IO, Generator, Iterator
-
-from django.db import IntegrityError, transaction
+from typing import IO, Iterator
 
 from soroscan.ingest.models import ContractEvent, TrackedContract
 

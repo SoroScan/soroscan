@@ -5,14 +5,12 @@ underlying export_import service.
 import csv
 import io
 import json
-import os
-import tempfile
 
 import pytest
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
-from soroscan.ingest.models import ContractEvent, TrackedContract
+from soroscan.ingest.models import ContractEvent
 from soroscan.ingest.services.export_import import (
     ImportResult,
     export_csv,

@@ -9,8 +9,6 @@ Usage examples:
     python manage.py export_events --contract-id CXXX --format parquet --output events.parquet \
         --start-ledger 1000000 --end-ledger 2000000
 """
-import sys
-
 from django.core.management.base import BaseCommand, CommandError
 
 from soroscan.ingest.models import TrackedContract
