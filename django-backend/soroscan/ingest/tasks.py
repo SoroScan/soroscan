@@ -577,6 +577,23 @@ def _on_delivery_failure(
             task_instance.max_retries + 1,
             extra={"webhook_id": webhook.id},
         )
+        # Push in-app notification to the contract owner
+        try:
+            from .services.notifications import create_and_push
+            owner = webhook.contract.owner
+            create_and_push(
+                user=owner,
+                notification_type="webhook_failure",
+                title="Webhook Suspended",
+                message=(
+                    f"Webhook to {webhook.target_url} for contract "
+                    f"'{webhook.contract.name}' has been suspended after "
+                    f"{task_instance.max_retries + 1} consecutive failures."
+                ),
+                link=f"/webhooks/{webhook.id}",
+            )
+        except Exception:
+            logger.exception("Failed to create webhook_failure notification for webhook %s", webhook.id)
 
 
 @shared_task

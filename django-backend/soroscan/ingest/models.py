@@ -998,3 +998,46 @@ class AdminAction(models.Model):
 
     def __str__(self):
         return f"{self.action} {self.object_type}:{self.object_id}"
+
+
+# ---------------------------------------------------------------------------
+# Issue #137: Notification center
+# ---------------------------------------------------------------------------
+
+class Notification(models.Model):
+    """
+    In-app notification for a user. Covers contract events, webhook failures,
+    rate-limit warnings, and system maintenance messages.
+    """
+
+    class NotificationType(models.TextChoices):
+        CONTRACT_PAUSED = "contract_paused", "Contract Paused"
+        WEBHOOK_FAILURE = "webhook_failure", "Webhook Failure"
+        RATE_LIMIT = "rate_limit", "Rate Limit Warning"
+        SYSTEM = "system", "System"
+        ALERT = "alert", "Alert"
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="notifications",
+    )
+    notification_type = models.CharField(
+        max_length=32,
+        choices=NotificationType.choices,
+        db_index=True,
+    )
+    title = models.CharField(max_length=256)
+    message = models.TextField()
+    link = models.CharField(max_length=512, blank=True)
+    is_read = models.BooleanField(default=False, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "is_read", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"[{self.notification_type}] {self.title} → {self.user}"
