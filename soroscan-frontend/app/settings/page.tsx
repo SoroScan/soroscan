@@ -1,28 +1,25 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import ThemeSelector from "./components/ThemeSelector";
 import NotificationPrefs from "./components/NotificationPrefs";
 import APIKeyManager from "./components/APIKeyManager";
 
 export default function SettingsPage() {
-  const [rowsPerPage, setRowsPerPage] = useState<number>(() => {
-    if (typeof window === "undefined") return 10;
+  const [rowsPerPage, setRowsPerPage] = useState<number>(10);
+  const [fontSize, setFontSize] = useState<string>("14");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     const display = localStorage.getItem("displaySettings");
     if (display) {
-      const { rowsPerPage } = JSON.parse(display);
-      return rowsPerPage;
+      try {
+        const parsed = JSON.parse(display);
+        if (parsed.rowsPerPage) setRowsPerPage(parsed.rowsPerPage);
+        if (parsed.fontSize) setFontSize(String(parsed.fontSize));
+      } catch (e) {
+        // ignore malformed prefs
+      }
     }
-    return 10;
-  });
-  const [fontSize, setFontSize] = useState<number>(() => {
-    if (typeof window === "undefined") return 14;
-    const display = localStorage.getItem("displaySettings");
-    if (display) {
-      const { fontSize } = JSON.parse(display);
-      return fontSize;
-    }
-    return 14;
-  });
+  }, []);
   const [saved, setSaved] = useState(false);
 
   // Commented out useEffect to avoid localStorage dependency
@@ -95,7 +92,7 @@ export default function SettingsPage() {
                 onChange={(e) => setFontSize(e.target.value)}
                 className="bg-transparent border border-green-500/30 rounded px-2 py-1 font-mono text-sm text-green-400 focus:outline-none focus:border-green-400"
               >
-                {["xs", "sm", "base", "lg"].map((s) => (
+                {['12', '14', '16', '18'].map((s) => (
                   <option key={s} value={s} className="bg-[#0a0e27]">{s}</option>
                 ))}
               </select>

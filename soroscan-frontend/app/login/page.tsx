@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useState } from 'react';
+export const dynamic = "force-dynamic";
+
+import React, { useState, useEffect } from 'react';
 import { useMutation, gql } from '@apollo/client';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -36,8 +38,16 @@ type LoginFormValues = z.infer<typeof loginSchema>;
  */
 export default function LoginPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
+  const [callbackUrl, setCallbackUrl] = useState('/dashboard');
+
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      setCallbackUrl(params.get('callbackUrl') || '/dashboard');
+    } catch (e) {
+      setCallbackUrl('/dashboard');
+    }
+  }, []);
   const [error, setError] = useState<string | null>(null);
 
   const {
@@ -45,7 +55,7 @@ export default function LoginPage() {
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<LoginFormValues>({
-    resolver: zodResolver(loginSchema as unknown as Parameters<typeof zodResolver>[0]),
+    resolver: zodResolver(loginSchema),
   });
 
   const [login] = useMutation(LOGIN_MUTATION);

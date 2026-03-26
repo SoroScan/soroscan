@@ -4,6 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "../Button"
+import ThemeToggle from "./ThemeToggle"
 import { Menu, X, LogOut } from "lucide-react"
 import { isLoggedIn, clearTokens } from "@/lib/auth"
 import { useRouter } from "next/navigation"
@@ -69,7 +70,7 @@ export function Navbar() {
           )}
         </div>
 
-          <div className="hidden md:flex items-center gap-3">
+    <div className="hidden md:flex items-center gap-3">
             {authenticated ? (
               <Button 
                 size="sm" 
@@ -94,6 +95,8 @@ export function Navbar() {
             >
               <Button size="sm" variant="secondary">GET_API_KEY</Button>
             </a>
+            {/* Theme toggle */}
+            <ThemeToggle />
           </div>
 
           {/* Mobile hamburger */}
@@ -164,6 +167,9 @@ export function Navbar() {
           <a href="/api/docs/" target="_blank" rel="noopener noreferrer" className="mt-2">
             <Button size="sm" variant="secondary" className="w-full justify-center">GET_API_KEY</Button>
           </a>
+          <div className="flex items-center mt-2">
+            <ThemeToggle />
+          </div>
         </div>
       )}
     </nav>

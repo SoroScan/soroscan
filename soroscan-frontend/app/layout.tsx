@@ -70,9 +70,27 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  // We inject a small inline script to set the initial theme before React hydrates.
+  // This avoids a flash of the wrong theme and respects saved preference or system pref.
+  const setThemeScript = `
+  (function(){
+    try{
+      var saved = localStorage.getItem('theme');
+      if(saved === 'light') document.documentElement.classList.remove('dark');
+      else if(saved === 'dark') document.documentElement.classList.add('dark');
+      else if(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) document.documentElement.classList.remove('dark');
+      else document.documentElement.classList.add('dark');
+    }catch(e){}
+  })();
+  `
+
   return (
-    <html lang="en" className="dark">
+    <html lang="en">
       <head>
+        <script
+          // Set initial theme as early as possible to prevent flicker
+          dangerouslySetInnerHTML={{ __html: setThemeScript }}
+        />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}

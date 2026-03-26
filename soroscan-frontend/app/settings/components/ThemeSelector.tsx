@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 
 export default function ThemeSelector() {
   const [theme, setTheme] = useState<"dark" | "light">(() => {
+    // guard against SSR or build-time evaluation where `window` is undefined
     if (typeof window === "undefined") return "dark";
     return (localStorage.getItem("theme") as "dark" | "light") || "dark";
   });
