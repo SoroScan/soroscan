@@ -17,6 +17,8 @@ function generateKey(): string {
 
 export default function APIKeyManager() {
   const [keys, setKeys] = useState<APIKey[]>(() => {
+    // guard access to localStorage in case this is analyzed during SSR/build
+    if (typeof window === "undefined") return [];
     const saved = localStorage.getItem("apiKeys");
     return saved ? JSON.parse(saved) : [];
   });

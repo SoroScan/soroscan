@@ -177,3 +177,11 @@
     border-width: 0;
   }
 }
+
+/* Theme transition helper: only enable transitions after JS runs to prevent
+   initial flash. The script in the layout adds the 'theme-transition' class.
+*/
+:root.theme-transition *,
+.theme-transition * {
+  transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+}

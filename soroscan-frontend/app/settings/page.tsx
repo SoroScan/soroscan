@@ -4,36 +4,29 @@ import ThemeSelector from "./components/ThemeSelector";
 import NotificationPrefs from "./components/NotificationPrefs";
 import APIKeyManager from "./components/APIKeyManager";
 
-export default function SettingsPage() {
-  const [rowsPerPage, setRowsPerPage] = useState<number>(() => {
-    if (typeof window === "undefined") return 10;
-    const display = localStorage.getItem("displaySettings");
-    if (display) {
-      const { rowsPerPage } = JSON.parse(display);
-      return rowsPerPage;
+const getInitialDisplaySettings = () => {
+  if (typeof window === "undefined") return { rowsPerPage: 10, fontSize: "14" };
+  const display = localStorage.getItem("displaySettings");
+  if (display) {
+    try {
+      const parsed = JSON.parse(display);
+      return {
+        rowsPerPage: parsed.rowsPerPage || 10,
+        fontSize: String(parsed.fontSize || "14"),
+      };
+    } catch {
+      // ignore malformed prefs
+      return { rowsPerPage: 10, fontSize: "14" };
     }
-    return 10;
-  });
-  const [fontSize, setFontSize] = useState<number>(() => {
-    if (typeof window === "undefined") return 14;
-    const display = localStorage.getItem("displaySettings");
-    if (display) {
-      const { fontSize } = JSON.parse(display);
-      return fontSize;
-    }
-    return 14;
-  });
-  const [saved, setSaved] = useState(false);
+  }
+  return { rowsPerPage: 10, fontSize: "14" };
+};
 
-  // Commented out useEffect to avoid localStorage dependency
-  // useEffect(() => {
-  //   const display = localStorage.getItem("displayPrefs");
-  //   if (display) {
-  //     const { rowsPerPage, fontSize } = JSON.parse(display);
-  //     setRowsPerPage(rowsPerPage);
-  //     setFontSize(fontSize);
-  //   }
-  // }, []);
+export default function SettingsPage() {
+  const initial = getInitialDisplaySettings();
+  const [rowsPerPage, setRowsPerPage] = useState<number>(initial.rowsPerPage);
+  const [fontSize, setFontSize] = useState<string>(initial.fontSize);
+  const [saved, setSaved] = useState(false);
 
   const handleSaveDisplay = () => {
     localStorage.setItem("displayPrefs", JSON.stringify({ rowsPerPage, fontSize }));
@@ -95,7 +88,7 @@ export default function SettingsPage() {
                 onChange={(e) => setFontSize(e.target.value)}
                 className="bg-transparent border border-green-500/30 rounded px-2 py-1 font-mono text-sm text-green-400 focus:outline-none focus:border-green-400"
               >
-                {["xs", "sm", "base", "lg"].map((s) => (
+                {['12', '14', '16', '18'].map((s) => (
                   <option key={s} value={s} className="bg-[#0a0e27]">{s}</option>
                 ))}
               </select>

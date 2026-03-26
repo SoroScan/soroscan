@@ -11,7 +11,9 @@ const config: Config = {
   coverageProvider: 'v8',
   testEnvironment: 'jsdom',
   // Add more setup options before each test is run
-  setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
+  // Support a JS setup file (jest.setup.js) for environments where the TS
+  // setup file may not be resolved during Jest validation.
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.js', '<rootDir>/jest.setup.ts'],
   moduleNameMapper: {
     // Handle module aliases (this will be automatically configured for you soon)
     '^@/(.*)$': '<rootDir>/$1',
