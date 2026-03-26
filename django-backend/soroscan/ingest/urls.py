@@ -17,6 +17,7 @@ from .views import (
     health_check,
     record_event_view,
     restore_archived_events,
+    get_event_types,
 )
 
 router = DefaultRouter()
@@ -33,6 +34,11 @@ urlpatterns = [
         "contracts/<str:contract_id>/events/explorer/",
         contract_event_explorer_view,
         name="contract-event-explorer",
+    ),
+    path(
+        "contracts/<str:contract_id>/event-types/",
+        get_event_types,
+        name="get_event_types",
     ),
     path("", include(router.urls)),
     path("record/", record_event_view, name="record-event"),

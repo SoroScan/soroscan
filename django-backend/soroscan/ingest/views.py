@@ -7,7 +7,7 @@ import json
 import logging
 
 from django.conf import settings
-from django.db.models import Count, Max, Q
+from django.db.models import Count, Max, Min, Q
 from django.db.models.functions import Cast
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
@@ -24,7 +24,7 @@ import requests as http_requests
 
 from soroscan.throttles import IngestRateThrottle
 
-from .cache_utils import get_or_set_json, query_cache_ttl, stable_cache_key
+from .cache_utils import get_or_set_json, query_cache_ttl, stable_cache_key, cache_result
 from .models import (
     APIKey,
     AdminAction,
@@ -838,3 +838,21 @@ def audit_trail_view(request):
 
     serializer = AdminActionSerializer(qs[:limit], many=True)
     return Response(serializer.data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+@cache_result(ttl=60)
+def get_event_types(request, contract_id: str) -> Response:
+    """GET a summary of event types and counts for a specific contract."""
+
+    result = (
+        ContractEvent.objects.filter(contract__contract_id=contract_id)
+        .values("event_type")
+        .annotate(
+            count=Count("id"), first_seen=Min("timestamp"), last_seen=Max("timestamp")
+        )
+        .order_by("-count")
+    )
+
+    return Response(result)
