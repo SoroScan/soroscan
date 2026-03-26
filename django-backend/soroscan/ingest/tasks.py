@@ -577,6 +577,23 @@ def _on_delivery_failure(
             task_instance.max_retries + 1,
             extra={"webhook_id": webhook.id},
         )
+        # Push in-app notification to the contract owner
+        try:
+            from .services.notifications import create_and_push
+            owner = webhook.contract.owner
+            create_and_push(
+                user=owner,
+                notification_type="webhook_failure",
+                title="Webhook Suspended",
+                message=(
+                    f"Webhook to {webhook.target_url} for contract "
+                    f"'{webhook.contract.name}' has been suspended after "
+                    f"{task_instance.max_retries + 1} consecutive failures."
+                ),
+                link=f"/webhooks/{webhook.id}",
+            )
+        except Exception:
+            logger.exception("Failed to create webhook_failure notification for webhook %s", webhook.id)
 
 
 @shared_task
@@ -1008,6 +1025,27 @@ def evaluate_condition(condition: dict, event_data: dict) -> bool:
     return False
 
 
+def _alert_channel_targets(rule) -> list[tuple[str, str]]:
+    """
+    Build (action_type, target) pairs: multi-channel JSON or legacy single field.
+    """
+    raw = getattr(rule, "channels", None) or []
+    if isinstance(raw, list) and len(raw) > 0:
+        out: list[tuple[str, str]] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            ch_type = (item.get("type") or "").strip().lower()
+            target = (item.get("target") or "").strip()
+            if ch_type in ("slack", "email", "webhook") and target:
+                out.append((ch_type, target))
+        if out:
+            return out
+    if rule.action_target:
+        return [(rule.action_type, rule.action_target)]
+    return []
+
+
 @shared_task(
     bind=True,
     autoretry_for=(Exception,),
@@ -1017,8 +1055,10 @@ def evaluate_condition(condition: dict, event_data: dict) -> bool:
 )
 def send_alert(self, rule_id: int, event_id: int) -> str:
     """
-    Send a single alert for a matched AlertRule / ContractEvent pair.
-    Retries with exponential backoff on failure.
+    Send alert(s) for a matched AlertRule / ContractEvent pair.
+    When ``channels`` is set, delivers to email, Slack, and webhook in one task
+    (real-time via the existing Celery path). Retries with exponential backoff
+    if any channel fails.
     """
     from .models import AlertRule, AlertExecution
 
@@ -1041,38 +1081,72 @@ def send_alert(self, rule_id: int, event_id: int) -> str:
         "timestamp": event.timestamp.isoformat(),
     }
 
-    try:
-        if rule.action_type == "slack":
-            _send_slack_alert(rule.action_target, payload)
-        elif rule.action_type == "email":
-            _send_email_alert(rule.action_target, rule.name, payload)
-        elif rule.action_type == "webhook":
-            _send_webhook_alert(rule.action_target, payload)
-        else:
-            raise ValueError(f"Unknown action_type: {rule.action_type}")
+    targets = _alert_channel_targets(rule)
+    if not targets:
+        logger.warning(
+            "Alert rule %s has no channels or action_target",
+            rule_id,
+            extra={"rule_id": rule_id, "event_id": event_id},
+        )
+        return "skipped:no_targets"
 
-        AlertExecution.objects.create(rule=rule, event=event, status="sent", response="ok")
+    successes = 0
+    failures: list[Exception] = []
+
+    for action_type, target in targets:
+        try:
+            if action_type == "slack":
+                _send_slack_alert(target, payload)
+            elif action_type == "email":
+                _send_email_alert(target, rule.name, payload)
+            elif action_type == "webhook":
+                _send_webhook_alert(target, payload)
+            else:
+                raise ValueError(f"Unknown action_type: {action_type}")
+            AlertExecution.objects.create(
+                rule=rule, event=event, status="sent", response="ok", channel=action_type
+            )
+            successes += 1
+        except Exception as exc:
+            failures.append(exc)
+            AlertExecution.objects.create(
+                rule=rule,
+                event=event,
+                status="failed",
+                response=str(exc)[:500],
+                channel=action_type,
+            )
+
+    if successes:
         logger.info(
-            "Alert '%s' sent via %s for event %s",
+            "Alert '%s': %d/%d channel(s) ok for event %s",
             rule.name,
-            rule.action_type,
+            successes,
+            len(targets),
             event_id,
             extra={"rule_id": rule_id, "event_id": event_id},
         )
-        return "sent"
 
-    except Exception as exc:
-        AlertExecution.objects.create(
-            rule=rule, event=event, status="failed", response=str(exc)[:500]
-        )
+    if failures and successes == 0:
+        err = failures[0]
         logger.warning(
-            "Alert '%s' failed (attempt %d): %s",
+            "Alert '%s' all channels failed (attempt %d): %s",
             rule.name,
             self.request.retries + 1,
-            exc,
+            err,
             extra={"rule_id": rule_id, "event_id": event_id},
         )
-        raise
+        raise err
+
+    if failures:
+        logger.warning(
+            "Alert '%s' partial failure: %s",
+            rule.name,
+            failures[0],
+            extra={"rule_id": rule_id, "event_id": event_id},
+        )
+
+    return "sent" if successes else "failed"
 
 
 def _send_slack_alert(channel_or_url: str, payload: dict) -> None:

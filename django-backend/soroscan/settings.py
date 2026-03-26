@@ -141,13 +141,15 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # Default primary key field type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Cache (used for rate limiting)
+# Cache (used for rate limiting and expensive query results — issue #131)
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": env("REDIS_URL", default="redis://localhost:6379/1"),
     }
 }
+# TTL for REST/GraphQL search, stats, and timeline responses (seconds)
+QUERY_CACHE_TTL_SECONDS = env.int("QUERY_CACHE_TTL_SECONDS", default=60)
 
 # Rate limiting configuration (via environment variables)
 RATE_LIMIT_ANON = env("RATE_LIMIT_ANON", default="60/minute")

@@ -3,7 +3,50 @@ DRF Serializers for SoroScan API.
 """
 from rest_framework import serializers
 
-from .models import APIKey, ContractEvent, ContractInvocation, TrackedContract, WebhookSubscription
+from django.utils.text import slugify
+
+from .models import APIKey, ContractEvent, ContractInvocation, Team, TeamMembership, TrackedContract, WebhookSubscription
+
+
+class TeamSerializer(serializers.ModelSerializer):
+    """Team (multi-tenant organization). Slug is auto-assigned on create."""
+
+    class Meta:
+        model = Team
+        fields = ["id", "name", "slug", "created_at"]
+        read_only_fields = ["id", "slug", "created_at"]
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        name = validated_data["name"]
+        base = slugify(name) or "team"
+        slug = base
+        n = 0
+        while Team.objects.filter(slug=slug).exists():
+            n += 1
+            slug = f"{base}-{n}"
+        validated_data["slug"] = slug
+        if user and user.is_authenticated:
+            validated_data["created_by"] = user
+        team = super().create(validated_data)
+        if user and user.is_authenticated:
+            TeamMembership.objects.create(
+                team=team,
+                user=user,
+                role=TeamMembership.Role.ADMIN,
+            )
+        return team
+
+
+class TeamMemberAddSerializer(serializers.Serializer):
+    """Add an existing user to a team (by user id)."""
+
+    user_id = serializers.IntegerField(min_value=1)
+    role = serializers.ChoiceField(
+        choices=TeamMembership.Role.choices,
+        default=TeamMembership.Role.MEMBER,
+    )
 
 
 class TrackedContractSerializer(serializers.ModelSerializer):
@@ -13,6 +56,11 @@ class TrackedContractSerializer(serializers.ModelSerializer):
     """
 
     event_count = serializers.SerializerMethodField()
+    team = serializers.PrimaryKeyRelatedField(
+        queryset=Team.objects.all(),
+        required=False,
+        allow_null=True,
+    )
 
     class Meta:
         model = TrackedContract
@@ -24,6 +72,7 @@ class TrackedContractSerializer(serializers.ModelSerializer):
             "abi_schema",
             "is_active",
             "last_indexed_ledger",
+            "team",
             "event_count",
             "created_at",
             "updated_at",
@@ -32,6 +81,14 @@ class TrackedContractSerializer(serializers.ModelSerializer):
 
     def get_event_count(self, obj) -> int:
         return obj.events.count()
+
+    def validate_team(self, value):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if value is not None and user and user.is_authenticated:
+            if not TeamMembership.objects.filter(team=value, user=user).exists():
+                raise serializers.ValidationError("You are not a member of this team.")
+        return value
 
 
 class ContractEventSerializer(serializers.ModelSerializer):
