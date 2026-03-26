@@ -7,8 +7,75 @@ import secrets
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils.text import slugify
 
 User = get_user_model()
+
+
+class Team(models.Model):
+    """
+    Multi-tenant organization: groups users and shared tracked contracts.
+    """
+
+    name = models.CharField(max_length=128)
+    slug = models.SlugField(max_length=160, unique=True, db_index=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_teams",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            base = slugify(self.name) or "team"
+            slug = base
+            n = 0
+            while Team.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                n += 1
+                slug = f"{base}-{n}"
+            self.slug = slug
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
+
+class TeamMembership(models.Model):
+    """Links a user to a team with a role."""
+
+    class Role(models.TextChoices):
+        ADMIN = "admin", "Admin"
+        MEMBER = "member", "Member"
+
+    team = models.ForeignKey(
+        Team,
+        on_delete=models.CASCADE,
+        related_name="memberships",
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="team_memberships",
+    )
+    role = models.CharField(
+        max_length=16,
+        choices=Role.choices,
+        default=Role.MEMBER,
+    )
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [("team", "user")]
+        ordering = ["-joined_at"]
+
+    def __str__(self):
+        return f"{self.user} @ {self.team} ({self.role})"
 
 
 class TrackedContract(models.Model):
@@ -29,6 +96,14 @@ class TrackedContract(models.Model):
         on_delete=models.CASCADE,
         related_name="tracked_contracts",
         help_text="User who registered this contract",
+    )
+    team = models.ForeignKey(
+        Team,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tracked_contracts",
+        help_text="Optional team scope for multi-tenant access",
     )
     abi_schema = models.JSONField(
         null=True,
@@ -565,6 +640,14 @@ class AlertRule(models.Model):
     condition = models.JSONField(
         help_text="Condition AST: {'op': 'and', 'conditions': [...]}"
     )
+    channels = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            'Optional list of destinations: [{"type": "slack|email|webhook", "target": "..."}]. '
+            "When non-empty, the rule fires to every channel in real time (same Celery task)."
+        ),
+    )
     action_type = models.CharField(
         max_length=16,
         choices=[
@@ -574,7 +657,8 @@ class AlertRule(models.Model):
         ],
     )
     action_target = models.TextField(
-        help_text="Slack channel, email address, or webhook URL"
+        blank=True,
+        help_text="Legacy single destination when channels is empty",
     )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -600,6 +684,11 @@ class AlertExecution(models.Model):
         ContractEvent,
         on_delete=models.CASCADE,
         related_name="alert_executions",
+    )
+    channel = models.CharField(
+        max_length=32,
+        blank=True,
+        help_text="slack, email, webhook, or empty for legacy single-channel rows",
     )
     status = models.CharField(
         max_length=16,
@@ -1022,3 +1111,46 @@ class AdminAction(models.Model):
 
     def __str__(self):
         return f"{self.action} {self.object_type}:{self.object_id}"
+
+
+# ---------------------------------------------------------------------------
+# Issue #137: Notification center
+# ---------------------------------------------------------------------------
+
+class Notification(models.Model):
+    """
+    In-app notification for a user. Covers contract events, webhook failures,
+    rate-limit warnings, and system maintenance messages.
+    """
+
+    class NotificationType(models.TextChoices):
+        CONTRACT_PAUSED = "contract_paused", "Contract Paused"
+        WEBHOOK_FAILURE = "webhook_failure", "Webhook Failure"
+        RATE_LIMIT = "rate_limit", "Rate Limit Warning"
+        SYSTEM = "system", "System"
+        ALERT = "alert", "Alert"
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="notifications",
+    )
+    notification_type = models.CharField(
+        max_length=32,
+        choices=NotificationType.choices,
+        db_index=True,
+    )
+    title = models.CharField(max_length=256)
+    message = models.TextField()
+    link = models.CharField(max_length=512, blank=True)
+    is_read = models.BooleanField(default=False, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "is_read", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"[{self.notification_type}] {self.title} → {self.user}"

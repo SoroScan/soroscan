@@ -27,6 +27,8 @@ from .models import (
     IndexerState,
     RemediationIncident,
     RemediationRule,
+    Team,
+    TeamMembership,
     TrackedContract,
     TransactionCost,
     WebhookDeliveryLog,
@@ -92,12 +94,30 @@ class AdminAuditMixin:
             self._audit(request, obj, "delete", "Deleted via Django admin")
 
 
+
+
+@admin.register(Team)
+class TeamAdmin(admin.ModelAdmin):
+    list_display = ["name", "slug", "created_by", "created_at"]
+    search_fields = ["name", "slug"]
+    prepopulated_fields = {"slug": ("name",)}
+
+
+@admin.register(TeamMembership)
+class TeamMembershipAdmin(admin.ModelAdmin):
+    list_display = ["team", "user", "role", "joined_at"]
+    list_filter = ["role"]
+    search_fields = ["team__name", "user__username"]
+
+
+
 @admin.register(TrackedContract)
 class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
     list_display = [
         "name",
         "contract_id_short",
         "owner",
+        "team",
         "is_active",
         "last_indexed_ledger",
         "event_count",
@@ -602,7 +622,9 @@ class AlertRuleAdmin(AdminAuditMixin, admin.ModelAdmin):
 
     @admin.display(description="Target")
     def action_target_short(self, obj):
-        target = obj.action_target
+        target = obj.action_target or ""
+        if not target:
+            return "—"
         return target[:40] + "…" if len(target) > 40 else target
 
     @admin.display(description="Executions")
@@ -612,10 +634,10 @@ class AlertRuleAdmin(AdminAuditMixin, admin.ModelAdmin):
 
 @admin.register(AlertExecution)
 class AlertExecutionAdmin(AdminAuditMixin, admin.ModelAdmin):
-    list_display = ["rule", "event_short", "status_colored", "created_at"]
+    list_display = ["rule", "event_short", "channel", "status_colored", "created_at"]
     list_filter = ["status", "created_at"]
     search_fields = ["rule__name"]
-    readonly_fields = ["rule", "event", "status", "response", "created_at"]
+    readonly_fields = ["rule", "event", "channel", "status", "response", "created_at"]
     ordering = ["-created_at"]
     date_hierarchy = "created_at"
 

@@ -8,7 +8,7 @@ import logging
 from datetime import timedelta
 
 from django.conf import settings
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Q
 from django.db.models.functions import Cast
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
@@ -25,13 +25,26 @@ import requests as http_requests
 
 from soroscan.throttles import IngestRateThrottle
 
-from .models import APIKey, AdminAction, ContractEvent, ContractInvocation, TrackedContract, WebhookSubscription, ArchivedEventBatch
+from .cache_utils import get_or_set_json, query_cache_ttl, stable_cache_key
+from .models import (
+    APIKey,
+    AdminAction,
+    ContractEvent,
+    ContractInvocation,
+    Team,
+    TeamMembership,
+    TrackedContract,
+    WebhookSubscription,
+    ArchivedEventBatch,
+)
 from .serializers import (
     APIKeySerializer,
     ContractEventSerializer,
     ContractInvocationSerializer,
     EventSearchSerializer,
     RecordEventRequestSerializer,
+    TeamMemberAddSerializer,
+    TeamSerializer,
     TrackedContractSerializer,
     WebhookSubscriptionSerializer,
 )
@@ -87,10 +100,13 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         serializer.save(owner=self.request.user)
 
     def get_queryset(self):
-        # Public read access, but filter by owner for write operations
-        if self.request.method in ['GET', 'HEAD', 'OPTIONS']:
-            return TrackedContract.objects.all()
-        return TrackedContract.objects.filter(owner=self.request.user)
+        qs = TrackedContract.objects.all()
+        user = self.request.user
+        if self.request.method in ["GET", "HEAD", "OPTIONS"]:
+            if user.is_authenticated:
+                return qs.filter(Q(owner=user) | Q(team__memberships__user=user)).distinct()
+            return qs
+        return qs.filter(owner=self.request.user)
 
     @extend_schema(responses=ContractEventSerializer(many=True))
     @action(detail=True, methods=["get"])
@@ -118,14 +134,23 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
     def stats(self, request, pk=None):
         """Get statistics for a contract."""
         contract = self.get_object()
-        stats = contract.events.aggregate(
-            total_events=Count("id"),
-            unique_event_types=Count("event_type", distinct=True),
-            latest_ledger=Max("ledger"),
-            last_activity=Max("timestamp"),
+        cache_key = stable_cache_key(
+            "rest_contract_stats",
+            {"contract_pk": contract.pk, "cid": contract.contract_id},
         )
-        stats["contract_id"] = contract.contract_id
-        stats["name"] = contract.name
+
+        def _build():
+            agg = contract.events.aggregate(
+                total_events=Count("id"),
+                unique_event_types=Count("event_type", distinct=True),
+                latest_ledger=Max("ledger"),
+                last_activity=Max("timestamp"),
+            )
+            agg["contract_id"] = contract.contract_id
+            agg["name"] = contract.name
+            return agg
+
+        stats = get_or_set_json(cache_key, query_cache_ttl(), _build)
         return Response(stats)
 
 
@@ -265,19 +290,25 @@ class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
             page_size = 50
 
         qs = qs.order_by("-timestamp")
-        total = qs.count()
-        offset = (page - 1) * page_size
-        items = list(qs[offset: offset + page_size])
+        cache_key = stable_cache_key(
+            "rest_event_search",
+            dict(request.GET.items()),
+        )
 
-        serializer = EventSearchSerializer(items, many=True)
-        return Response(
-            {
+        def _build():
+            total = qs.count()
+            offset = (page - 1) * page_size
+            items = list(qs[offset : offset + page_size])
+            ser = EventSearchSerializer(items, many=True)
+            return {
                 "count": total,
                 "page": page,
                 "page_size": page_size,
-                "results": serializer.data,
+                "results": ser.data,
             }
-        )
+
+        payload = get_or_set_json(cache_key, query_cache_ttl(), _build)
+        return Response(payload)
 
 
 class ContractInvocationViewSet(viewsets.ReadOnlyModelViewSet):
@@ -420,6 +451,65 @@ class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
             )
 
         return Response({"status": "test_webhook_queued"})
+
+
+class TeamViewSet(viewsets.ModelViewSet):
+    """
+    Teams: multi-tenant organization of contracts and members.
+
+    - GET /teams/ — teams the current user belongs to
+    - POST /teams/ — create a team (creator becomes admin)
+    - POST /teams/{id}/members/ — add a user (admin only)
+    """
+
+    serializer_class = TeamSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [OrderingFilter]
+    ordering_fields = ["name", "created_at"]
+    ordering = ["name"]
+
+    def get_queryset(self):
+        return Team.objects.filter(memberships__user=self.request.user).distinct()
+
+    @extend_schema(
+        request=TeamMemberAddSerializer,
+        responses={
+            201: inline_serializer(
+                name="TeamMemberAdded",
+                fields={"status": serializers.CharField()},
+            )
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="members")
+    def members(self, request, pk=None):
+        team = self.get_object()
+        admin = TeamMembership.objects.filter(
+            team=team,
+            user=request.user,
+            role=TeamMembership.Role.ADMIN,
+        ).exists()
+        if not admin:
+            return Response(
+                {"detail": "Only team admins can add members."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        ser = TeamMemberAddSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        try:
+            new_user = User.objects.get(pk=ser.validated_data["user_id"])
+        except User.DoesNotExist:
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+        _, created = TeamMembership.objects.get_or_create(
+            team=team,
+            user=new_user,
+            defaults={"role": ser.validated_data["role"]},
+        )
+        if not created:
+            return Response({"status": "already_member"}, status=status.HTTP_200_OK)
+        return Response({"status": "created"}, status=status.HTTP_201_CREATED)
 
 
 class APIKeyViewSet(viewsets.ModelViewSet):

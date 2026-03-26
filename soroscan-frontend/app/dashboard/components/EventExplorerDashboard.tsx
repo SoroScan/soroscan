@@ -11,6 +11,7 @@ import type { EventRecord } from "@/components/ingest/types";
 import styles from "@/components/ingest/ingest-terminal.module.css";
 import { useToast } from "@/context/ToastContext";
 import { parseSearchQuery, matchesFilters } from "@/lib/search-parser";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 
 const PAGE_SIZE = 20;
 
@@ -183,6 +184,9 @@ export function EventExplorerDashboard() {
           <p className={styles.contractId}>
             Browse, filter, and analyze contract events in real-time
           </p>
+          <div className="absolute top-4 right-4">
+            <NotificationBell />
+          </div>
         </header>
 
         <FilterBar

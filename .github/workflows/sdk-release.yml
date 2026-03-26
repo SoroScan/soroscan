@@ -1,0 +1,51 @@
+# Issue #133: Versioned Python SDK releases (tag-driven).
+# Bump sdk/python/pyproject.toml version, then tag, e.g.:
+#   git tag sdk-python-v0.2.0 && git push origin sdk-python-v0.2.0
+name: SDK Python release
+
+on:
+  push:
+    tags:
+      - "sdk-python-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/python
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tools
+        run: pip install hatch
+
+      - name: Verify tag matches package version
+        run: |
+          TAG="${GITHUB_REF_NAME#sdk-python-v}"
+          VER=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          if [ "$TAG" != "$VER" ]; then
+            echo "::error::Tag sdk-python-v$TAG does not match pyproject.toml version $VER"
+            exit 1
+          fi
+
+      - name: Run tests
+        run: pip install -e ".[dev]" && pytest -q
+
+      - name: Build wheel and sdist
+        run: hatch build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: sdk/python/dist/
+        # Configure trusted publishing in PyPI for this repo, or set:
+        #   repository-url: https://test.pypi.org/legacy/  (for testing)
