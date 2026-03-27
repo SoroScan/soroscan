@@ -23,6 +23,9 @@ from rest_framework_simplejwt.views import (
 from soroscan.graphql_views import GraphQLViewV1, GraphQLViewV2, ThrottledGraphQLView
 from soroscan.ingest.schema import schema_v1, schema_v2
 from soroscan.ingest.views import audit_trail_view
+from soroscan.graphql_views import ThrottledGraphQLView
+from soroscan.ingest.views import audit_trail_view, contract_status
+from soroscan.ingest.schema import schema
 
 urlpatterns = [
     # Prometheus metrics — unauthenticated; placed before any auth middleware.
@@ -30,6 +33,7 @@ urlpatterns = [
 
     path("admin/", admin.site.urls),
     path("api/audit-trail/", audit_trail_view, name="audit-trail"),
+    path("api/contracts/status/", contract_status, name="contract-status"),
     path("api/ingest/", include("soroscan.ingest.urls")),
 
     # GraphQL — versioned endpoints
