@@ -30,6 +30,7 @@ from .models import (
     AdminAction,
     ContractEvent,
     ContractInvocation,
+    IngestError,
     Team,
     TeamMembership,
     TrackedContract,
@@ -862,3 +863,28 @@ def audit_trail_view(request):
 
     serializer = AdminActionSerializer(qs[:limit], many=True)
     return Response(serializer.data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def admin_ingest_errors_view(request):
+    """Get recent ingest errors (admin only)."""
+    if not request.user.is_staff:
+        return Response({"error": "Admin access required"}, status=status.HTTP_403_FORBIDDEN)
+    
+    # Last 24 hours
+    since = timezone.now() - timezone.timedelta(hours=24)
+    
+    # Group by error_type + contract_id and aggregate
+    errors = (
+        IngestError.objects.filter(created_at__gte=since)
+        .values("error_type", "contract_id")
+        .annotate(
+            count=Count("id"),
+            last_occurrence=Max("created_at"),
+            sample_error=Max("sample_error")  # Get one sample error message
+        )
+        .order_by("-count")
+    )
+    
+    return Response(list(errors))

@@ -384,3 +384,58 @@ class TestEventExplorerPageView:
         response = api_client.get(url)
         
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_admin_ingest_errors_requires_staff(self, api_client, user):
+        api_client.force_authenticate(user=user)
+        url = reverse("admin-ingest-errors")
+        response = api_client.get(url)
+        
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_admin_ingest_errors_success(self, api_client):
+        from soroscan.ingest.models import IngestError
+        from django.contrib.auth import get_user_model
+        
+        User = get_user_model()
+        admin_user = User.objects.create_user(username="admin", is_staff=True)
+        api_client.force_authenticate(user=admin_user)
+        
+        # Create test errors
+        IngestError.objects.create(
+            error_type="decode_error",
+            contract_id="CTEST123",
+            error_message="Failed to decode XDR",
+            ledger=1000,
+        )
+        IngestError.objects.create(
+            error_type="decode_error", 
+            contract_id="CTEST123",
+            error_message="Another decode error",
+            ledger=1001,
+        )
+        IngestError.objects.create(
+            error_type="validation_error",
+            contract_id="CTEST456", 
+            error_message="Schema validation failed",
+            ledger=1002,
+        )
+        
+        url = reverse("admin-ingest-errors")
+        response = api_client.get(url)
+        
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        
+        # Should have 2 groups (by error_type + contract_id)
+        assert len(data) == 2
+        
+        # Should be sorted by count (descending)
+        assert data[0]["count"] == 2
+        assert data[0]["error_type"] == "decode_error"
+        assert data[0]["contract_id"] == "CTEST123"
+        assert "last_occurrence" in data[0]
+        assert "sample_error" in data[0]
+        
+        assert data[1]["count"] == 1
+        assert data[1]["error_type"] == "validation_error"
+        assert data[1]["contract_id"] == "CTEST456"

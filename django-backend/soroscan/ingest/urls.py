@@ -10,6 +10,7 @@ from .views import (
     ContractInvocationViewSet,
     TeamViewSet,
     TrackedContractViewSet,
+    admin_ingest_errors_view,
     audit_trail_view,
     contract_event_explorer_view,
     contract_event_types_view,
@@ -45,4 +46,5 @@ urlpatterns = [
     path("health/", health_check, name="health-check"),
     path("events/restore-archive/", restore_archived_events, name="restore-archive"),
     path("audit-trail/", audit_trail_view, name="audit-trail"),
+    path("admin/ingest-errors/", admin_ingest_errors_view, name="admin-ingest-errors"),
 ]
