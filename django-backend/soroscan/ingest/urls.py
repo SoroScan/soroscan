@@ -9,7 +9,6 @@ from .views import (
     ContractEventViewSet,
     ContractInvocationViewSet,
     CostAnalyticsViewSet,
-    CostAnalyticsViewSet,
     TeamViewSet,
     TrackedContractViewSet,
     audit_trail_view,
@@ -27,9 +26,8 @@ router.register(r"events", ContractEventViewSet, basename="event")
 router.register(r"invocations", ContractInvocationViewSet, basename="invocation")
 router.register(r"webhooks", WebhookSubscriptionViewSet, basename="webhook")
 router.register(r"api-keys", APIKeyViewSet, basename="apikey")
-    CostAnalyticsViewSet,
 router.register(r"analytics/costs", CostAnalyticsViewSet, basename="cost-analytics")
-    TeamViewSet,
+router.register(r"teams", TeamViewSet, basename="team")
 
 urlpatterns = [
     path("contracts/<str:contract_id>/timeline/", contract_timeline_view, name="contract-timeline"),
