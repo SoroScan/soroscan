@@ -141,13 +141,15 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # Default primary key field type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Cache (used for rate limiting)
+# Cache (used for rate limiting and expensive query results — issue #131)
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": env("REDIS_URL", default="redis://localhost:6379/1"),
     }
 }
+# TTL for REST/GraphQL search, stats, and timeline responses (seconds)
+QUERY_CACHE_TTL_SECONDS = env.int("QUERY_CACHE_TTL_SECONDS", default=60)
 
 # Rate limiting configuration (via environment variables)
 RATE_LIMIT_ANON = env("RATE_LIMIT_ANON", default="60/minute")
@@ -226,12 +228,17 @@ CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_ROUTES = {
     "soroscan.ingest.tasks.backfill_contract_events": {"queue": "backfill"},
+    "soroscan.ingest.tasks.evaluate_remediation_rules": {"queue": "default"},
 }
 
 # Celery Beat periodic task schedule
 CELERY_BEAT_SCHEDULE = {
     "cleanup-webhook-delivery-logs": {
         "task": "soroscan.ingest.tasks.cleanup_webhook_delivery_logs",
+        "schedule": 86400,  # daily
+    },
+    "cleanup-old-dedup-logs": {
+        "task": "soroscan.ingest.tasks.cleanup_old_dedup_logs",
         "schedule": 86400,  # daily
     },
     "cleanup-silk-data": {
@@ -244,9 +251,15 @@ CELERY_BEAT_SCHEDULE = {
     },
     "check-contract-health": {
         "task": "soroscan.ingest.tasks.check_contract_health",
+    "evaluate-remediation-rules": {
+        "task": "soroscan.ingest.tasks.evaluate_remediation_rules",
         "schedule": 300,  # every 5 minutes
     },
 }
+
+# Data Retention Configuration
+# Number of days to retain deduplication logs before cleanup
+DEDUP_LOG_RETENTION_DAYS = env("DEDUP_LOG_RETENTION_DAYS", default=90, cast=int)
 
 # Stellar / Soroban Configuration
 SOROBAN_RPC_URL = env("SOROBAN_RPC_URL", default="https://soroban-testnet.stellar.org")

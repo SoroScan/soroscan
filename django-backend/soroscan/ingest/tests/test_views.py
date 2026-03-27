@@ -1,11 +1,13 @@
 import pytest
 import responses
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from soroscan.ingest.models import TrackedContract, WebhookSubscription
+from soroscan.ingest.models import Team, TeamMembership, TrackedContract, WebhookSubscription
 
 from .factories import (
     ContractEventFactory,
@@ -110,6 +112,41 @@ class TestTrackedContractViewSet:
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not TrackedContract.objects.filter(id=contract.id).exists()
+
+
+@pytest.mark.django_db
+class TestTeamViewSet:
+    def test_create_and_list_team(self, authenticated_client, user):
+        url = reverse("team-list")
+        response = authenticated_client.post(url, {"name": "Platform"}, format="json")
+        assert response.status_code == status.HTTP_201_CREATED
+        assert Team.objects.filter(name="Platform").exists()
+        assert TeamMembership.objects.filter(
+            team__name="Platform", user=user, role=TeamMembership.Role.ADMIN
+        ).exists()
+
+        listed = authenticated_client.get(url)
+        assert listed.status_code == status.HTTP_200_OK
+        assert len(listed.data["results"]) >= 1
+
+    def test_team_member_sees_team_contract(self, api_client):
+        owner = UserFactory()
+        member = UserFactory()
+        team = Team.objects.create(name="Shared", slug="shared", created_by=owner)
+        TeamMembership.objects.create(
+            team=team, user=owner, role=TeamMembership.Role.ADMIN
+        )
+        TeamMembership.objects.create(
+            team=team, user=member, role=TeamMembership.Role.MEMBER
+        )
+        shared = TrackedContractFactory(owner=owner, team=team)
+
+        api_client.force_authenticate(user=member)
+        url = reverse("contract-list")
+        response = api_client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        cids = [row["contract_id"] for row in response.data["results"]]
+        assert shared.contract_id in cids
 
 
 @pytest.mark.django_db
@@ -273,6 +310,54 @@ class TestHealthCheck:
         assert response.status_code == status.HTTP_200_OK
         assert response.data["status"] == "healthy"
         assert response.data["service"] == "soroscan"
+
+
+@pytest.mark.django_db
+class TestContractStatusView:
+    @pytest.fixture(autouse=True)
+    def clear_cache(self):
+        cache.clear()
+
+    def test_contract_status_returns_all_required_fields(self, authenticated_client, user):
+        active_contract = TrackedContractFactory(owner=user, is_active=True)
+        paused_contract = TrackedContractFactory(owner=user, is_active=False)
+
+        ContractEventFactory(contract=active_contract, timestamp=timezone.now())
+        ContractEventFactory(contract=paused_contract, timestamp=timezone.now() - timezone.timedelta(seconds=30))
+        ContractEventFactory(contract=active_contract, timestamp=timezone.now() - timezone.timedelta(minutes=5))
+
+        url = reverse("contract-status")
+        response = authenticated_client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert set(response.data.keys()) == {
+            "total_contracts",
+            "active_contracts",
+            "paused_contracts",
+            "total_events_indexed",
+            "last_event_timestamp",
+            "events_per_minute",
+        }
+        assert response.data["total_contracts"] == 2
+        assert response.data["active_contracts"] == 1
+        assert response.data["paused_contracts"] == 1
+        assert response.data["total_events_indexed"] == 3
+        assert response.data["events_per_minute"] == 2
+        assert response.data["last_event_timestamp"] is not None
+
+    def test_contract_status_response_is_cached_for_60s(self, authenticated_client, user):
+        contract = TrackedContractFactory(owner=user, is_active=True)
+        url = reverse("contract-status")
+
+        ContractEventFactory(contract=contract, timestamp=timezone.now())
+        first = authenticated_client.get(url)
+        assert first.status_code == status.HTTP_200_OK
+        assert first.data["total_events_indexed"] == 1
+
+        ContractEventFactory(contract=contract, timestamp=timezone.now())
+        second = authenticated_client.get(url)
+        assert second.status_code == status.HTTP_200_OK
+        assert second.data["total_events_indexed"] == 1
 
 
 @pytest.mark.django_db

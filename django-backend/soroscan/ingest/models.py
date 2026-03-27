@@ -5,9 +5,77 @@ import hashlib
 import secrets
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils.text import slugify
 
 User = get_user_model()
+
+
+class Team(models.Model):
+    """
+    Multi-tenant organization: groups users and shared tracked contracts.
+    """
+
+    name = models.CharField(max_length=128)
+    slug = models.SlugField(max_length=160, unique=True, db_index=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_teams",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            base = slugify(self.name) or "team"
+            slug = base
+            n = 0
+            while Team.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                n += 1
+                slug = f"{base}-{n}"
+            self.slug = slug
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
+
+class TeamMembership(models.Model):
+    """Links a user to a team with a role."""
+
+    class Role(models.TextChoices):
+        ADMIN = "admin", "Admin"
+        MEMBER = "member", "Member"
+
+    team = models.ForeignKey(
+        Team,
+        on_delete=models.CASCADE,
+        related_name="memberships",
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="team_memberships",
+    )
+    role = models.CharField(
+        max_length=16,
+        choices=Role.choices,
+        default=Role.MEMBER,
+    )
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [("team", "user")]
+        ordering = ["-joined_at"]
+
+    def __str__(self):
+        return f"{self.user} @ {self.team} ({self.role})"
 
 
 class TrackedContract(models.Model):
@@ -28,6 +96,14 @@ class TrackedContract(models.Model):
         on_delete=models.CASCADE,
         related_name="tracked_contracts",
         help_text="User who registered this contract",
+    )
+    team = models.ForeignKey(
+        Team,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tracked_contracts",
+        help_text="Optional team scope for multi-tenant access",
     )
     abi_schema = models.JSONField(
         null=True,
@@ -175,6 +251,40 @@ class ContractABI(models.Model):
         return f"ABI for {self.contract}"
 
 
+class ContractSigningKey(models.Model):
+    """
+    Public verification key registered per contract for event signature checks.
+    """
+
+    class Algorithm(models.TextChoices):
+        ED25519 = "ed25519", "Ed25519"
+        ECDSA = "ecdsa", "ECDSA"
+
+    contract = models.OneToOneField(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name="signing_key",
+    )
+    algorithm = models.CharField(
+        max_length=16,
+        choices=Algorithm.choices,
+        default=Algorithm.ED25519,
+    )
+    public_key = models.TextField(
+        help_text="Public key for signature verification (hex/base64/raw PEM)",
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Contract Signing Key"
+        verbose_name_plural = "Contract Signing Keys"
+
+    def __str__(self):
+        return f"SigningKey({self.contract.contract_id[:8]}..., {self.algorithm})"
+
+
 class ContractEvent(models.Model):
     """
     Individual events emitted by tracked contracts.
@@ -247,6 +357,17 @@ class ContractEvent(models.Model):
         db_index=True,
         help_text="Result of ABI-based XDR decoding",
     )
+    signature_status = models.CharField(
+        max_length=16,
+        choices=[
+            ("valid", "Valid"),
+            ("invalid", "Invalid"),
+            ("missing", "Missing"),
+        ],
+        default="missing",
+        db_index=True,
+        help_text="Result of event signature verification",
+    )
 
     class Meta:
         ordering = ["-timestamp"]
@@ -257,6 +378,7 @@ class ContractEvent(models.Model):
             models.Index(fields=["tx_hash"]),
             models.Index(fields=["contract", "ledger", "event_index"]),
             models.Index(fields=["invocation"]),
+            models.Index(fields=["signature_status"]),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -384,6 +506,62 @@ class WebhookDeliveryLog(models.Model):
     def __str__(self):
         status_label = "OK" if self.success else f"FAIL({self.status_code})"
         return f"Delivery #{self.attempt_number} [{status_label}] sub={self.subscription_id}"
+
+
+class EventDeduplicationLog(models.Model):
+    """
+    Audit log for event deduplication attempts.
+
+    Records are subject to a 90-day TTL: the ``cleanup_old_dedup_logs``
+    Celery task (scheduled via Celery Beat) prunes entries older than 90 days.
+    """
+
+    contract = models.ForeignKey(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name="dedup_logs",
+        help_text="Contract the event belongs to",
+    )
+    ledger = models.PositiveBigIntegerField(
+        db_index=True,
+        help_text="Ledger sequence number",
+    )
+    event_index = models.PositiveIntegerField(
+        help_text="0-based event index within the ledger",
+    )
+    tx_hash = models.CharField(
+        max_length=64,
+        help_text="Transaction hash",
+    )
+    event_type = models.CharField(
+        max_length=100,
+        help_text="Event type that was checked",
+    )
+    duplicate_detected = models.BooleanField(
+        default=False,
+        help_text="True if a duplicate was detected",
+    )
+    reason = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Reason for the deduplication decision",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,
+        help_text="UTC timestamp of this deduplication check",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["contract", "created_at"]),
+            models.Index(fields=["contract", "ledger", "event_index"]),
+        ]
+
+    def __str__(self):
+        status = "DUP" if self.duplicate_detected else "NEW"
+        return f"[{status}] {self.event_type}@{self.ledger} ({self.contract.name})"
 
 
 class IndexerState(models.Model):
@@ -518,6 +696,14 @@ class AlertRule(models.Model):
     condition = models.JSONField(
         help_text="Condition AST: {'op': 'and', 'conditions': [...]}"
     )
+    channels = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            'Optional list of destinations: [{"type": "slack|email|webhook", "target": "..."}]. '
+            "When non-empty, the rule fires to every channel in real time (same Celery task)."
+        ),
+    )
     action_type = models.CharField(
         max_length=16,
         choices=[
@@ -527,7 +713,8 @@ class AlertRule(models.Model):
         ],
     )
     action_target = models.TextField(
-        help_text="Slack channel, email address, or webhook URL"
+        blank=True,
+        help_text="Legacy single destination when channels is empty",
     )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -554,6 +741,11 @@ class AlertExecution(models.Model):
         on_delete=models.CASCADE,
         related_name="alert_executions",
     )
+    channel = models.CharField(
+        max_length=32,
+        blank=True,
+        help_text="slack, email, webhook, or empty for legacy single-channel rows",
+    )
     status = models.CharField(
         max_length=16,
         choices=[("sent", "Sent"), ("failed", "Failed")],
@@ -569,6 +761,105 @@ class AlertExecution(models.Model):
 
     def __str__(self):
         return f"Alert {self.rule.name}: {self.status} @ {self.created_at}"
+
+
+class RemediationRule(models.Model):
+    """
+    Automated incident response rule.
+
+    ``condition`` describes anomaly detection criteria.
+    ``actions`` is a list of action objects, e.g.:
+      [{"type": "pause_contract"}, {"type": "disable_webhooks"}]
+    """
+
+    CONDITION_NO_EVENTS = "no_events_for_minutes"
+    CONDITION_DECODE_ERROR_SPIKE = "decode_error_spike"
+    CONDITION_CHOICES = [
+        (CONDITION_NO_EVENTS, "No events for N minutes"),
+        (CONDITION_DECODE_ERROR_SPIKE, "Decode error spike"),
+    ]
+
+    ALERT_SLACK = "slack"
+    ALERT_EMAIL = "email"
+    ALERT_WEBHOOK = "webhook"
+    ALERT_TYPE_CHOICES = [
+        (ALERT_SLACK, "Slack"),
+        (ALERT_EMAIL, "Email"),
+        (ALERT_WEBHOOK, "Webhook"),
+    ]
+
+    name = models.CharField(max_length=256)
+    condition = models.JSONField(
+        help_text="Condition JSON, e.g. {'type': 'no_events_for_minutes', 'contract_id': 'C...', 'minutes': 60}",
+    )
+    actions = models.JSONField(
+        default=list,
+        help_text="List of action objects: pause_contract, send_alert, disable_webhooks",
+    )
+    enabled = models.BooleanField(default=True)
+    grace_period_minutes = models.PositiveIntegerField(default=10)
+    alert_type = models.CharField(
+        max_length=16,
+        choices=ALERT_TYPE_CHOICES,
+        default=ALERT_SLACK,
+    )
+    alert_target = models.TextField(
+        blank=True,
+        help_text="Ops destination (Slack webhook URL, email, or webhook URL)",
+    )
+    dry_run = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"RemediationRule({self.name})"
+
+
+class RemediationIncident(models.Model):
+    """
+    Tracks lifecycle of a detected anomaly for one remediation rule.
+    """
+
+    STATUS_ALERTED = "alerted"
+    STATUS_EXECUTED = "executed"
+    STATUS_RESOLVED = "resolved"
+    STATUS_CHOICES = [
+        (STATUS_ALERTED, "Alerted"),
+        (STATUS_EXECUTED, "Executed"),
+        (STATUS_RESOLVED, "Resolved"),
+    ]
+
+    rule = models.ForeignKey(
+        RemediationRule,
+        on_delete=models.CASCADE,
+        related_name="incidents",
+    )
+    contract = models.ForeignKey(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name="remediation_incidents",
+    )
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_ALERTED)
+    anomaly_snapshot = models.JSONField(default=dict)
+    first_detected_at = models.DateTimeField(auto_now_add=True)
+    alerted_at = models.DateTimeField(null=True, blank=True)
+    action_after_at = models.DateTimeField(null=True, blank=True)
+    executed_at = models.DateTimeField(null=True, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-first_detected_at"]
+        indexes = [
+            models.Index(fields=["rule", "contract", "status"]),
+            models.Index(fields=["action_after_at"]),
+        ]
+
+    def __str__(self):
+        return f"Incident(rule={self.rule_id}, contract={self.contract_id}, status={self.status})"
 
 
 # ---------------------------------------------------------------------------

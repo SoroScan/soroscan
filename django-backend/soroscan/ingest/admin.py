@@ -8,20 +8,27 @@ from django.db.models import Count
 from django.http import HttpResponse
 from django.urls import path
 from django.utils.html import format_html
+import json
 
 from .models import (
     AlertExecution,
     AlertRule,
+    AdminAction,
     APIKey,
     ArchivalAuditLog,
     ArchivedEventBatch,
     ContractABI,
     ContractEvent,
     ContractHealthCheck,
+    ContractSigningKey,
     ContractQuota,
     DataRetentionPolicy,
     EventSchema,
     IndexerState,
+    RemediationIncident,
+    RemediationRule,
+    Team,
+    TeamMembership,
     TrackedContract,
     WebhookDeliveryLog,
     WebhookSubscription,
@@ -34,12 +41,82 @@ class BackfillActionForm(ActionForm):
     to_ledger = forms.IntegerField(min_value=1, required=False, label="To ledger")
 
 
+class AdminAuditMixin:
+    """Write immutable admin action entries with user attribution and IP."""
+
+    def _client_ip(self, request) -> str:
+        forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+        if forwarded:
+            first = forwarded.split(",", maxsplit=1)[0].strip()
+            if first:
+                return first
+        return request.META.get("REMOTE_ADDR") or "0.0.0.0"
+
+    def _normalize_changes(self, message):
+        if isinstance(message, (dict, list)):
+            return {"message": message}
+        if not message:
+            return {}
+        if isinstance(message, str):
+            try:
+                return {"message": json.loads(message)}
+            except json.JSONDecodeError:
+                return {"message": message}
+        return {"message": str(message)}
+
+    def _audit(self, request, obj, action: str, message) -> None:
+        try:
+            AdminAction.objects.create(
+                user=request.user if getattr(request.user, "is_authenticated", False) else None,
+                action=action,
+                object_type=obj._meta.model_name[:32],
+                object_id=str(getattr(obj, "pk", "")),
+                ip_address=self._client_ip(request),
+                changes=self._normalize_changes(message),
+            )
+        except Exception:
+            # Audit failures should not block admin operations.
+            return
+
+    def log_addition(self, request, obj, message):
+        super().log_addition(request, obj, message)
+        self._audit(request, obj, "add", message)
+
+    def log_change(self, request, obj, message):
+        super().log_change(request, obj, message)
+        self._audit(request, obj, "change", message)
+
+    def log_deletions(self, request, queryset):
+        snapshot = list(queryset)
+        super().log_deletions(request, queryset)
+        for obj in snapshot:
+            self._audit(request, obj, "delete", "Deleted via Django admin")
+
+
+
+
+@admin.register(Team)
+class TeamAdmin(admin.ModelAdmin):
+    list_display = ["name", "slug", "created_by", "created_at"]
+    search_fields = ["name", "slug"]
+    prepopulated_fields = {"slug": ("name",)}
+
+
+@admin.register(TeamMembership)
+class TeamMembershipAdmin(admin.ModelAdmin):
+    list_display = ["team", "user", "role", "joined_at"]
+    list_filter = ["role"]
+    search_fields = ["team__name", "user__username"]
+
+
+
 @admin.register(TrackedContract)
-class TrackedContractAdmin(admin.ModelAdmin):
+class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
     list_display = [
         "name",
         "contract_id_short",
         "owner",
+        "team",
         "is_active",
         "last_indexed_ledger",
         "event_count",
@@ -115,14 +192,14 @@ class TrackedContractAdmin(admin.ModelAdmin):
 
 
 @admin.register(EventSchema)
-class EventSchemaAdmin(admin.ModelAdmin):
+class EventSchemaAdmin(AdminAuditMixin, admin.ModelAdmin):
     list_display = ["contract", "event_type", "version", "created_at"]
     list_filter = ["contract", "event_type"]
     search_fields = ["event_type", "contract__name"]
 
 
 @admin.register(ContractABI)
-class ContractABIAdmin(admin.ModelAdmin):
+class ContractABIAdmin(AdminAuditMixin, admin.ModelAdmin):
     """Admin interface for per-contract ABI definitions (issue #58)."""
 
     list_display = ["contract", "uploaded_at", "updated_at"]
@@ -148,7 +225,7 @@ class ContractABIAdmin(admin.ModelAdmin):
 
 
 @admin.register(ContractEvent)
-class ContractEventAdmin(admin.ModelAdmin):
+class ContractEventAdmin(AdminAuditMixin, admin.ModelAdmin):
     """
     Read-only admin interface for contract events.
     
@@ -326,7 +403,7 @@ class ContractEventAdmin(admin.ModelAdmin):
 
 
 @admin.register(WebhookSubscription)
-class WebhookSubscriptionAdmin(admin.ModelAdmin):
+class WebhookSubscriptionAdmin(AdminAuditMixin, admin.ModelAdmin):
     """Admin interface for webhook subscriptions with delivery status display."""
     list_display = [
         "target_url",
@@ -386,13 +463,13 @@ class WebhookSubscriptionAdmin(admin.ModelAdmin):
 
 
 @admin.register(IndexerState)
-class IndexerStateAdmin(admin.ModelAdmin):
+class IndexerStateAdmin(AdminAuditMixin, admin.ModelAdmin):
     list_display = ["key", "value", "updated_at"]
     readonly_fields = ["updated_at"]
 
 
 @admin.register(WebhookDeliveryLog)
-class WebhookDeliveryLogAdmin(admin.ModelAdmin):
+class WebhookDeliveryLogAdmin(AdminAuditMixin, admin.ModelAdmin):
     """
     Read-only audit log of every webhook delivery attempt.
 
@@ -460,7 +537,7 @@ class WebhookDeliveryLogAdmin(admin.ModelAdmin):
 # ---------------------------------------------------------------------------
 
 @admin.register(APIKey)
-class APIKeyAdmin(admin.ModelAdmin):
+class APIKeyAdmin(AdminAuditMixin, admin.ModelAdmin):
     list_display = [
         "name",
         "user",
@@ -503,7 +580,7 @@ class APIKeyAdmin(admin.ModelAdmin):
 
 
 @admin.register(ContractQuota)
-class ContractQuotaAdmin(admin.ModelAdmin):
+class ContractQuotaAdmin(AdminAuditMixin, admin.ModelAdmin):
     list_display = ["api_key", "contract", "quota_per_hour", "created_at"]
     list_filter = ["api_key__tier"]
     search_fields = ["api_key__name", "contract__name", "contract__contract_id"]
@@ -519,7 +596,7 @@ class ContractQuotaAdmin(admin.ModelAdmin):
 # ---------------------------------------------------------------------------
 
 @admin.register(AlertRule)
-class AlertRuleAdmin(admin.ModelAdmin):
+class AlertRuleAdmin(AdminAuditMixin, admin.ModelAdmin):
     list_display = [
         "name",
         "contract",
@@ -544,7 +621,9 @@ class AlertRuleAdmin(admin.ModelAdmin):
 
     @admin.display(description="Target")
     def action_target_short(self, obj):
-        target = obj.action_target
+        target = obj.action_target or ""
+        if not target:
+            return "—"
         return target[:40] + "…" if len(target) > 40 else target
 
     @admin.display(description="Executions")
@@ -553,11 +632,11 @@ class AlertRuleAdmin(admin.ModelAdmin):
 
 
 @admin.register(AlertExecution)
-class AlertExecutionAdmin(admin.ModelAdmin):
-    list_display = ["rule", "event_short", "status_colored", "created_at"]
+class AlertExecutionAdmin(AdminAuditMixin, admin.ModelAdmin):
+    list_display = ["rule", "event_short", "channel", "status_colored", "created_at"]
     list_filter = ["status", "created_at"]
     search_fields = ["rule__name"]
-    readonly_fields = ["rule", "event", "status", "response", "created_at"]
+    readonly_fields = ["rule", "event", "channel", "status", "response", "created_at"]
     ordering = ["-created_at"]
     date_hierarchy = "created_at"
 
@@ -580,6 +659,60 @@ class AlertExecutionAdmin(admin.ModelAdmin):
         return format_html('<span style="color:{};font-weight:bold">{}</span>', color, obj.status)
 
 
+@admin.register(RemediationRule)
+class RemediationRuleAdmin(AdminAuditMixin, admin.ModelAdmin):
+    list_display = [
+        "name",
+        "enabled",
+        "grace_period_minutes",
+        "alert_type",
+        "dry_run",
+        "created_at",
+    ]
+    list_filter = ["enabled", "alert_type", "dry_run", "created_at"]
+    search_fields = ["name", "alert_target"]
+    readonly_fields = ["created_at", "updated_at"]
+    ordering = ["-created_at"]
+
+
+@admin.register(RemediationIncident)
+class RemediationIncidentAdmin(AdminAuditMixin, admin.ModelAdmin):
+    list_display = [
+        "id",
+        "rule",
+        "contract",
+        "status",
+        "first_detected_at",
+        "alerted_at",
+        "executed_at",
+        "resolved_at",
+    ]
+    list_filter = ["status", "first_detected_at"]
+    search_fields = ["rule__name", "contract__contract_id", "contract__name"]
+    readonly_fields = [
+        "rule",
+        "contract",
+        "status",
+        "anomaly_snapshot",
+        "first_detected_at",
+        "alerted_at",
+        "action_after_at",
+        "executed_at",
+        "resolved_at",
+        "last_seen_at",
+    ]
+    ordering = ["-first_detected_at"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Data Retention Policies and Archival
 # ---------------------------------------------------------------------------
@@ -595,7 +728,7 @@ class ArchivedEventBatchInline(admin.TabularInline):
 
 
 @admin.register(DataRetentionPolicy)
-class DataRetentionPolicyAdmin(admin.ModelAdmin):
+class DataRetentionPolicyAdmin(AdminAuditMixin, admin.ModelAdmin):
     list_display = ["scope", "retention_days", "archive_enabled", "s3_bucket", "batch_count", "created_at"]
     list_filter = ["archive_enabled"]
     search_fields = ["contract__name", "contract__contract_id", "s3_bucket"]
@@ -612,7 +745,7 @@ class DataRetentionPolicyAdmin(admin.ModelAdmin):
 
 
 @admin.register(ArchivedEventBatch)
-class ArchivedEventBatchAdmin(admin.ModelAdmin):
+class ArchivedEventBatchAdmin(AdminAuditMixin, admin.ModelAdmin):
     list_display = ["id", "policy_scope", "event_count", "size_bytes", "status", "archived_at"]
     list_filter = ["status", "archived_at"]
     search_fields = ["s3_key", "policy__contract__name"]
@@ -634,7 +767,7 @@ class ArchivedEventBatchAdmin(admin.ModelAdmin):
 
 
 @admin.register(ArchivalAuditLog)
-class ArchivalAuditLogAdmin(admin.ModelAdmin):
+class ArchivalAuditLogAdmin(AdminAuditMixin, admin.ModelAdmin):
     list_display = ["id", "action_colored", "event_count", "performed_by", "created_at"]
     list_filter = ["action", "created_at"]
     search_fields = ["detail", "performed_by__username"]

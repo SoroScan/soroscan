@@ -13,7 +13,8 @@ from channels.layers import get_channel_layer
 from strawberry import auto
 from strawberry.types import Info
 
-from .models import ContractEvent, ContractInvocation, TrackedContract, WebhookDeliveryLog
+from .cache_utils import get_or_set_json, query_cache_ttl, stable_cache_key
+from .models import ContractEvent, ContractInvocation, Notification, TrackedContract, WebhookDeliveryLog
 from .services.timeline import build_timeline
 from django.utils import timezone
 from django.db.models import Count, Max
@@ -50,6 +51,11 @@ class ContractType:
     created_at: auto
 
     @strawberry.field
+    def team_id(self) -> Optional[int]:
+        tid = getattr(self, "team_id", None)
+        return int(tid) if tid is not None else None
+
+    @strawberry.field
     def event_count(self) -> int:
         return self.events.count()
 
@@ -68,6 +74,7 @@ class EventType:
     tx_hash: auto
     schema_version: auto
     validation_status: auto
+    signature_status: auto
 
     @strawberry.field
     def contract_id(self) -> str:
@@ -254,6 +261,30 @@ class ErrorLog:
     context: Optional[str]
 
 
+# ---------------------------------------------------------------------------
+# Notification types (Issue #137)
+# ---------------------------------------------------------------------------
+
+@strawberry.enum
+class NotificationTypeEnum(Enum):
+    CONTRACT_PAUSED = "contract_paused"
+    WEBHOOK_FAILURE = "webhook_failure"
+    RATE_LIMIT = "rate_limit"
+    SYSTEM = "system"
+    ALERT = "alert"
+
+
+@strawberry.type
+class NotificationType:
+    id: int
+    notification_type: str
+    title: str
+    message: str
+    link: str
+    is_read: bool
+    created_at: datetime
+
+
 @strawberry.type
 class Query:
     @strawberry.field
@@ -277,6 +308,7 @@ class Query:
         self,
         contract_id: Optional[str] = None,
         event_type: Optional[str] = None,
+        signature_status: Optional[str] = None,
         ledger_min: Optional[int] = None,
         ledger_max: Optional[int] = None,
         first: int = 20,
@@ -291,6 +323,10 @@ class Query:
             qs = qs.filter(contract__contract_id=contract_id)
         if event_type:
             qs = qs.filter(event_type=event_type)
+        if signature_status is not None:
+            normalized_signature_status = signature_status.lower()
+            if normalized_signature_status in {"valid", "invalid", "missing"}:
+                qs = qs.filter(signature_status=normalized_signature_status)
         if ledger_min is not None:
             qs = qs.filter(ledger__gte=ledger_min)
         if ledger_max is not None:
@@ -426,25 +462,29 @@ class Query:
     @strawberry.field
     def contract_stats(self, contract_id: str) -> Optional[ContractStats]:
         """Get aggregate statistics for a contract."""
-        try:
-            contract = TrackedContract.objects.get(contract_id=contract_id)
-        except TrackedContract.DoesNotExist:
-            return None
+        key = stable_cache_key("gql_contract_stats", {"contract_id": contract_id})
 
+        def _stats():
+            try:
+                contract = TrackedContract.objects.get(contract_id=contract_id)
+            except TrackedContract.DoesNotExist:
+                return None
 
-        stats = contract.events.aggregate(
-            total=Count("id"),
-            unique_types=Count("event_type", distinct=True),
-            last=Max("timestamp"),
-        )
+            stats = contract.events.aggregate(
+                total=Count("id"),
+                unique_types=Count("event_type", distinct=True),
+                last=Max("timestamp"),
+            )
 
-        return ContractStats(
-            contract_id=contract.contract_id,
-            name=contract.name,
-            total_events=stats["total"] or 0,
-            unique_event_types=stats["unique_types"] or 0,
-            last_activity=stats["last"],
-        )
+            return ContractStats(
+                contract_id=contract.contract_id,
+                name=contract.name,
+                total_events=stats["total"] or 0,
+                unique_event_types=stats["unique_types"] or 0,
+                last_activity=stats["last"],
+            )
+
+        return get_or_set_json(key, query_cache_ttl(), _stats)
 
     @strawberry.field
     def event_types(self, contract_id: str) -> list[str]:
@@ -542,6 +582,36 @@ class Query:
         )
 
     @strawberry.field
+    def notifications(
+        self,
+        info: Info,
+        notification_type: Optional[str] = None,
+        unread_only: bool = False,
+        limit: int = 50,
+    ) -> list[NotificationType]:
+        """Get notifications for the authenticated user (newest first, max 50)."""
+        user = _get_authenticated_user(info)
+        if not user:
+            raise Exception("Authentication required")
+
+        qs = Notification.objects.filter(user=user)
+        if notification_type:
+            qs = qs.filter(notification_type=notification_type)
+        if unread_only:
+            qs = qs.filter(is_read=False)
+
+        limit = max(1, min(limit, 50))
+        return list(qs[:limit])
+
+    @strawberry.field
+    def unread_notification_count(self, info: Info) -> int:
+        """Return the count of unread notifications for the authenticated user."""
+        user = _get_authenticated_user(info)
+        if not user:
+            return 0
+        return Notification.objects.filter(user=user, is_read=False).count()
+
+    @strawberry.field
     def recent_errors(self, info: Info, limit: int = 10) -> list[ErrorLog]:
         """Get recent system errors and warnings."""
         user = _get_authenticated_user(info)
@@ -572,19 +642,58 @@ class Mutation:
         contract_id: str,
         name: str,
         description: str = "",
+        team_id: Optional[int] = None,
     ) -> ContractType:
         """Register a new contract for indexing."""
         user = _get_authenticated_user(info)
         if not user:
             raise Exception("Authentication required")
-        
+
+        from .models import Team, TeamMembership
+
+        team = None
+        if team_id is not None:
+            try:
+                team = Team.objects.get(pk=team_id)
+            except Team.DoesNotExist:
+                raise Exception("Team not found")
+            if not TeamMembership.objects.filter(team=team, user=user).exists():
+                raise Exception("Not a member of this team")
+
         contract = TrackedContract.objects.create(
             contract_id=contract_id,
             name=name,
             description=description,
             owner=user,
+            team=team,
         )
         return contract
+
+    @strawberry.mutation
+    def mark_notification_read(self, info: Info, notification_id: int) -> bool:
+        """Mark a single notification as read."""
+        user = _get_authenticated_user(info)
+        if not user:
+            raise Exception("Authentication required")
+        updated = Notification.objects.filter(id=notification_id, user=user).update(is_read=True)
+        return updated > 0
+
+    @strawberry.mutation
+    def mark_all_notifications_read(self, info: Info) -> int:
+        """Mark all notifications as read. Returns count updated."""
+        user = _get_authenticated_user(info)
+        if not user:
+            raise Exception("Authentication required")
+        return Notification.objects.filter(user=user, is_read=False).update(is_read=True)
+
+    @strawberry.mutation
+    def clear_all_notifications(self, info: Info) -> int:
+        """Delete all notifications for the user. Returns count deleted."""
+        user = _get_authenticated_user(info)
+        if not user:
+            raise Exception("Authentication required")
+        count, _ = Notification.objects.filter(user=user).delete()
+        return count
 
     @strawberry.mutation
     def update_contract(
@@ -613,11 +722,83 @@ class Mutation:
             contract.is_active = is_active
 
         contract.save()
+
+        # Push notification when a contract is paused
+        if is_active is False:
+            try:
+                from soroscan.ingest.services.notifications import create_and_push
+                create_and_push(
+                    user=contract.owner,
+                    notification_type="contract_paused",
+                    title="Contract Paused",
+                    message=f"Indexing for contract '{contract.name}' has been paused.",
+                    link=f"/contracts/{contract.contract_id}",
+                )
+            except Exception:
+                pass
+
         return contract
 
 
 @strawberry.type
 class Subscription:
+    @strawberry.subscription
+    async def notifications(
+        self, info: Info
+    ) -> AsyncGenerator[NotificationType, None]:
+        """
+        Subscribe to real-time notifications for the authenticated user.
+        Pushes new Notification objects as they are created.
+        """
+        from channels.db import database_sync_to_async
+
+        # Resolve user from the WS scope
+        scope = info.context.get("ws") if hasattr(info.context, "get") else None
+        user = None
+        if scope and hasattr(scope, "user"):
+            user = scope.user
+        if user is None:
+            # Fall back to HTTP request user
+            user = _get_authenticated_user(info)
+        if not user or not getattr(user, "is_authenticated", False):
+            return
+
+        channel_layer = get_channel_layer()
+        if not channel_layer:
+            return
+
+        channel_name = await channel_layer.new_channel()
+        group_name = f"notifications_{user.pk}"
+        await channel_layer.group_add(group_name, channel_name)
+
+        try:
+            while True:
+                message = await channel_layer.receive(channel_name)
+                notification_id = message.get("notification_id")
+                if not notification_id:
+                    continue
+
+                @database_sync_to_async
+                def get_notification():
+                    try:
+                        return Notification.objects.get(id=notification_id, user=user)
+                    except Notification.DoesNotExist:
+                        return None
+
+                notification = await get_notification()
+                if notification:
+                    yield NotificationType(
+                        id=notification.id,
+                        notification_type=notification.notification_type,
+                        title=notification.title,
+                        message=notification.message,
+                        link=notification.link,
+                        is_read=notification.is_read,
+                        created_at=notification.created_at,
+                    )
+        finally:
+            await channel_layer.group_discard(group_name, channel_name)
+
     @strawberry.subscription
     async def contract_events(
         self, info: Info, contract_id: str
