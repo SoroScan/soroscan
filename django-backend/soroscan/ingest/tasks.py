@@ -24,6 +24,7 @@ from django.conf import settings
 from django.db.models import F
 from django.utils import timezone
 
+from .cache_utils import invalidate_event_count_cache
 from .models import ContractABI, ContractEvent, ContractSigningKey, TrackedContract, WebhookSubscription, IndexerState, EventSchema, RemediationRule, RemediationIncident, AdminAction
 from .stellar_client import SorobanClient
 
@@ -288,6 +289,9 @@ def _upsert_contract_event(
     )
     obj, created = result
     if created:
+        # Invalidate event count cache
+        invalidate_event_count_cache(contract.contract_id)
+        
         m = _get_metrics()
         m.events_ingested_total.labels(
             contract_id=_short_contract_id(contract.contract_id),

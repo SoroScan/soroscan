@@ -439,3 +439,72 @@ class TestEventExplorerPageView:
         assert data[1]["count"] == 1
         assert data[1]["error_type"] == "validation_error"
         assert data[1]["contract_id"] == "CTEST456"
+
+
+class TestEventCountCaching:
+    def test_event_count_cache_hit_on_second_request(self, contract):
+        from soroscan.ingest.cache_utils import get_event_count
+        from soroscan.ingest.tests.factories import ContractEventFactory
+        from django.core.cache import cache
+        
+        # Clear cache
+        cache.clear()
+        
+        # Create some events
+        ContractEventFactory.create_batch(5, contract=contract)
+        
+        # First call should be cache miss
+        count1 = get_event_count(contract.contract_id)
+        assert count1 == 5
+        
+        # Second call should be cache hit
+        count2 = get_event_count(contract.contract_id)
+        assert count2 == 5
+        
+        # Verify it's cached
+        cached_value = cache.get(f"event_count:{contract.contract_id}")
+        assert cached_value == 5
+
+    def test_event_count_cache_invalidation_on_new_event(self, contract):
+        from soroscan.ingest.cache_utils import get_event_count, invalidate_event_count_cache
+        from soroscan.ingest.tests.factories import ContractEventFactory
+        from django.core.cache import cache
+        
+        # Clear cache
+        cache.clear()
+        
+        # Create initial events and cache the count
+        ContractEventFactory.create_batch(3, contract=contract)
+        count1 = get_event_count(contract.contract_id)
+        assert count1 == 3
+        
+        # Verify cached
+        assert cache.get(f"event_count:{contract.contract_id}") == 3
+        
+        # Invalidate cache (simulating new event creation)
+        invalidate_event_count_cache(contract.contract_id)
+        
+        # Cache should be cleared
+        assert cache.get(f"event_count:{contract.contract_id}") is None
+        
+        # Create another event and get fresh count
+        ContractEventFactory(contract=contract)
+        count2 = get_event_count(contract.contract_id)
+        assert count2 == 4
+
+    def test_event_count_ttl_respected(self, contract):
+        from soroscan.ingest.cache_utils import get_event_count
+        from soroscan.ingest.tests.factories import ContractEventFactory
+        from django.core.cache import cache
+        from unittest.mock import patch
+        
+        # Clear cache
+        cache.clear()
+        
+        # Create events
+        ContractEventFactory.create_batch(2, contract=contract)
+        
+        # Mock cache.set to verify TTL
+        with patch.object(cache, 'set') as mock_set:
+            get_event_count(contract.contract_id)
+            mock_set.assert_called_once_with(f"event_count:{contract.contract_id}", 2, 300)

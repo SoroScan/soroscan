@@ -38,3 +38,25 @@ def invalidate_contract_query_cache(contract_id: str) -> None:
     """Best-effort: drop stats cache for a contract (pattern-free delete)."""
     # Stats key uses contract_id in payload; callers can delete by known prefixes
     cache.delete(stable_cache_key("contract_stats", {"contract_id": contract_id}))
+
+
+def get_event_count(contract_id: str) -> int:
+    """Get cached event count for a contract with 5-minute TTL."""
+    from .metrics import cache_hits_total, cache_misses_total
+    
+    key = f"event_count:{contract_id}"
+    count = cache.get(key)
+    if count is None:
+        cache_misses_total.labels(cache_type="event_count").inc()
+        from .models import ContractEvent
+        count = ContractEvent.objects.filter(contract__contract_id=contract_id).count()
+        cache.set(key, count, 300)  # 5 min TTL
+    else:
+        cache_hits_total.labels(cache_type="event_count").inc()
+    return count
+
+
+def invalidate_event_count_cache(contract_id: str) -> None:
+    """Invalidate event count cache for a contract."""
+    key = f"event_count:{contract_id}"
+    cache.delete(key)

@@ -11,6 +11,8 @@ __all__ = [
     "events_ingested_total",
     "task_duration_seconds",
     "active_contracts_gauge",
+    "cache_hits_total",
+    "cache_misses_total",
 ]
 
 
@@ -60,4 +62,18 @@ active_contracts_gauge = _get_or_create(
     Gauge,
     "soroscan_tracked_contracts_active",
     "Number of currently active tracked contracts",
+)
+
+cache_hits_total = _get_or_create(
+    Counter,
+    "soroscan_cache_hits_total",
+    "Total number of cache hits",
+    ["cache_type"],
+)
+
+cache_misses_total = _get_or_create(
+    Counter,
+    "soroscan_cache_misses_total", 
+    "Total number of cache misses",
+    ["cache_type"],
 )
