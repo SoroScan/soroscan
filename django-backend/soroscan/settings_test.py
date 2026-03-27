@@ -44,6 +44,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "soroscan.ingest.middleware.GraphQLDeprecationMiddleware",
     "django_prometheus.middleware.PrometheusAfterMiddleware",   # must be last
 ]
 
