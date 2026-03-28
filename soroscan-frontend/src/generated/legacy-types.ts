@@ -156,37 +156,6 @@ export type GetSystemMetricsQueryVariables = Exact<{ [key: string]: never; }>;
 
 export type GetSystemMetricsQuery = { __typename?: 'Query', systemMetrics: { __typename?: 'SystemMetrics', eventsIndexedToday: number, eventsIndexedTotal: number, webhookSuccessRate: number, avgWebhookDeliveryTime: number, activeContracts: number, lastSynced?: string | null, dbStatus: string, redisStatus: string }, recentErrors: Array<{ __typename?: 'ErrorLog', id: string, timestamp: string, level: string, message: string, context?: string | null }> };
 
-export type GetNotificationsQueryVariables = Exact<{
-  notificationType?: InputMaybe<Scalars['String']['input']>;
-  unreadOnly?: InputMaybe<Scalars['Boolean']['input']>;
-  limit?: InputMaybe<Scalars['Int']['input']>;
-}>;
-
-
-export type GetNotificationsQuery = { __typename?: 'Query', unreadNotificationCount: number, notifications: Array<{ __typename?: 'Notification', id: number, notificationType: string, title: string, message: string, link?: string | null, isRead: boolean, createdAt: string }> };
-
-export type MarkNotificationReadMutationVariables = Exact<{
-  id: Scalars['Int']['input'];
-}>;
-
-
-export type MarkNotificationReadMutation = { __typename?: 'Mutation', markNotificationRead: boolean };
-
-export type MarkAllNotificationsReadMutationVariables = Exact<{ [key: string]: never; }>;
-
-
-export type MarkAllNotificationsReadMutation = { __typename?: 'Mutation', markAllNotificationsRead: boolean };
-
-export type ClearAllNotificationsMutationVariables = Exact<{ [key: string]: never; }>;
-
-
-export type ClearAllNotificationsMutation = { __typename?: 'Mutation', clearAllNotifications: boolean };
-
-export type OnNotificationSubscriptionVariables = Exact<{ [key: string]: never; }>;
-
-
-export type OnNotificationSubscription = { __typename?: 'Subscription', notifications: { __typename?: 'Notification', id: number, notificationType: string, title: string, message: string, link?: string | null, isRead: boolean, createdAt: string } };
-
 export type LoginMutationVariables = Exact<{
   email: Scalars['String']['input'];
   password: Scalars['String']['input'];

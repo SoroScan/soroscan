@@ -39,4 +39,11 @@ export function SkeletonChart({ height = 160 }: { height?: number }) {
   return <div className="w-full bg-terminal-gray/10 rounded-sm animate-pulse" style={{ height }} />
 }
 
+const Skeletons = {
+  SkeletonText,
+  SkeletonCard,
+  SkeletonTable,
+  SkeletonChart,
+}
+
 export default Skeletons
