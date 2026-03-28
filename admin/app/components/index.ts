@@ -1,17 +1,8 @@
-export { Chart } from './Chart';
-export type { ChartProps } from './Chart';
+export { AdvancedSearchForm } from './AdvancedSearchForm';
+export type { AdvancedSearchFormProps, SearchCriteria } from './AdvancedSearchForm';
 
-export { LineChart } from './LineChart';
-export type { LineChartProps, LineChartDataPoint } from './LineChart';
+export { SavedSearchList } from './SavedSearchList';
+export type { SavedSearchListProps, SavedSearch } from './SavedSearchList';
 
-export { BarChart } from './BarChart';
-export type { BarChartProps, BarChartDataPoint } from './BarChart';
-
-export { PieChart } from './PieChart';
-export type { PieChartProps, PieChartDataPoint } from './PieChart';
-
-export { Heatmap } from './Heatmap';
-export type { HeatmapProps, HeatmapDataPoint } from './Heatmap';
-
-export { DashboardGrid } from './DashboardGrid';
-export type { DashboardGridProps } from './DashboardGrid';
+export { SearchHistory } from './SearchHistory';
+export type { SearchHistoryProps, SearchHistoryItem } from './SearchHistory';
