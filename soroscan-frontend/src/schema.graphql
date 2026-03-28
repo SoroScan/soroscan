@@ -5,6 +5,10 @@ type Query {
   # Events
   events(contractId: String, first: Int!): EventConnection!
 
+  # Notifications
+  notifications(notificationType: String, unreadOnly: Boolean, limit: Int): [Notification!]!
+  unreadNotificationCount: Int!
+
   # Auth / user
   me: User
 
@@ -14,6 +18,9 @@ type Query {
 }
 
 type Mutation {
+  markNotificationRead(notificationId: Int!): Boolean!
+  markAllNotificationsRead: Boolean!
+  clearAllNotifications: Boolean!
   login(email: String!, password: String!): AuthPayload!
   refreshToken(refresh: String!): AuthPayload!
 }
@@ -50,6 +57,21 @@ type ErrorLog {
   level: String!
   message: String!
   context: String
+}
+
+type Notification {
+  id: Int!
+  notificationType: String!
+  title: String!
+  message: String!
+  link: String
+  isRead: Boolean!
+  createdAt: String!
+}
+
+type Subscription {
+  contractEvent(contractId: String!): ContractEvent!
+  notifications: Notification!
 }
 
 type EventConnection {

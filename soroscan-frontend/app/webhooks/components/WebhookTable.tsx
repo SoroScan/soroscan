@@ -118,6 +118,7 @@ export function WebhookTable({ webhooks, onDelete, onTest, testingId, testResult
         )
       })}
     </div>
+  );
 
   const desktopTable = (
     <div className="overflow-x-auto hidden md:block">
