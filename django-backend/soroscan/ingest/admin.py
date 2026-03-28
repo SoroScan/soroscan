@@ -121,6 +121,7 @@ class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
     inlines = [ContractMetadataInline]
     list_display = [
         "name",
+        "alias",
         "contract_id_short",
         "owner",
         "team",
@@ -132,7 +133,7 @@ class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
         "created_at",
     ]
     list_filter = ["is_active", "deprecation_status", "created_at"]
-    search_fields = ["name", "contract_id"]
+    search_fields = ["name", "alias", "contract_id"]
     readonly_fields = ["created_at", "updated_at"]
     ordering = ["-created_at"]
     action_form = BackfillActionForm
