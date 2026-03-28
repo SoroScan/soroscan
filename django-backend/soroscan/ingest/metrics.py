@@ -12,8 +12,7 @@ __all__ = [
     "task_duration_seconds",
     "active_contracts_gauge",
     "events_rate_limited_total",
-    "event_streaming_success_total",
-    "event_streaming_failure_total",
+    "events_filtered_total",
 ]
 
 
@@ -72,16 +71,9 @@ events_rate_limited_total = _get_or_create(
     ["contract_id", "network"],
 )
 
-event_streaming_success_total = _get_or_create(
+events_filtered_total = _get_or_create(
     Counter,
-    "soroscan_event_streaming_success_total",
-    "Total number of successfully streamed events",
-    ["backend", "contract_id"],
-)
-
-event_streaming_failure_total = _get_or_create(
-    Counter,
-    "soroscan_event_streaming_failure_total",
-    "Total number of failed event streaming attempts",
-    ["backend", "contract_id"],
+    "soroscan_events_filtered_total",
+    "Total number of events dropped by whitelist/blacklist filter",
+    ["contract_id", "network", "filter_type", "event_type"],
 )

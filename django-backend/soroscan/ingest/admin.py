@@ -113,22 +113,52 @@ class TeamMembershipAdmin(admin.ModelAdmin):
 class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
     list_display = [
         "name",
+        "alias",
         "contract_id_short",
         "owner",
         "team",
         "is_active",
         "deprecation_status",
+        "event_filter_type",
         "max_events_per_minute",
         "last_indexed_ledger",
         "event_count",
         "created_at",
     ]
-    list_filter = ["is_active", "deprecation_status", "created_at"]
-    search_fields = ["name", "contract_id"]
+    list_filter = ["is_active", "deprecation_status", "event_filter_type", "created_at"]
+    search_fields = ["name", "alias", "contract_id"]
     readonly_fields = ["created_at", "updated_at"]
     ordering = ["-created_at"]
     action_form = BackfillActionForm
     actions = ["backfill_events"]
+    fieldsets = (
+        (None, {
+            "fields": (
+                "contract_id", "name", "alias", "description",
+                "owner", "team", "is_active",
+            ),
+        }),
+        ("Event Filtering", {
+            "fields": ("event_filter_type", "event_filter_list"),
+            "description": (
+                "Control which event types are persisted at ingest time. "
+                "Whitelist: only listed types are stored. "
+                "Blacklist: listed types are dropped."
+            ),
+        }),
+        ("Advanced", {
+            "fields": (
+                "deprecation_status", "deprecation_reason",
+                "max_events_per_minute", "abi_schema",
+                "last_indexed_ledger",
+            ),
+            "classes": ("collapse",),
+        }),
+        ("Timestamps", {
+            "fields": ("created_at", "updated_at"),
+            "classes": ("collapse",),
+        }),
+    )
 
     @admin.display(description="Contract ID")
     def contract_id_short(self, obj):
