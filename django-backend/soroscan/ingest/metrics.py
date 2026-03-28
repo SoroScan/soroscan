@@ -11,6 +11,8 @@ __all__ = [
     "events_ingested_total",
     "task_duration_seconds",
     "active_contracts_gauge",
+    "events_rate_limited_total",
+    "events_filtered_total",
 ]
 
 
@@ -60,4 +62,18 @@ active_contracts_gauge = _get_or_create(
     Gauge,
     "soroscan_tracked_contracts_active",
     "Number of currently active tracked contracts",
+)
+
+events_rate_limited_total = _get_or_create(
+    Counter,
+    "soroscan_events_rate_limited_total",
+    "Total number of events skipped due to rate limiting",
+    ["contract_id", "network"],
+)
+
+events_filtered_total = _get_or_create(
+    Counter,
+    "soroscan_events_filtered_total",
+    "Total number of events dropped by whitelist/blacklist filter",
+    ["contract_id", "network", "filter_type", "event_type"],
 )
