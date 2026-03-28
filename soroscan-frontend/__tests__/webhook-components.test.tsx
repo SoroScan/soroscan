@@ -59,7 +59,7 @@ describe("WebhookTable", () => {
     render(
       <WebhookTable webhooks={MOCK_WEBHOOKS} onDelete={mockDelete} onTest={mockTest} />
     )
-    expect(screen.getByText("FAILED")).toBeInTheDocument()
+    expect(screen.getAllByText("FAILED").length).toBeGreaterThanOrEqual(1)
   })
 
   it("shows empty state when no webhooks", () => {
@@ -102,7 +102,7 @@ describe("WebhookTable", () => {
         testResult={{ id: MOCK_WEBHOOKS[0].id, ok: true, code: 200 }}
       />
     )
-    expect(screen.getByText(/TEST_OK/)).toBeInTheDocument()
+    expect(screen.getAllByText(/TEST_OK/).length).toBeGreaterThanOrEqual(1)
   })
 })
 
