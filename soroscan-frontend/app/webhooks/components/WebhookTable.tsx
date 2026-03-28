@@ -7,6 +7,7 @@ import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from "@/components/terminal/Table"
 import { Button } from "@/components/terminal/Button"
+import ResponsiveTable from "@/components/ui/ResponsiveTable"
 import type { Webhook, WebhookStatus } from "../types"
 
 interface WebhookTableProps {
@@ -82,47 +83,59 @@ export function WebhookTable({ webhooks, onDelete, onTest, testingId, testResult
     )
   }
 
-  return (
-    <div className="overflow-x-auto">
+  const mobileCards = (
+    <div className="flex flex-col gap-3 md:hidden">
+      {sorted.map((wh) => {
+        const isTesting = testingId === wh.id
+        const result = testResult?.id === wh.id ? testResult : null
+        return (
+          <div key={wh.id} className="border border-terminal-green/20 p-4 bg-terminal-green/5">
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="text-xs text-terminal-cyan font-terminal-mono">{wh.url}</div>
+                {wh.contractFilter && <div className="text-[9px] text-terminal-gray/60">CONTRACT: {wh.contractFilter}</div>}
+                {result && <div className={`text-[9px] mt-1 ${result.ok ? "text-terminal-green" : "text-terminal-danger"}`}>{result.ok ? `✓ TEST_OK (${result.code})` : `✗ TEST_FAILED (${result.code})`}</div>}
+              </div>
+              <div className="flex flex-col items-end gap-2">
+                <StatusBadge status={wh.status} />
+                <div className="flex gap-2">
+                  <button onClick={() => onTest(wh.id)} disabled={isTesting} className="h-8 w-8 flex items-center justify-center border border-terminal-cyan/40 text-terminal-cyan">
+                    <FlaskConical size={12} />
+                  </button>
+                  <button onClick={() => onDelete(wh.id)} className="h-8 w-8 flex items-center justify-center border border-terminal-danger/40 text-terminal-danger">
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {wh.eventTypes.slice(0, 3).map((t) => (
+                <span key={t} className="text-[9px] border border-terminal-green/30 px-1 text-terminal-gray">{t === "ALL" ? "ALL_EVENTS" : t}</span>
+              ))}
+            </div>
+            <div className="mt-2 text-[11px] text-terminal-gray">{wh.lastDelivery ? new Date(wh.lastDelivery).toLocaleString() : "—"}</div>
+          </div>
+        )
+      })}
+    </div>
+
+  const desktopTable = (
+    <div className="overflow-x-auto hidden md:block">
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead
-              className="cursor-pointer select-none hover:text-terminal-green transition-colors"
-              onClick={() => toggleSort("status")}
-            >
-              <span className="inline-flex items-center gap-1">
-                STATUS
-                <SortIcon field="status" active={sortField === "status"} dir={sortDir} />
-              </span>
+            <TableHead className="cursor-pointer select-none hover:text-terminal-green transition-colors" onClick={() => toggleSort("status")}>
+              <span className="inline-flex items-center gap-1">STATUS<SortIcon field="status" active={sortField === "status"} dir={sortDir} /></span>
             </TableHead>
-            <TableHead
-              className="cursor-pointer select-none hover:text-terminal-green transition-colors"
-              onClick={() => toggleSort("url")}
-            >
-              <span className="inline-flex items-center gap-1">
-                ENDPOINT_URL
-                <SortIcon field="url" active={sortField === "url"} dir={sortDir} />
-              </span>
+            <TableHead className="cursor-pointer select-none hover:text-terminal-green transition-colors" onClick={() => toggleSort("url")}>
+              <span className="inline-flex items-center gap-1">ENDPOINT_URL<SortIcon field="url" active={sortField === "url"} dir={sortDir} /></span>
             </TableHead>
             <TableHead className="hidden md:table-cell">EVENT_TYPES</TableHead>
-            <TableHead
-              className="cursor-pointer select-none hover:text-terminal-green transition-colors"
-              onClick={() => toggleSort("successRate")}
-            >
-              <span className="inline-flex items-center gap-1">
-                SUCCESS
-                <SortIcon field="successRate" active={sortField === "successRate"} dir={sortDir} />
-              </span>
+            <TableHead className="cursor-pointer select-none hover:text-terminal-green transition-colors" onClick={() => toggleSort("successRate")}>
+              <span className="inline-flex items-center gap-1">SUCCESS<SortIcon field="successRate" active={sortField === "successRate"} dir={sortDir} /></span>
             </TableHead>
-            <TableHead
-              className="cursor-pointer select-none hover:text-terminal-green transition-colors"
-              onClick={() => toggleSort("lastDelivery")}
-            >
-              <span className="inline-flex items-center gap-1">
-                LAST_DELIVERY
-                <SortIcon field="lastDelivery" active={sortField === "lastDelivery"} dir={sortDir} />
-              </span>
+            <TableHead className="cursor-pointer select-none hover:text-terminal-green transition-colors" onClick={() => toggleSort("lastDelivery")}>
+              <span className="inline-flex items-center gap-1">LAST_DELIVERY<SortIcon field="lastDelivery" active={sortField === "lastDelivery"} dir={sortDir} /></span>
             </TableHead>
             <TableHead>ACTIONS</TableHead>
           </TableRow>
@@ -133,83 +146,26 @@ export function WebhookTable({ webhooks, onDelete, onTest, testingId, testResult
             const result = testResult?.id === wh.id ? testResult : null
             return (
               <TableRow key={wh.id}>
-                {/* Status */}
                 <TableCell><StatusBadge status={wh.status} /></TableCell>
-
-                {/* URL */}
                 <TableCell>
                   <div className="max-w-[180px] sm:max-w-[280px] lg:max-w-none">
-                    <Link
-                      href={`/webhooks/${wh.id}`}
-                      className="text-terminal-cyan hover:text-terminal-green transition-colors text-[11px] block truncate font-terminal-mono"
-                    >
-                      {wh.url}
-                    </Link>
-                    {wh.contractFilter && (
-                      <div className="text-[9px] text-terminal-gray/60 mt-0.5">
-                        CONTRACT: {wh.contractFilter}
-                      </div>
-                    )}
-                    {result && (
-                      <div className={`text-[9px] mt-1 ${result.ok ? "text-terminal-green" : "text-terminal-danger"}`}>
-                        {result.ok ? `✓ TEST_OK (${result.code})` : `✗ TEST_FAILED (${result.code})`}
-                      </div>
-                    )}
+                    <Link href={`/webhooks/${wh.id}`} className="text-terminal-cyan hover:text-terminal-green transition-colors text-[11px] block truncate font-terminal-mono">{wh.url}</Link>
+                    {wh.contractFilter && <div className="text-[9px] text-terminal-gray/60 mt-0.5">CONTRACT: {wh.contractFilter}</div>}
+                    {result && <div className={`text-[9px] mt-1 ${result.ok ? "text-terminal-green" : "text-terminal-danger"}`}>{result.ok ? `✓ TEST_OK (${result.code})` : `✗ TEST_FAILED (${result.code})`}</div>}
                   </div>
                 </TableCell>
-
-                {/* Event types */}
                 <TableCell className="hidden md:table-cell">
-                  <div className="flex flex-wrap gap-1 max-w-[200px]">
-                    {wh.eventTypes.slice(0, 3).map((t) => (
-                      <span key={t} className="text-[9px] border border-terminal-green/30 px-1 text-terminal-gray">
-                        {t === "ALL" ? "ALL_EVENTS" : t}
-                      </span>
-                    ))}
-                    {wh.eventTypes.length > 3 && (
-                      <span className="text-[9px] text-terminal-gray/60">+{wh.eventTypes.length - 3}</span>
-                    )}
-                  </div>
+                  <div className="flex flex-wrap gap-1 max-w-[200px]">{wh.eventTypes.slice(0, 3).map((t) => (<span key={t} className="text-[9px] border border-terminal-green/30 px-1 text-terminal-gray">{t === "ALL" ? "ALL_EVENTS" : t}</span>))}{wh.eventTypes.length > 3 && (<span className="text-[9px] text-terminal-gray/60">+{wh.eventTypes.length - 3}</span>)}</div>
                 </TableCell>
-
-                {/* Success rate */}
                 <TableCell><SuccessBar rate={wh.successRate} /></TableCell>
-
-                {/* Last delivery */}
-                <TableCell className="text-[11px] whitespace-nowrap text-terminal-gray">
-                  {wh.lastDelivery
-                    ? new Date(wh.lastDelivery).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })
-                    : "—"}
-                  {wh.lastStatusCode && (
-                    <div className={`text-[9px] mt-0.5 ${wh.lastStatusCode < 300 ? "text-terminal-green" : "text-terminal-danger"}`}>
-                      HTTP {wh.lastStatusCode}
-                    </div>
-                  )}
-                </TableCell>
-
-                {/* Actions */}
+                <TableCell className="text-[11px] whitespace-nowrap text-terminal-gray">{wh.lastDelivery ? new Date(wh.lastDelivery).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" }) : "—"}{wh.lastStatusCode && (<div className={`text-[9px] mt-0.5 ${wh.lastStatusCode < 300 ? "text-terminal-green" : "text-terminal-danger"}`}>HTTP {wh.lastStatusCode}</div>)}</TableCell>
                 <TableCell>
                   <div className="flex items-center gap-1.5">
                     <Link href={`/webhooks/${wh.id}`}>
-                      <Button variant="secondary" size="sm" className="text-[9px] h-7 px-2 hidden sm:inline-flex">
-                        DETAIL
-                      </Button>
+                      <Button variant="secondary" size="sm" className="text-[9px] h-7 px-2 hidden sm:inline-flex">DETAIL</Button>
                     </Link>
-                    <button
-                      onClick={() => onTest(wh.id)}
-                      disabled={isTesting}
-                      title="Test webhook"
-                      className="h-7 w-7 flex items-center justify-center border border-terminal-cyan/40 text-terminal-cyan hover:border-terminal-cyan hover:bg-terminal-cyan/10 transition-colors disabled:opacity-50"
-                    >
-                      <FlaskConical size={12} />
-                    </button>
-                    <button
-                      onClick={() => onDelete(wh.id)}
-                      title="Delete webhook"
-                      className="h-7 w-7 flex items-center justify-center border border-terminal-danger/40 text-terminal-danger hover:border-terminal-danger hover:bg-terminal-danger/10 transition-colors"
-                    >
-                      <Trash2 size={12} />
-                    </button>
+                    <button onClick={() => onTest(wh.id)} disabled={isTesting} title="Test webhook" className="h-7 w-7 flex items-center justify-center border border-terminal-cyan/40 text-terminal-cyan hover:border-terminal-cyan hover:bg-terminal-cyan/10 transition-colors disabled:opacity-50"><FlaskConical size={12} /></button>
+                    <button onClick={() => onDelete(wh.id)} title="Delete webhook" className="h-7 w-7 flex items-center justify-center border border-terminal-danger/40 text-terminal-danger hover:border-terminal-danger hover:bg-terminal-danger/10 transition-colors"><Trash2 size={12} /></button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -219,4 +175,6 @@ export function WebhookTable({ webhooks, onDelete, onTest, testingId, testResult
       </Table>
     </div>
   )
+
+  return <ResponsiveTable table={desktopTable} cards={mobileCards} />
 }

@@ -9,6 +9,8 @@ import {
   fetchEventTypes,
   fetchExplorerEvents,
 } from "@/components/ingest/graphql";
+import Pagination from "@/components/ui/Pagination"
+import { SkeletonTable } from "@/components/ui/Skeletons"
 import {
   formatDateTime,
   shortHash,
@@ -43,6 +45,7 @@ export function EventExplorerView({ contractId }: { contractId: string }) {
     message: "Loading events...",
     isError: false,
   });
+  const [isLoadingEvents, setIsLoadingEvents] = useState(true);
   const [isExportOpen, setIsExportOpen] = useState(false);
 
   useEffect(() => {
@@ -127,6 +130,7 @@ export function EventExplorerView({ contractId }: { contractId: string }) {
         return;
       }
 
+      setIsLoadingEvents(true);
       setStatus({ message: "Loading events...", isError: false });
 
       try {
@@ -159,6 +163,9 @@ export function EventExplorerView({ contractId }: { contractId: string }) {
         setRows([]);
         setHasNext(false);
         setStatus({ message, isError: true });
+      }
+      finally {
+        setIsLoadingEvents(false);
       }
     };
 
@@ -290,67 +297,60 @@ export function EventExplorerView({ contractId }: { contractId: string }) {
           </div>
 
           <div className={styles.tableWrap}>
-            <table className={styles.eventTable}>
-              <caption className={styles.srOnly}>
-                Contract events for {contractName}
-              </caption>
-              <thead>
-                <tr>
-                  <th scope="col">Timestamp</th>
-                  <th scope="col">Type</th>
-                  <th scope="col">Ledger</th>
-                  <th scope="col">Event Index</th>
-                  <th scope="col">Transaction</th>
-                  <th scope="col">Payload</th>
-                </tr>
-              </thead>
-              <tbody>
-                {!rows.length ? (
+            {isLoadingEvents ? (
+              <SkeletonTable rows={6} cols={6} />
+            ) : (
+              <table className={styles.eventTable}>
+                <caption className={styles.srOnly}>Contract events for {contractName}</caption>
+                <thead>
                   <tr>
-                    <td colSpan={6} className={styles.emptyTable}>
-                      {isContractMissing
-                        ? "This contract does not exist in the indexed registry."
-                        : "No events found for this filter selection."}
-                    </td>
+                    <th scope="col">Timestamp</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Ledger</th>
+                    <th scope="col">Event Index</th>
+                    <th scope="col">Transaction</th>
+                    <th scope="col">Payload</th>
                   </tr>
-                ) : (
-                  rows.map((row) => (
-                    <tr key={row.id}>
-                      <td>{formatDateTime(row.timestamp)}</td>
-                      <td>
-                        <span className={styles.pill}>{row.eventType}</span>
-                      </td>
-                      <td>{row.ledger}</td>
-                      <td>{row.eventIndex}</td>
-                      <td>{shortHash(row.txHash)}</td>
-                      <td>
-                        <code>{trimPayload(row.payload, 96)}</code>
+                </thead>
+                <tbody>
+                  {!rows.length ? (
+                    <tr>
+                      <td colSpan={6} className={styles.emptyTable}>
+                        {isContractMissing
+                          ? "This contract does not exist in the indexed registry."
+                          : "No events found for this filter selection."}
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    rows.map((row) => (
+                      <tr key={row.id}>
+                        <td>{formatDateTime(row.timestamp)}</td>
+                        <td>
+                          <span className={styles.pill}>{row.eventType}</span>
+                        </td>
+                        <td>{row.ledger}</td>
+                        <td>{row.eventIndex}</td>
+                        <td>{shortHash(row.txHash)}</td>
+                        <td>
+                          <code>{trimPayload(row.payload, 96)}</code>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            )}
           </div>
 
           <div className={styles.paginationRow}>
-            <button
-              type="button"
-              className={`${styles.btn} ${styles.secondaryBtn}`}
-              disabled={page <= 1}
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
-            >
-              Previous
-            </button>
-            <span className={styles.pill}>Page {page}</span>
-            <button
-              type="button"
-              className={`${styles.btn} ${styles.secondaryBtn}`}
-              disabled={!hasNext}
-              onClick={() => setPage((current) => current + 1)}
-            >
-              Next
-            </button>
+            <Pagination
+              onPrev={() => setPage((current) => Math.max(1, current - 1))}
+              onNext={() => setPage((current) => current + 1)}
+              disabledPrev={page <= 1}
+              disabledNext={!hasNext}
+              page={page}
+              label={`Page ${page}`}
+            />
           </div>
         </section>
       </main>
