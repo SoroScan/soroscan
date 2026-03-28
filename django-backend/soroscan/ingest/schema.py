@@ -14,7 +14,7 @@ from strawberry import auto
 from strawberry.types import Info
 
 from .cache_utils import get_or_set_json, query_cache_ttl, stable_cache_key
-from .models import ContractEvent, ContractInvocation, Notification, TrackedContract, WebhookDeliveryLog
+from .models import ContractEvent, ContractInvocation, ContractMetadata, Notification, TrackedContract, WebhookDeliveryLog
 from .services.timeline import build_timeline
 from django.utils import timezone
 from django.db.models import Count, Max
@@ -41,6 +41,19 @@ def _get_authenticated_user(info: Info):
 # GraphQL types
 # ---------------------------------------------------------------------------
 
+@strawberry_django.type(ContractMetadata)
+class ContractMetadataType:
+    id: auto
+    name: auto
+    description: auto
+    tags: strawberry.scalars.JSON
+    documentation_url: auto
+    github_repo: auto
+    team_email: auto
+    created_at: auto
+    updated_at: auto
+
+
 @strawberry_django.type(TrackedContract)
 class ContractType:
     id: auto
@@ -51,6 +64,14 @@ class ContractType:
     deprecation_status: auto
     deprecation_reason: auto
     created_at: auto
+
+    @strawberry.field
+    def metadata(self) -> Optional[ContractMetadataType]:
+        try:
+            # Using getattr to avoid conflict with the field name
+            return getattr(self, "metadata", None)
+        except ContractMetadata.DoesNotExist:
+            return None
 
     @strawberry.field
     def team_id(self) -> Optional[int]:
@@ -308,11 +329,30 @@ class NotificationType:
 @strawberry.type
 class Query:
     @strawberry.field
-    def contracts(self, is_active: Optional[bool] = None) -> list[ContractType]:
-        """Get all tracked contracts."""
-        qs = TrackedContract.objects.all()
+    def contracts(
+        self,
+        is_active: Optional[bool] = None,
+        search: Optional[str] = None,
+        tags: Optional[list[str]] = None,
+    ) -> list[ContractType]:
+        """Get all tracked contracts with optional search and tagging."""
+        qs = TrackedContract.objects.select_related("metadata").all()
         if is_active is not None:
             qs = qs.filter(is_active=is_active)
+
+        if search:
+            from django.db.models import Q
+            qs = qs.filter(
+                Q(name__icontains=search) |
+                Q(description__icontains=search) |
+                Q(metadata__name__icontains=search) |
+                Q(metadata__description__icontains=search)
+            )
+
+        if tags:
+            # PostgreSQL specific JSONField containment
+            qs = qs.filter(metadata__tags__contains=tags)
+
         return qs
 
     @strawberry.field

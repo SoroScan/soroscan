@@ -162,6 +162,33 @@ class TrackedContract(models.Model):
         return {"type": "deprecation", "message": message}
 
 
+class ContractMetadata(models.Model):
+    """
+    Rich metadata for a contract to improve discoverability.
+    """
+
+    contract = models.OneToOneField(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name="metadata",
+        help_text="The contract this metadata belongs to",
+    )
+    name = models.CharField(
+        max_length=256,
+        help_text="Human-readable name (can differ from internal name)",
+    )
+    description = models.TextField(help_text="Detailed description of the contract")
+    tags = models.JSONField(default=list, help_text="List of strings for categorization")
+    documentation_url = models.URLField(blank=True, help_text="Link to external documentation")
+    github_repo = models.URLField(blank=True, help_text="Link to source code repository")
+    team_email = models.EmailField(blank=True, help_text="Contact email for the team")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Metadata for {self.contract.name}"
+
+
 class ContractInvocation(models.Model):
     """
     Record of a contract function invocation that generated events.
