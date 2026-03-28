@@ -31,6 +31,8 @@ from .models import (
     TrackedContract,
     WebhookDeliveryLog,
     WebhookSubscription,
+    ContractDependency,
+    CallGraph,
 )
 from .tasks import backfill_contract_events
 
@@ -527,6 +529,24 @@ class WebhookDeliveryLogAdmin(AdminAuditMixin, admin.ModelAdmin):
         return False
 
     def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ContractDependency)
+class ContractDependencyAdmin(admin.ModelAdmin):
+    list_display = ["caller", "callee", "call_count", "first_call", "last_call"]
+    list_filter = ["first_call", "last_call"]
+    search_fields = ["caller__name", "callee__name", "caller__contract_id", "callee__contract_id"]
+    readonly_fields = ["first_call", "last_call"]
+    ordering = ["-call_count"]
+
+
+@admin.register(CallGraph)
+class CallGraphAdmin(admin.ModelAdmin):
+    list_display = ["last_computed", "total_nodes", "total_edges", "has_cycles"]
+    readonly_fields = ["last_computed", "total_nodes", "total_edges", "has_cycles", "cyclic_dependencies", "critical_paths"]
+
+    def has_add_permission(self, request):
         return False
 
     @admin.display(description="Target URL")

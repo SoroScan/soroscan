@@ -253,6 +253,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "soroscan.ingest.tasks.evaluate_remediation_rules",
         "schedule": 300,  # every 5 minutes
     },
+    "analyze-contract-dependencies": {
+        "task": "soroscan.ingest.tasks.analyze_contract_dependencies",
+        "schedule": 3600,  # hourly
+    },
 }
 
 # Data Retention Configuration

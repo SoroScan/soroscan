@@ -998,6 +998,57 @@ class ArchivedEventBatch(models.Model):
 
     class Meta:
         ordering = ["-archived_at"]
+
+
+class ContractDependency(models.Model):
+    """
+    Tracks contract-to-contract calls within a transaction.
+    """
+
+    caller = models.ForeignKey(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name="calls",
+        help_text="Contract that initiated the call",
+    )
+    callee = models.ForeignKey(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name="called_by",
+        help_text="Contract that was called",
+    )
+    call_count = models.IntegerField(default=0)
+    first_call = models.DateTimeField(auto_now_add=True)
+    last_call = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("caller", "callee")
+        verbose_name_plural = "Contract Dependencies"
+
+    def __str__(self):
+        return f"{self.caller.name} -> {self.callee.name} ({self.call_count} calls)"
+
+
+class CallGraph(models.Model):
+    """
+    Metadata about the current state of the global contract call graph.
+    """
+
+    last_computed = models.DateTimeField(auto_now=True)
+    has_cycles = models.BooleanField(default=False)
+    cyclic_dependencies = models.JSONField(
+        default=list,
+        help_text="List of contract IDs (C...) involved in circular dependencies",
+    )
+    total_nodes = models.IntegerField(default=0)
+    total_edges = models.IntegerField(default=0)
+    critical_paths = models.JSONField(
+        default=list,
+        help_text="List of most frequent dependency chains: [{'path': [C1, C2, ...], 'calls': N}]",
+    )
+
+    def __str__(self):
+        return f"CallGraph @ {self.last_computed} (Nodes: {self.total_nodes}, Edges: {self.total_edges})"
         indexes = [
             models.Index(fields=["policy", "archived_at"]),
             models.Index(fields=["status"]),
