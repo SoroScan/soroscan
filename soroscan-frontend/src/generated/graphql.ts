@@ -100,10 +100,8 @@ export type Query = {
   __typename?: 'Query';
   events: EventConnection;
   me?: Maybe<User>;
-  notifications: Array<Notification>;
   recentErrors: Array<ErrorLog>;
   systemMetrics: SystemMetrics;
-  unreadNotificationCount: Scalars['Int']['output'];
 };
 
 
