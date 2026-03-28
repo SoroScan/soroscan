@@ -6,6 +6,7 @@ import { Card } from "@/components/terminal/Card";
 import { Button } from "@/components/terminal/Button";
 import { ContractForm } from "./components/ContractForm";
 import { BackfillModal } from "./components/BackfillModal";
+import { StatusIndicator } from "@/components/ui/StatusIndicator";
 import {
   getContract,
   updateContract,
@@ -13,7 +14,11 @@ import {
 } from "@/components/ingest/contract-graphql";
 import type { Contract, ContractFormData, BackfillTask } from "@/components/ingest/contract-types";
 
-export default function ContractDetailPage({ params }: { params: { id: string } }) {
+interface Props {
+  params: { contractId: string };
+}
+
+export default function ContractDetailPage({ params }: Props) {
   const router = useRouter();
   const [contract, setContract] = React.useState<Contract | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -26,21 +31,21 @@ export default function ContractDetailPage({ params }: { params: { id: string } 
     try {
       setIsLoading(true);
       setError(null);
-      const data = await getContract(params.id);
+      const data = await getContract(params.contractId);
       setContract(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load contract");
     } finally {
       setIsLoading(false);
     }
-  }, [params.id]);
+  }, [params.contractId]);
 
   React.useEffect(() => {
     loadContract();
   }, [loadContract]);
 
   const handleSave = async (data: ContractFormData) => {
-    const updated = await updateContract(params.id, data);
+    const updated = await updateContract(params.contractId, data);
     setContract(updated);
     setIsEditing(false);
   };
@@ -85,6 +90,9 @@ export default function ContractDetailPage({ params }: { params: { id: string } 
     );
   }
 
+  const validStatuses: Array<"active" | "failed" | "pending"> = ["active", "failed", "pending"];
+  const status = (contract.status ?? "pending").toLowerCase() as "active" | "failed" | "pending";
+
   return (
     <div className="min-h-screen bg-terminal-black p-8">
       <div className="max-w-4xl mx-auto space-y-6">
@@ -126,22 +134,7 @@ export default function ContractDetailPage({ params }: { params: { id: string } 
                 </div>
                 <div>
                   <div className="text-xs text-terminal-cyan uppercase mb-1">Status</div>
-                  <span
-                    className={`inline-flex items-center gap-2 px-2 py-1 text-xs font-mono ${
-                      contract.status === "active"
-                        ? "text-terminal-green border border-terminal-green/30 bg-terminal-green/10"
-                        : "text-terminal-gray border border-terminal-gray/30 bg-terminal-gray/10"
-                    }`}
-                  >
-                    <span
-                      className={`w-2 h-2 rounded-full ${
-                        contract.status === "active"
-                          ? "bg-terminal-green animate-pulse"
-                          : "bg-terminal-gray"
-                      }`}
-                    />
-                    {contract.status.toUpperCase()}
-                  </span>
+                  <StatusIndicator status={validStatuses.includes(status) ? status : "pending"} />
                 </div>
               </div>
 
@@ -186,7 +179,9 @@ export default function ContractDetailPage({ params }: { params: { id: string } 
                 </Button>
                 <Button
                   variant="secondary"
-                  onClick={() => router.push(`/contracts/${contract.contractId}/events/explorer`)}
+                  onClick={() =>
+                    router.push(`/contracts/${contract.contractId}/events/explorer`)
+                  }
                 >
                   View Events
                 </Button>

@@ -21,7 +21,7 @@ export default function WebhooksPage() {
   const [deleteTarget, setDeleteTarget] = React.useState<string | null>(null)
   const [testingId, setTestingId] = React.useState<string | null>(null)
   const [testResult, setTestResult] = React.useState<{ id: string; ok: boolean; code: number } | null>(null)
-  const [toast, setToast] = React.useState<string | null>(null)
+  const [toast, setToast] = React.useState<{ id: string; msg: string } | null>(null)
 
   // Stats
   const active  = webhooks.filter((w) => w.status === "ACTIVE").length
@@ -36,7 +36,8 @@ export default function WebhooksPage() {
     .at(-1)
 
   const showToast = (msg: string) => {
-    setToast(msg)
+    const id = `toast_${Date.now()}`
+    setToast({ id, msg })
     setTimeout(() => setToast(null), 3000)
   }
 
@@ -66,7 +67,6 @@ export default function WebhooksPage() {
     setTestingId(id)
     setTestResult(null)
     setTimeout(() => {
-      // Simulate: 80% success
       const ok = Math.random() > 0.2
       setTestResult({ id, ok, code: ok ? 200 : 503 })
       setTestingId(null)
@@ -199,9 +199,9 @@ export default function WebhooksPage() {
 
       {/* Toast notification */}
       {toast && (
-        <div className="fixed bottom-6 right-6 z-100 border border-terminal-green bg-terminal-black px-4 py-3 text-xs text-terminal-green font-terminal-mono shadow-glow-green animate-in slide-in-from-bottom-4 duration-300 max-w-sm">
+        <div key={toast.id} className="fixed bottom-6 right-6 z-100 border border-terminal-green bg-terminal-black px-4 py-3 text-xs text-terminal-green font-terminal-mono shadow-glow-green animate-in slide-in-from-bottom-4 duration-300 max-w-sm">
           <span className="mr-2 text-terminal-green">✓</span>
-          {toast}
+          {toast.msg}
         </div>
       )}
     </div>

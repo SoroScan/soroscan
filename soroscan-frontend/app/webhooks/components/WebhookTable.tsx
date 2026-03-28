@@ -66,9 +66,7 @@ export function WebhookTable({ webhooks, onDelete, onTest, testingId, testResult
     if (sortField === "url") cmp = a.url.localeCompare(b.url)
     else if (sortField === "status") cmp = a.status.localeCompare(b.status)
     else if (sortField === "successRate") cmp = a.successRate - b.successRate
-    else if (sortField === "lastDelivery") {
-      cmp = (a.lastDelivery ?? "").localeCompare(b.lastDelivery ?? "")
-    }
+    else if (sortField === "lastDelivery") cmp = (a.lastDelivery ?? "").localeCompare(b.lastDelivery ?? "")
     return sortDir === "asc" ? cmp : -cmp
   })
 
@@ -142,6 +140,7 @@ export function WebhookTable({ webhooks, onDelete, onTest, testingId, testResult
                     <Link
                       href={`/webhooks/${wh.id}`}
                       className="text-terminal-cyan hover:text-terminal-green transition-colors text-[11px] block truncate font-terminal-mono"
+                      rel="noopener noreferrer"
                     >
                       {wh.url}
                     </Link>
@@ -180,7 +179,7 @@ export function WebhookTable({ webhooks, onDelete, onTest, testingId, testResult
                   {wh.lastDelivery
                     ? new Date(wh.lastDelivery).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })
                     : "—"}
-                  {wh.lastStatusCode && (
+                  {wh.lastStatusCode !== undefined && (
                     <div className={`text-[9px] mt-0.5 ${wh.lastStatusCode < 300 ? "text-terminal-green" : "text-terminal-danger"}`}>
                       HTTP {wh.lastStatusCode}
                     </div>

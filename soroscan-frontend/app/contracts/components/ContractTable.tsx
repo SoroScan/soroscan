@@ -12,6 +12,8 @@ import {
 } from "@/components/terminal/Table";
 import { Button } from "@/components/terminal/Button";
 import type { Contract } from "@/components/ingest/contract-types";
+import StatusIndicator from "@/components/ui/StatusIndicator";
+import Badge from "@/components/ui/Badge";
 
 interface ContractTableProps {
   contracts: Contract[];
@@ -50,22 +52,9 @@ export function ContractTable({ contracts, onDelete }: ContractTableProps) {
                   {contract.contractId.slice(0, 8)}...
                 </div>
               </div>
-              <span
-                className={`inline-flex items-center gap-2 px-2 py-1 text-xs font-mono ${
-                  contract.status === "active"
-                    ? "text-terminal-green border border-terminal-green/30 bg-terminal-green/10"
-                    : "text-terminal-gray border border-terminal-gray/30 bg-terminal-gray/10"
-                }`}
-              >
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    contract.status === "active"
-                      ? "bg-terminal-green animate-pulse"
-                      : "bg-terminal-gray"
-                  }`}
-                />
-                {contract.status.toUpperCase()}
-              </span>
+
+              {/* StatusIndicator */}
+              <StatusIndicator status={contract.status as "active" | "failed" | "pending"} />
             </div>
 
             <div>
@@ -93,12 +82,9 @@ export function ContractTable({ contracts, onDelete }: ContractTableProps) {
             {contract.tags && contract.tags.length > 0 && (
               <div className="flex gap-1 flex-wrap">
                 {contract.tags.slice(0, 3).map((tag) => (
-                  <span
-                    key={tag}
-                    className="text-xs px-2 py-0.5 bg-terminal-cyan/10 text-terminal-cyan border border-terminal-cyan/30"
-                  >
+                  <Badge key={tag} variant="default" size="sm">
                     {tag}
-                  </span>
+                  </Badge>
                 ))}
                 {(contract.tags?.length ?? 0) > 3 && (
                   <span className="text-xs text-terminal-gray">
@@ -136,33 +122,15 @@ export function ContractTable({ contracts, onDelete }: ContractTableProps) {
                 </TableCell>
                 <TableCell className="font-semibold">{contract.name}</TableCell>
                 <TableCell>
-                  <span
-                    className={`inline-flex items-center gap-2 px-2 py-1 text-xs font-mono ${
-                      contract.status === "active"
-                        ? "text-terminal-green border border-terminal-green/30 bg-terminal-green/10"
-                        : "text-terminal-gray border border-terminal-gray/30 bg-terminal-gray/10"
-                    }`}
-                  >
-                    <span
-                      className={`w-2 h-2 rounded-full ${
-                        contract.status === "active"
-                          ? "bg-terminal-green animate-pulse"
-                          : "bg-terminal-gray"
-                      }`}
-                    />
-                    {contract.status.toUpperCase()}
-                  </span>
+                  <StatusIndicator status={contract.status as "active" | "failed" | "pending"} />
                 </TableCell>
                 <TableCell className="font-mono">{contract.eventCount.toLocaleString()}</TableCell>
                 <TableCell>
                   <div className="flex gap-1 flex-wrap">
                     {contract.tags?.slice(0, 3).map((tag) => (
-                      <span
-                        key={tag}
-                        className="text-xs px-2 py-0.5 bg-terminal-cyan/10 text-terminal-cyan border border-terminal-cyan/30"
-                      >
+                      <Badge key={tag} variant="default" size="sm">
                         {tag}
-                      </span>
+                      </Badge>
                     ))}
                     {(contract.tags?.length ?? 0) > 3 && (
                       <span className="text-xs text-terminal-gray">
