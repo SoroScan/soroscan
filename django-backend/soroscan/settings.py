@@ -227,6 +227,9 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_ROUTES = {
+    "ingest.tasks.ingest_latest_events": {"queue": "high_priority"},
+    "ingest.tasks.dispatch_webhook": {"queue": "default"},
+    "ingest.tasks.aggregate_event_statistics": {"queue": "low_priority"},
     "soroscan.ingest.tasks.backfill_contract_events": {"queue": "backfill"},
     "soroscan.ingest.tasks.evaluate_remediation_rules": {"queue": "default"},
 }
@@ -235,6 +238,10 @@ CELERY_TASK_ROUTES = {
 CELERY_BEAT_SCHEDULE = {
     "cleanup-webhook-delivery-logs": {
         "task": "soroscan.ingest.tasks.cleanup_webhook_delivery_logs",
+        "schedule": 86400,  # daily
+    },
+    "cleanup-old-dedup-logs": {
+        "task": "soroscan.ingest.tasks.cleanup_old_dedup_logs",
         "schedule": 86400,  # daily
     },
     "cleanup-silk-data": {
@@ -249,7 +256,15 @@ CELERY_BEAT_SCHEDULE = {
         "task": "soroscan.ingest.tasks.evaluate_remediation_rules",
         "schedule": 300,  # every 5 minutes
     },
+    "aggregate-event-statistics": {
+        "task": "ingest.tasks.aggregate_event_statistics",
+        "schedule": 3600,  # hourly
+    },
 }
+
+# Data Retention Configuration
+# Number of days to retain deduplication logs before cleanup
+DEDUP_LOG_RETENTION_DAYS = env("DEDUP_LOG_RETENTION_DAYS", default=90, cast=int)
 
 # Stellar / Soroban Configuration
 SOROBAN_RPC_URL = env("SOROBAN_RPC_URL", default="https://soroban-testnet.stellar.org")
