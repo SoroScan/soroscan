@@ -279,6 +279,25 @@ def _upsert_contract_event(
     event_index = _extract_event_index(event, fallback_event_index)
     tx_hash = str(_event_attr(event, "tx_hash", "transaction_hash", default="") or "")
     event_type = str(_event_attr(event, "type", "event_type", default="unknown") or "unknown")
+
+    # Check whitelist/blacklist filter before persisting
+    if not contract.should_ingest_event(event_type):
+        m = _get_metrics()
+        m.events_filtered_total.labels(
+            contract_id=_short_contract_id(contract.contract_id),
+            network=_network_label(),
+            filter_type=contract.event_filter_type,
+            event_type=event_type,
+        ).inc()
+        logger.debug(
+            "Event type '%s' filtered (%s) for contract %s — skipping",
+            event_type,
+            contract.event_filter_type,
+            contract.contract_id,
+            extra={"contract_id": contract.contract_id, "event_type": event_type},
+        )
+        return (None, False)
+
     payload = _event_attr(event, "value", "payload", default={}) or {}
     raw_xdr = str(_event_attr(event, "xdr", "raw_xdr", default="") or "")
     signature_status = resolve_signature_status(contract, event, payload)
@@ -411,6 +430,7 @@ def validate_event_payload(
 
 
 @shared_task(
+    name="ingest.tasks.dispatch_webhook",
     bind=True,
     autoretry_for=(requests.exceptions.RequestException,),
     retry_backoff=True,
@@ -783,8 +803,8 @@ def process_new_event(event_data: dict[str, Any]) -> None:
     )
 
 
-@shared_task
-def sync_events_from_horizon() -> int:
+@shared_task(name="ingest.tasks.ingest_latest_events")
+def ingest_latest_events() -> int:
     """
     Sync events from Horizon/Soroban RPC.
     """
@@ -841,6 +861,23 @@ def sync_events_from_horizon() -> int:
                     "Rate limit exceeded for contract %s — skipping event",
                     contract.contract_id,
                     extra={"contract_id": contract.contract_id},
+                )
+                continue
+
+            # Check whitelist/blacklist filter before persisting
+            if not contract.should_ingest_event(event.type):
+                m.events_filtered_total.labels(
+                    contract_id=_short_contract_id(contract.contract_id),
+                    network=network,
+                    filter_type=contract.event_filter_type,
+                    event_type=event.type,
+                ).inc()
+                logger.debug(
+                    "Event type '%s' filtered (%s) for contract %s — skipping",
+                    event.type,
+                    contract.event_filter_type,
+                    contract.contract_id,
+                    extra={"contract_id": contract.contract_id, "event_type": event.type},
                 )
                 continue
 
@@ -925,10 +962,40 @@ def sync_events_from_horizon() -> int:
     finally:
         # Always record duration, even if an exception occurred.
         m.task_duration_seconds.labels(
-            task_name="sync_events_from_horizon"
+            task_name="ingest_latest_events"
         ).observe(time.monotonic() - _start)
 
     return new_events
+
+
+@shared_task(name="ingest.tasks.aggregate_event_statistics")
+def aggregate_event_statistics() -> dict[str, Any]:
+    """
+    Perform analytics aggregation on ingested events (Low Priority).
+    """
+    _start = time.monotonic()
+    m = _get_metrics()
+    
+    # Placeholder for actual aggregation logic
+    total_events = ContractEvent.objects.count()
+    active_contracts = TrackedContract.objects.filter(is_active=True).count()
+    
+    logger.info(
+        "Aggregated statistics: %d events across %d contracts",
+        total_events,
+        active_contracts,
+        extra={"total_events": total_events, "active_contracts": active_contracts},
+    )
+    
+    m.task_duration_seconds.labels(
+        task_name="aggregate_event_statistics"
+    ).observe(time.monotonic() - _start)
+    
+    return {
+        "total_events": total_events,
+        "active_contracts": active_contracts,
+        "timestamp": timezone.now().isoformat(),
+    }
 
 
 @shared_task(bind=True, queue="backfill", max_retries=3, default_retry_delay=60)
