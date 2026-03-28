@@ -363,6 +363,22 @@ AWS_S3_REGION_NAME = env("AWS_S3_REGION_NAME", default="us-east-1")
 # Set AWS_S3_ENDPOINT_URL for S3-compatible stores (MinIO, Localstack, etc.)
 AWS_S3_ENDPOINT_URL = env("AWS_S3_ENDPOINT_URL", default="")
 
+# ---------------------------------------------------------------------------
+# Event Streaming Configuration (Kafka / Pub/Sub)
+# ---------------------------------------------------------------------------
+EVENT_STREAMING = {
+    "enabled": env.bool("EVENT_STREAMING_ENABLED", default=False),
+    "backend": env("EVENT_STREAMING_BACKEND", default="kafka"),  # "kafka" or "pubsub"
+    "kafka": {
+        "bootstrap_servers": env.list("KAFKA_BOOTSTRAP_SERVERS", default=["localhost:9092"]),
+        "topic_template": env("KAFKA_TOPIC_TEMPLATE", default="soroscan-events-{contract_id}"),
+    },
+    "pubsub": {
+        "project_id": env("GOOGLE_CLOUD_PROJECT", default=""),
+        "topic_template": env("PUBSUB_TOPIC_TEMPLATE", default="soroscan-events-{contract_id}"),
+    },
+}
+
 # Sentry (optional): init only when SENTRY_DSN is set. Celery task failures reported via CeleryIntegration.
 SENTRY_DSN = env("SENTRY_DSN", default="")
 if SENTRY_DSN:
