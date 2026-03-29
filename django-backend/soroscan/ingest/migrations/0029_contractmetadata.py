@@ -8,8 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("ingest", "0026_merge_20260329_0027"),
-        ("ingest", "0025_merge_20260329_0125"),
+        ("ingest", "0028_callgraph_contractdependency_and_more"),
     ]
 
     operations = [
