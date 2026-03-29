@@ -29,6 +29,7 @@ from .models import ContractABI, ContractEvent, ContractSigningKey, TrackedContr
 from .rate_limit import check_ingest_rate
 from .stellar_client import SorobanClient
 from .metrics import webhook_payload_bytes
+from .streaming import get_producer
 
 logger = logging.getLogger(__name__)
 BATCH_LEDGER_SIZE = 200
@@ -834,6 +835,14 @@ def process_new_event(event_data: dict[str, Any]) -> None:
 
     # Evaluate alert rules asynchronously (separate queue, non-blocking)
     evaluate_alert_rules.apply_async(args=[event_obj.id], queue="default")
+
+    # Stream event to Kafka/PubSub if enabled
+    producer = get_producer()
+    if producer:
+        try:
+            producer.publish(contract_id, event_data)
+        except Exception:
+            logger.exception("Failed to stream event to backend", extra={"contract_id": contract_id})
 
     logger.info(
         "Dispatched event to %s webhooks",
