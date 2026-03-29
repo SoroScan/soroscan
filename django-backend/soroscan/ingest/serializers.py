@@ -50,12 +50,30 @@ class TeamMemberAddSerializer(serializers.Serializer):
     )
 
 
+class ContractMetadataSerializer(serializers.ModelSerializer):
+    """Rich metadata for a tracked contract."""
+
+    class Meta:
+        model = ContractMetadata
+        fields = [
+            "name",
+            "description",
+            "tags",
+            "documentation_url",
+            "github_repo",
+            "team_email",
+            "created_at",
+            "updated_at",
+        ]
+
+
 class TrackedContractSerializer(serializers.ModelSerializer):
     """
     Serializer for TrackedContract model.
     Used for creating, updating, and returning tracked Soroban smart contracts.
     """
 
+    metadata = ContractMetadataSerializer(required=False, allow_null=True)
     event_count = serializers.SerializerMethodField()
     warnings = serializers.SerializerMethodField()
     team = serializers.PrimaryKeyRelatedField(
@@ -72,6 +90,7 @@ class TrackedContractSerializer(serializers.ModelSerializer):
             "name",
             "alias",
             "description",
+            "metadata",
             "abi_schema",
             "is_active",
             "deprecation_status",
@@ -95,6 +114,20 @@ class TrackedContractSerializer(serializers.ModelSerializer):
     def get_warnings(self, obj) -> list[dict[str, str]]:
         warning = obj.deprecation_warning()
         return [warning] if warning else []
+
+    def create(self, validated_data):
+        metadata_data = validated_data.pop("metadata", None)
+        contract = super().create(validated_data)
+        if metadata_data:
+            ContractMetadata.objects.create(contract=contract, **metadata_data)
+        return contract
+
+    def update(self, instance, validated_data):
+        metadata_data = validated_data.pop("metadata", None)
+        instance = super().update(instance, validated_data)
+        if metadata_data:
+            ContractMetadata.objects.update_or_create(contract=instance, defaults=metadata_data)
+        return instance
 
     def validate_team(self, value):
         request = self.context.get("request")

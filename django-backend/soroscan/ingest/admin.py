@@ -19,6 +19,7 @@ from .models import (
     ArchivedEventBatch,
     ContractABI,
     ContractEvent,
+    ContractMetadata,
     ContractSigningKey,
     ContractQuota,
     DataRetentionPolicy,
@@ -109,9 +110,16 @@ class TeamMembershipAdmin(admin.ModelAdmin):
     search_fields = ["team__name", "user__username"]
 
 
+class ContractMetadataInline(admin.StackedInline):
+    model = ContractMetadata
+    can_delete = False
+    verbose_name_plural = "Metadata"
+    fields = ["name", "description", "tags", "documentation_url", "github_repo", "team_email"]
+
 
 @admin.register(TrackedContract)
 class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
+    inlines = [ContractMetadataInline]
     list_display = [
         "name",
         "alias",
@@ -221,6 +229,14 @@ class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
                 f"Backfill started for {len(task_ids)} contract(s). Task IDs: {task_ids_text}",
                 level=messages.SUCCESS,
             )
+
+
+@admin.register(ContractMetadata)
+class ContractMetadataAdmin(AdminAuditMixin, admin.ModelAdmin):
+    list_display = ["contract", "name", "team_email", "created_at"]
+    search_fields = ["name", "description", "tags", "contract__name", "contract__contract_id"]
+    list_filter = ["created_at", "updated_at"]
+    readonly_fields = ["created_at", "updated_at"]
 
 
 @admin.register(EventSchema)

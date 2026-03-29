@@ -16,7 +16,7 @@ from strawberry import auto
 from strawberry.types import Info
 
 from .cache_utils import get_or_set_json, query_cache_ttl, stable_cache_key
-from .models import ContractEvent, ContractInvocation, Notification, TrackedContract, WebhookDeliveryLog
+from .models import ContractEvent, ContractInvocation, ContractMetadata, Notification, TrackedContract, WebhookDeliveryLog
 from .services.timeline import build_timeline
 
 
@@ -41,6 +41,19 @@ def _get_authenticated_user(info: Info):
 # GraphQL types
 # ---------------------------------------------------------------------------
 
+@strawberry_django.type(ContractMetadata)
+class ContractMetadataType:
+    id: auto
+    name: auto
+    description: auto
+    tags: strawberry.scalars.JSON
+    documentation_url: auto
+    github_repo: auto
+    team_email: auto
+    created_at: auto
+    updated_at: auto
+
+
 @strawberry_django.type(TrackedContract)
 class ContractType:
     id: auto
@@ -55,6 +68,14 @@ class ContractType:
     event_filter_type: auto
     event_filter_list: strawberry.scalars.JSON
     created_at: auto
+
+    @strawberry.field
+    def metadata(self) -> Optional[ContractMetadataType]:
+        try:
+            # Using getattr to avoid conflict with the field name
+            return getattr(self, "metadata", None)
+        except ContractMetadata.DoesNotExist:
+            return None
 
     @strawberry.field
     def team_id(self) -> Optional[int]:

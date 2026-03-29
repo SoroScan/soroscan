@@ -8,6 +8,19 @@ from pydantic import BaseModel, Field
 T = TypeVar("T")
 
 
+class ContractMetadata(BaseModel):
+    """Rich metadata for a tracked Soroban contract."""
+
+    name: str = Field(..., description="Human-readable name (can differ from internal name)")
+    description: str = Field(..., description="Detailed description of the contract")
+    tags: list[str] = Field(default_factory=list, description="List of strings for categorization")
+    documentation_url: str = Field(default="", description="Link to external documentation")
+    github_repo: str = Field(default="", description="Link to source code repository")
+    team_email: str = Field(default="", description="Contact email for the team")
+    created_at: datetime
+    updated_at: datetime
+
+
 class TrackedContract(BaseModel):
     """Represents a tracked Soroban contract."""
 
@@ -15,6 +28,7 @@ class TrackedContract(BaseModel):
     contract_id: str = Field(..., description="Stellar contract address (C...)")
     name: str = Field(..., description="Human-readable contract name")
     description: str = Field(default="", description="Optional description")
+    metadata: ContractMetadata | None = Field(None, description="Rich metadata if available")
     abi_schema: dict[str, Any] | None = Field(None, description="Optional ABI/schema")
     is_active: bool = Field(default=True, description="Whether indexing is active")
     last_indexed_ledger: int | None = Field(None, description="Last indexed ledger sequence")
