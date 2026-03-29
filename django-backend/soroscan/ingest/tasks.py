@@ -30,6 +30,120 @@ from .rate_limit import check_ingest_rate
 from .stellar_client import SorobanClient
 from .metrics import webhook_payload_bytes
 
+# Global producers for streaming to avoid re-initializing on every event
+_KAFKA_PRODUCER = None
+_PUBSUB_PUBLISHER = None
+
+
+def _get_kafka_producer():
+    """Lazy initialize Kafka producer."""
+    global _KAFKA_PRODUCER
+    if _KAFKA_PRODUCER is None:
+        try:
+            from kafka import KafkaProducer
+            config = settings.EVENT_STREAMING.get("kafka", {})
+            _KAFKA_PRODUCER = KafkaProducer(
+                bootstrap_servers=config.get("bootstrap_servers", ["localhost:9092"]),
+                value_serializer=lambda v: json.dumps(v, default=str).encode("utf-8"),
+                acks=1,  # Wait for leader to acknowledge
+                retries=3,
+                request_timeout_ms=5000,
+            )
+        except Exception:
+            logger.error("Failed to initialize Kafka producer", exc_info=True)
+    return _KAFKA_PRODUCER
+
+
+def _get_pubsub_publisher():
+    """Lazy initialize Google Pub/Sub publisher."""
+    global _PUBSUB_PUBLISHER
+    if _PUBSUB_PUBLISHER is None:
+        try:
+            from google.cloud import pubsub_v1
+            _PUBSUB_PUBLISHER = pubsub_v1.PublisherClient()
+        except Exception:
+            logger.error("Failed to initialize Pub/Sub publisher", exc_info=True)
+    return _PUBSUB_PUBLISHER
+
+
+@shared_task(name="soroscan.ingest.tasks.stream_event_to_external", ignore_result=True)
+def stream_event_to_external(event_id: int) -> None:
+    """
+    Stream a single event to the configured external backend (Kafka or Pub/Sub).
+    This is a fire-and-forget task to avoid blocking the main ingest flow.
+    """
+    try:
+        event = ContractEvent.objects.select_related("contract").get(id=event_id)
+    except ContractEvent.DoesNotExist:
+        return
+
+    streaming_config = getattr(settings, "EVENT_STREAMING", {})
+    if not streaming_config.get("enabled", False):
+        return
+
+    backend = streaming_config.get("backend", "kafka")
+    contract_id = event.contract.contract_id
+    payload = {
+        "id": event.id,
+        "contract_id": contract_id,
+        "ledger": event.ledger,
+        "event_index": event.event_index,
+        "tx_hash": event.tx_hash,
+        "event_type": event.event_type,
+        "payload": event.payload,
+        "decoded_payload": event.decoded_payload,
+        "timestamp": event.timestamp.isoformat() if event.timestamp else None,
+        "signature_status": event.signature_status,
+    }
+
+    m = _get_metrics()
+    try:
+        if backend == "kafka":
+            producer = _get_kafka_producer()
+            if producer:
+                config = streaming_config.get("kafka", {})
+                topic = config.get("topic_template", "soroscan-events-{contract_id}").format(
+                    contract_id=contract_id
+                )
+                producer.send(topic, payload)
+                m.event_streaming_success_total.labels(backend="kafka", contract_id=_short_contract_id(contract_id)).inc()
+            else:
+                m.event_streaming_failure_total.labels(backend="kafka", contract_id=_short_contract_id(contract_id)).inc()
+
+        elif backend == "pubsub":
+            publisher = _get_pubsub_publisher()
+            if publisher:
+                config = streaming_config.get("pubsub", {})
+                project_id = config.get("project_id")
+                if not project_id:
+                    logger.error("Google Cloud project_id not configured for Pub/Sub")
+                    m.event_streaming_failure_total.labels(backend="pubsub", contract_id=_short_contract_id(contract_id)).inc()
+                    return
+
+                topic_name = config.get("topic_template", "soroscan-events-{contract_id}").format(
+                    contract_id=contract_id
+                )
+                topic_path = publisher.topic_path(project_id, topic_name)
+                
+                data = json.dumps(payload, default=str).encode("utf-8")
+                future = publisher.publish(topic_path, data)
+                # We don't wait for the future here to keep it async, but we could add a callback
+                def callback(future):
+                    try:
+                        future.result()
+                        m.event_streaming_success_total.labels(backend="pubsub", contract_id=_short_contract_id(contract_id)).inc()
+                    except Exception:
+                        m.event_streaming_failure_total.labels(backend="pubsub", contract_id=_short_contract_id(contract_id)).inc()
+                        logger.error("Failed to publish to Pub/Sub", exc_info=True)
+
+                future.add_done_callback(callback)
+            else:
+                m.event_streaming_failure_total.labels(backend="pubsub", contract_id=_short_contract_id(contract_id)).inc()
+    except Exception:
+        logger.error(f"Error streaming event {event_id} to {backend}", exc_info=True)
+        m.event_streaming_failure_total.labels(backend=backend, contract_id=_short_contract_id(contract_id)).inc()
+
+
 logger = logging.getLogger(__name__)
 BATCH_LEDGER_SIZE = 200
 _SLOW_TASK_THRESHOLD_S = 5.0  # log profiling stats when task exceeds this
@@ -347,6 +461,10 @@ def _upsert_contract_event(
 
         # --- ABI-based XDR decoding (issue #58) ---
         _try_decode_event(obj, contract, event_type, raw_xdr)
+
+        # --- Event Streaming (Issue: External downstream integration) ---
+        if getattr(settings, "EVENT_STREAMING", {}).get("enabled", False):
+            stream_event_to_external.delay(obj.id)
 
     return result
 
