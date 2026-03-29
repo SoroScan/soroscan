@@ -129,6 +129,12 @@ class TrackedContract(models.Model):
         help_text="Last ledger sequence that was indexed for this contract",
     )
     is_active = models.BooleanField(default=True, help_text="Whether indexing is active")
+    last_event_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Timestamp of the last indexed event for this contract",
+    )
     deprecation_status = models.CharField(
         max_length=16,
         choices=DeprecationStatus.choices,
@@ -583,6 +589,11 @@ class WebhookDeliveryLog(models.Model):
         auto_now_add=True,
         db_index=True,
         help_text="UTC timestamp of this attempt",
+    )
+    payload_bytes = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Size of the webhook payload in bytes",
     )
 
     class Meta:

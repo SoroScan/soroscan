@@ -82,11 +82,12 @@ class TrackedContractSerializer(serializers.ModelSerializer):
             "last_indexed_ledger",
             "team",
             "event_count",
+            "last_event_at",
             "warnings",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "last_indexed_ledger", "event_count", "warnings", "created_at", "updated_at"]
+        read_only_fields = ["id", "last_indexed_ledger", "event_count", "last_event_at", "warnings", "created_at", "updated_at"]
 
     def get_event_count(self, obj) -> int:
         return get_event_count(obj.contract_id)

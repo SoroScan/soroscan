@@ -10,7 +10,7 @@ from typing import AsyncGenerator, Optional
 import strawberry
 import strawberry_django
 from channels.layers import get_channel_layer
-from django.db.models import Case, Count, IntegerField, Max, Value, When
+from django.db.models import Case, Count, IntegerField, Value, When
 from django.utils import timezone
 from strawberry import auto
 from strawberry.types import Info
@@ -49,6 +49,7 @@ class ContractType:
     alias: auto
     description: auto
     is_active: auto
+    last_event_at: auto
     deprecation_status: auto
     deprecation_reason: auto
     event_filter_type: auto
@@ -506,7 +507,6 @@ class Query:
             stats = contract.events.aggregate(
                 total=Count("id"),
                 unique_types=Count("event_type", distinct=True),
-                last=Max("timestamp"),
             )
 
             return ContractStats(
@@ -514,7 +514,7 @@ class Query:
                 name=contract.name,
                 total_events=stats["total"] or 0,
                 unique_event_types=stats["unique_types"] or 0,
-                last_activity=stats["last"],
+                last_activity=contract.last_event_at,
             )
 
         return get_or_set_json(key, query_cache_ttl(), _stats)
