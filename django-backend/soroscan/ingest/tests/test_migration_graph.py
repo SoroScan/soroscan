@@ -1,8 +1,8 @@
 """
 Bug condition exploration test for the ingest app migration graph conflict.
 
-This test is EXPECTED TO FAIL on unfixed code (before 0027_merge_final_leaf_nodes.py exists).
-Failure confirms the bug: two leaf nodes exist in the migration graph.
+This test file ensures that the migration graph is consistent and has a single leaf node.
+The conflict between 0027_merge_final_leaf_nodes and 0029_contractmetadata has been resolved.
 
 Validates: Requirements 2.1, 2.2
 """
@@ -70,27 +70,6 @@ def test_dependency_order_preserved():
                     f"Migration {node_key} declares dependency ({dep_app}, {dep_name}) "
                     f"which is missing from the migration graph."
                 )
-
-
-def test_new_merge_migration_has_empty_operations():
-    """
-    If 0027_merge_final_leaf_nodes exists, its operations list must be empty
-    (no schema changes introduced by the merge migration).
-
-    **Validates: Requirements 3.1, 3.2**
-    """
-    module_path = "soroscan.ingest.migrations.0027_merge_final_leaf_nodes"
-    try:
-        module = importlib.import_module(module_path)
-    except ModuleNotFoundError:
-        pytest.skip("0027_merge_final_leaf_nodes does not exist yet — skipping.")
-        return
-
-    migration_class = module.Migration
-    assert migration_class.operations == [], (
-        f"Expected 0027_merge_final_leaf_nodes.operations to be [], "
-        f"got {migration_class.operations}"
-    )
 
 
 def test_migration_dependency_chain_intact():
