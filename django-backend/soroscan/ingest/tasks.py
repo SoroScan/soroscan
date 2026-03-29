@@ -348,6 +348,9 @@ def _upsert_contract_event(
         # --- ABI-based XDR decoding (issue #58) ---
         _try_decode_event(obj, contract, event_type, raw_xdr)
 
+        # Incremental call graph update: analyze dependencies within this transaction
+        update_contract_dependencies.delay(obj.tx_hash)
+
     return result
 
 
@@ -990,6 +993,8 @@ def ingest_latest_events() -> int:
                         "tx_hash": event_record.tx_hash,
                     }
                 )
+                # Incremental call graph update: analyze dependencies within this transaction
+                update_contract_dependencies.delay(event_record.tx_hash)
 
             if contract.last_indexed_ledger is None or event_record.ledger > contract.last_indexed_ledger:
                 contract.last_indexed_ledger = event_record.ledger
@@ -1948,3 +1953,135 @@ def cleanup_silk_data() -> int:
         time.monotonic() - _start
     )
     return deleted_count
+
+
+@shared_task
+def update_contract_dependencies(tx_hash: str) -> None:
+    """
+    Scan events in a transaction and update ContractDependency records.
+    Builds the call graph incrementally based on event sequence.
+    """
+    from .models import ContractEvent, ContractDependency
+
+    # Get events ordered by their occurrence in the transaction
+    events = (
+        ContractEvent.objects.filter(tx_hash=tx_hash)
+        .order_by("event_index")
+        .select_related("contract")
+    )
+    if events.count() < 2:
+        return
+
+    # Extract the sequence of unique consecutive contracts.
+    # If A calls B, we'll see events from A, then B, then maybe A again.
+    sequence = []
+    for e in events:
+        if not sequence or sequence[-1] != e.contract:
+            sequence.append(e.contract)
+
+    # Record dependencies for each transition in the call chain
+    for i in range(len(sequence) - 1):
+        caller = sequence[i]
+        callee = sequence[i + 1]
+
+        if caller == callee:
+            continue
+
+        dep, created = ContractDependency.objects.get_or_create(
+            caller=caller,
+            callee=callee,
+        )
+        dep.call_count = F("call_count") + 1
+        dep.save(update_fields=["call_count", "last_call"])
+
+
+@shared_task
+def analyze_contract_dependencies() -> dict[str, Any]:
+    """
+    Perform periodic analysis of the contract call graph:
+    - Cycle detection
+    - Critical path identification
+    - Global stats update
+
+    Cache graph stats for 1 hour (runs hourly via Celery Beat).
+    """
+    from .models import ContractDependency, CallGraph
+
+    _start = time.monotonic()
+    dependencies = ContractDependency.objects.select_related("caller", "callee")
+
+    # 1. Build adjacency list for cycle detection
+    adj = {}
+    for dep in dependencies:
+        caller_id = dep.caller.contract_id
+        callee_id = dep.callee.contract_id
+        if caller_id not in adj:
+            adj[caller_id] = []
+        adj[caller_id].append(callee_id)
+
+    # 2. Cycle detection using DFS
+    visited = set()
+    path = []
+    cycles = []
+
+    def find_cycles_dfs(u):
+        visited.add(u)
+        path.append(u)
+        for v in adj.get(u, []):
+            if v in path:
+                # Cycle found: extract the cyclic segment
+                cycle_start = path.index(v)
+                cycles.append(path[cycle_start:])
+            elif v not in visited:
+                find_cycles_dfs(v)
+        path.pop()
+
+    for node in list(adj.keys()):
+        if node not in visited:
+            find_cycles_dfs(node)
+
+    has_cycles = len(cycles) > 0
+    cyclic_contracts = list(set([c for cycle in cycles for c in cycle]))
+
+    # 3. Identify critical paths (top 10 dependencies by call count)
+    top_deps = dependencies.order_by("-call_count")[:10]
+    critical_paths = [
+        {
+            "caller": d.caller.contract_id,
+            "callee": d.callee.contract_id,
+            "calls": d.call_count,
+        }
+        for d in top_deps
+    ]
+
+    # 4. Update the global CallGraph record (id=1 as a singleton)
+    cg, _ = CallGraph.objects.get_or_create(id=1)
+    cg.has_cycles = has_cycles
+    cg.cyclic_dependencies = cyclic_contracts
+    cg.total_nodes = len(set(list(adj.keys()) + [v for neighbors in adj.values() for v in neighbors]))
+    cg.total_edges = dependencies.count()
+    cg.critical_paths = critical_paths
+    cg.save()
+
+    if has_cycles:
+        logger.warning(
+            "Circular dependencies detected in contract call graph: %s",
+            cyclic_contracts,
+            extra={"cycles": cycles},
+        )
+
+    elapsed = time.monotonic() - _start
+    logger.info(
+        "Call graph analysis complete in %.2fs. Nodes: %d, Edges: %d, Cycles: %s",
+        elapsed,
+        cg.total_nodes,
+        cg.total_edges,
+        has_cycles,
+    )
+
+    return {
+        "nodes": cg.total_nodes,
+        "edges": cg.total_edges,
+        "has_cycles": has_cycles,
+        "elapsed_s": round(elapsed, 3),
+    }
