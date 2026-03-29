@@ -26,21 +26,9 @@ from soroscan.ingest.tasks import (
 from .factories import (
     ContractEventFactory,
     EventSchemaFactory,
-    TrackedContractFactory,
-    UserFactory,
     WebhookDeliveryLogFactory,
     WebhookSubscriptionFactory,
 )
-
-
-@pytest.fixture
-def user():
-    return UserFactory()
-
-
-@pytest.fixture
-def contract(user):
-    return TrackedContractFactory(owner=user)
 
 
 @pytest.fixture
