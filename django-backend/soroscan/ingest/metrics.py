@@ -13,6 +13,8 @@ __all__ = [
     "active_contracts_gauge",
     "cache_hits_total",
     "cache_misses_total",
+    "events_rate_limited_total",
+    "events_filtered_total",
 ]
 
 
@@ -76,4 +78,18 @@ cache_misses_total = _get_or_create(
     "soroscan_cache_misses_total", 
     "Total number of cache misses",
     ["cache_type"],
+)
+
+events_rate_limited_total = _get_or_create(
+    Counter,
+    "soroscan_events_rate_limited_total",
+    "Total number of events skipped due to rate limiting",
+    ["contract_id", "network"],
+)
+
+events_filtered_total = _get_or_create(
+    Counter,
+    "soroscan_events_filtered_total",
+    "Total number of events dropped by whitelist/blacklist filter",
+    ["contract_id", "network", "filter_type", "event_type"],
 )
