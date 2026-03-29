@@ -528,20 +528,6 @@ class Query:
         """Get aggregate statistics for a contract."""
         key = stable_cache_key("gql_contract_stats", {"contract_id": contract_id})
 
-    @strawberry.field
-    def dependencies_for_contract(self, contract_id: str) -> Optional[CallGraphType]:
-        """
-        Return the dependency DAG for a specific contract.
-        If no contract-specific graph exists, returns the global graph.
-        """
-        # Try to find a contract-specific graph first
-        graph = CallGraph.objects.filter(contract__contract_id=contract_id).first()
-        if not graph:
-            # Fall back to global graph (contract=None)
-            graph = CallGraph.objects.filter(contract=None).first()
-        
-        return graph
-
         def _stats():
             try:
                 contract = TrackedContract.objects.get(contract_id=contract_id)
@@ -562,6 +548,20 @@ class Query:
             )
 
         return get_or_set_json(key, query_cache_ttl(), _stats)
+
+    @strawberry.field
+    def dependencies_for_contract(self, contract_id: str) -> Optional[CallGraphType]:
+        """
+        Return the dependency DAG for a specific contract.
+        If no contract-specific graph exists, returns the global graph.
+        """
+        # Try to find a contract-specific graph first
+        graph = CallGraph.objects.filter(contract__contract_id=contract_id).first()
+        if not graph:
+            # Fall back to global graph (contract=None)
+            graph = CallGraph.objects.filter(contract=None).first()
+
+        return graph
 
     @strawberry.field
     def event_types(self, contract_id: str) -> list[str]:
