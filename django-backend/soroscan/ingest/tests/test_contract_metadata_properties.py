@@ -2,16 +2,12 @@
 Property-based tests for the Contract Metadata Registry.
 Feature: contract-metadata-registry
 """
-import pytest
-from django.contrib.auth import get_user_model
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.extra.django import TestCase
 
-from soroscan.ingest.models import ContractMetadata, TrackedContract
-from soroscan.ingest.tests.factories import ContractMetadataFactory, TrackedContractFactory, UserFactory
-
-User = get_user_model()
+from soroscan.ingest.models import ContractMetadata
+from soroscan.ingest.tests.factories import ContractMetadataFactory, TrackedContractFactory
 
 
 # Feature: contract-metadata-registry, Property 2: Cascade delete
