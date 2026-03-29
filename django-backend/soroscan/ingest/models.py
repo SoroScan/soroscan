@@ -129,6 +129,12 @@ class TrackedContract(models.Model):
         help_text="Last ledger sequence that was indexed for this contract",
     )
     is_active = models.BooleanField(default=True, help_text="Whether indexing is active")
+    last_event_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Timestamp of the last indexed event for this contract",
+    )
     deprecation_status = models.CharField(
         max_length=16,
         choices=DeprecationStatus.choices,
@@ -145,6 +151,35 @@ class TrackedContract(models.Model):
         blank=True,
         help_text="Max events per minute for ingest-time rate limiting (None = unlimited)",
     )
+
+    # ---------------------------------------------------------------------------
+    # Event filtering (whitelist / blacklist)
+    # ---------------------------------------------------------------------------
+    FILTER_NONE = "none"
+    FILTER_WHITELIST = "whitelist"
+    FILTER_BLACKLIST = "blacklist"
+    FILTER_TYPE_CHOICES = [
+        (FILTER_NONE, "No Filter"),
+        (FILTER_WHITELIST, "Whitelist"),
+        (FILTER_BLACKLIST, "Blacklist"),
+    ]
+
+    event_filter_type = models.CharField(
+        max_length=16,
+        choices=FILTER_TYPE_CHOICES,
+        default=FILTER_NONE,
+        help_text=(
+            "Ingest filter mode: none = store all events; "
+            "whitelist = only store listed event types; "
+            "blacklist = drop listed event types."
+        ),
+    )
+    event_filter_list = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of event type names used by the whitelist/blacklist filter.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -172,6 +207,16 @@ class TrackedContract(models.Model):
         else:
             message = f"This contract is {status_label}."
         return {"type": "deprecation", "message": message}
+
+    def should_ingest_event(self, event_type: str) -> bool:
+        """Return True if *event_type* should be persisted given the filter config."""
+        if self.event_filter_type == self.FILTER_NONE:
+            return True
+        if self.event_filter_type == self.FILTER_WHITELIST:
+            return event_type in (self.event_filter_list or [])
+        if self.event_filter_type == self.FILTER_BLACKLIST:
+            return event_type not in (self.event_filter_list or [])
+        return True
 
 
 class ContractMetadata(models.Model):
@@ -571,6 +616,11 @@ class WebhookDeliveryLog(models.Model):
         auto_now_add=True,
         db_index=True,
         help_text="UTC timestamp of this attempt",
+    )
+    payload_bytes = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Size of the webhook payload in bytes",
     )
 
     class Meta:
@@ -1173,3 +1223,56 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"[{self.notification_type}] {self.title} → {self.user}"
+
+
+class IngestError(models.Model):
+    """
+    Tracks ingestion errors for admin visibility.
+    """
+    
+    class ErrorType(models.TextChoices):
+        DECODE_ERROR = "decode_error", "Decode Error"
+        VALIDATION_ERROR = "validation_error", "Validation Error"
+        RPC_ERROR = "rpc_error", "RPC Error"
+    
+    error_type = models.CharField(
+        max_length=32,
+        choices=ErrorType.choices,
+        db_index=True,
+    )
+    contract_id = models.CharField(
+        max_length=56,
+        db_index=True,
+        help_text="Contract that caused the error",
+    )
+    error_message = models.TextField(help_text="Full error message")
+    sample_error = models.CharField(
+        max_length=500,
+        help_text="Truncated error message for display",
+    )
+    ledger = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        help_text="Ledger where error occurred",
+    )
+    tx_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        help_text="Transaction hash if available",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["error_type", "contract_id", "created_at"]),
+            models.Index(fields=["created_at"]),
+        ]
+    
+    def save(self, *args, **kwargs):
+        if not self.sample_error:
+            self.sample_error = self.error_message[:500]
+        super().save(*args, **kwargs)
+    
+    def __str__(self):
+        return f"{self.error_type}: {self.contract_id} at {self.created_at}"

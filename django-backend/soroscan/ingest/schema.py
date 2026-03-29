@@ -10,7 +10,7 @@ from typing import AsyncGenerator, Optional
 import strawberry
 import strawberry_django
 from channels.layers import get_channel_layer
-from django.db.models import Case, Count, IntegerField, Max, Value, When
+from django.db.models import Case, Count, IntegerField, Value, When
 from django.utils import timezone
 from strawberry import auto
 from strawberry.types import Info
@@ -62,8 +62,11 @@ class ContractType:
     alias: auto
     description: auto
     is_active: auto
+    last_event_at: auto
     deprecation_status: auto
     deprecation_reason: auto
+    event_filter_type: auto
+    event_filter_list: strawberry.scalars.JSON
     created_at: auto
 
     @strawberry.field
@@ -525,7 +528,6 @@ class Query:
             stats = contract.events.aggregate(
                 total=Count("id"),
                 unique_types=Count("event_type", distinct=True),
-                last=Max("timestamp"),
             )
 
             return ContractStats(
@@ -533,7 +535,7 @@ class Query:
                 name=contract.name,
                 total_events=stats["total"] or 0,
                 unique_event_types=stats["unique_types"] or 0,
-                last_activity=stats["last"],
+                last_activity=contract.last_event_at,
             )
 
         return get_or_set_json(key, query_cache_ttl(), _stats)
@@ -756,12 +758,14 @@ class Mutation:
         description: Optional[str] = None,
         is_active: Optional[bool] = None,
         alias: Optional[str] = None,
+        event_filter_type: Optional[str] = None,
+        event_filter_list: Optional[list[str]] = None,
     ) -> Optional[ContractType]:
         """Update a tracked contract."""
         user = _get_authenticated_user(info)
         if not user:
             raise Exception("Authentication required")
-        
+
         try:
             contract = TrackedContract.objects.get(contract_id=contract_id)
         except TrackedContract.DoesNotExist:
@@ -775,6 +779,13 @@ class Mutation:
             contract.is_active = is_active
         if alias is not None:
             contract.alias = alias
+        if event_filter_type is not None:
+            valid_types = {c[0] for c in TrackedContract.FILTER_TYPE_CHOICES}
+            if event_filter_type not in valid_types:
+                raise Exception(f"Invalid event_filter_type. Must be one of: {valid_types}")
+            contract.event_filter_type = event_filter_type
+        if event_filter_list is not None:
+            contract.event_filter_list = event_filter_list
 
         contract.save()
 
