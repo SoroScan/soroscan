@@ -26,8 +26,6 @@ from soroscan.ingest.tasks import (
 from .factories import (
     ContractEventFactory,
     EventSchemaFactory,
-    TrackedContractFactory,
-    UserFactory,
     WebhookDeliveryLogFactory,
     WebhookSubscriptionFactory,
 )

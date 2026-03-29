@@ -2,11 +2,10 @@
 Tests for event streaming to Kafka and Pub/Sub.
 """
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from django.conf import settings
 from soroscan.ingest.tasks import process_new_event
-from soroscan.ingest.streaming import get_producer, KafkaProducer, PubSubProducer
-from .factories import ContractEventFactory, TrackedContractFactory, WebhookSubscriptionFactory
+from .factories import ContractEventFactory, WebhookSubscriptionFactory
 
 @pytest.mark.django_db
 class TestEventStreaming:
@@ -112,7 +111,7 @@ class TestEventStreaming:
             streaming._producer_instance = None
             
             with patch("soroscan.ingest.streaming.KafkaProducer") as MockKafka:
-                event = ContractEventFactory(contract=contract)
+                ContractEventFactory(contract=contract)
                 event_data = {"contract_id": contract.contract_id}
                 process_new_event.apply(args=[event_data])
                 
