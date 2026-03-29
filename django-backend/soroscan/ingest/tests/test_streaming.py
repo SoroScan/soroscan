@@ -10,8 +10,10 @@ from .factories import ContractEventFactory, TrackedContractFactory, WebhookSubs
 
 @pytest.mark.django_db
 class TestEventStreaming:
+    @patch("soroscan.ingest.tasks.dispatch_webhook.delay")
+    @patch("soroscan.ingest.tasks.evaluate_alert_rules.apply_async")
     @patch("soroscan.ingest.streaming.KafkaProducer")
-    def test_process_event_streams_to_kafka_when_enabled(self, MockKafkaProducer, contract):
+    def test_process_event_streams_to_kafka_when_enabled(self, MockKafkaProducer, MockAlerts, MockWebhooks, contract):
         # Setup mock producer
         mock_producer_instance = MockKafkaProducer.return_value
 
@@ -53,8 +55,10 @@ class TestEventStreaming:
                 contract.contract_id, event_data
             )
 
+    @patch("soroscan.ingest.tasks.dispatch_webhook.delay")
+    @patch("soroscan.ingest.tasks.evaluate_alert_rules.apply_async")
     @patch("soroscan.ingest.streaming.PubSubProducer")
-    def test_process_event_streams_to_pubsub_when_enabled(self, MockPubSubProducer, contract):
+    def test_process_event_streams_to_pubsub_when_enabled(self, MockPubSubProducer, MockAlerts, MockWebhooks, contract):
         # Setup mock producer
         mock_producer_instance = MockPubSubProducer.return_value
 
@@ -96,7 +100,9 @@ class TestEventStreaming:
                 contract.contract_id, event_data
             )
 
-    def test_process_event_no_streaming_when_disabled(self, contract):
+    @patch("soroscan.ingest.tasks.dispatch_webhook.delay")
+    @patch("soroscan.ingest.tasks.evaluate_alert_rules.apply_async")
+    def test_process_event_no_streaming_when_disabled(self, MockAlerts, MockWebhooks, contract):
         # Configure settings to disabled
         streaming_settings = {"enabled": False}
         
@@ -112,8 +118,10 @@ class TestEventStreaming:
                 
                 MockKafka.assert_not_called()
 
+    @patch("soroscan.ingest.tasks.dispatch_webhook.delay")
+    @patch("soroscan.ingest.tasks.evaluate_alert_rules.apply_async")
     @patch("soroscan.ingest.streaming.KafkaProducer")
-    def test_streaming_failure_does_not_block_process_new_event(self, MockKafkaProducer, contract):
+    def test_streaming_failure_does_not_block_process_new_event(self, MockKafkaProducer, MockAlerts, MockWebhooks, contract):
         mock_producer_instance = MockKafkaProducer.return_value
         mock_producer_instance.publish.side_effect = Exception("Streaming failed")
 
