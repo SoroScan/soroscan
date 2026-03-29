@@ -21,10 +21,10 @@ def enable_db_access_for_all_tests():
 
 def test_single_leaf_node():
     """
-    Assert the ingest migration graph has exactly one leaf node named
-    '0027_merge_final_leaf_nodes'.
+    Assert the ingest migration graph has exactly one leaf node.
 
-    On UNFIXED code this test FAILS, proving the bug exists (two leaf nodes found).
+    The current leaf is '0029_contractmetadata' which depends on
+    '0028_callgraph_contractdependency_and_more'.
     """
     loader = MigrationLoader(None, ignore_no_migrations=True)
 
@@ -34,8 +34,8 @@ def test_single_leaf_node():
     assert len(leaf_nodes) == 1, (
         f"Expected 1 leaf node for 'ingest', found {len(leaf_nodes)}: {leaf_nodes}"
     )
-    assert leaf_nodes[0][1] == "0027_merge_final_leaf_nodes", (
-        f"Expected leaf node '0027_merge_final_leaf_nodes', got '{leaf_nodes[0][1]}'"
+    assert leaf_nodes[0][1] == "0029_contractmetadata", (
+        f"Expected leaf node '0029_contractmetadata', got '{leaf_nodes[0][1]}'"
     )
 
 
