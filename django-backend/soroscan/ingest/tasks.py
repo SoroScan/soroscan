@@ -1038,6 +1038,7 @@ def ingest_latest_events() -> int:
         network = _network_label()
         # Track distinct ledger sequences visited in this poll.
         scanned_ledgers: set[int] = set()
+        client = None
 
         for fallback_event_index, event in enumerate(events_response.events):
             scanned_ledgers.add(getattr(event, "ledger", 0))
