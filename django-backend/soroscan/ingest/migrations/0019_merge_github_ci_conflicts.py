@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("ingest", "0018_merge_0016_add_ingesterror_0017_eventdeduplicationlog"),
-        ("ingest", "0024_merge_20260328_1903"),
+        ("ingest", "0022_trackedcontract_event_filter"),
     ]
 
     operations = []
