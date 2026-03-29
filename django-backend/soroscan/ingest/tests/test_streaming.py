@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from soroscan.ingest.tasks import process_new_event
 from soroscan.ingest.streaming import get_producer, KafkaProducer, PubSubProducer
-from .factories import ContractEventFactory, TrackedContractFactory
+from .factories import ContractEventFactory, TrackedContractFactory, WebhookSubscriptionFactory
 
 @pytest.mark.django_db
 class TestEventStreaming:
@@ -14,7 +14,10 @@ class TestEventStreaming:
     def test_process_event_streams_to_kafka_when_enabled(self, MockKafkaProducer, contract):
         # Setup mock producer
         mock_producer_instance = MockKafkaProducer.return_value
-        
+
+        # Create a webhook subscription so process_new_event doesn't early-return
+        WebhookSubscriptionFactory(contract=contract, event_type="swap")
+
         # Configure settings for Kafka
         streaming_settings = {
             "enabled": True,
@@ -54,7 +57,10 @@ class TestEventStreaming:
     def test_process_event_streams_to_pubsub_when_enabled(self, MockPubSubProducer, contract):
         # Setup mock producer
         mock_producer_instance = MockPubSubProducer.return_value
-        
+
+        # Create a webhook subscription so process_new_event doesn't early-return
+        WebhookSubscriptionFactory(contract=contract, event_type="swap")
+
         # Configure settings for Pub/Sub
         streaming_settings = {
             "enabled": True,
@@ -110,7 +116,10 @@ class TestEventStreaming:
     def test_streaming_failure_does_not_block_process_new_event(self, MockKafkaProducer, contract):
         mock_producer_instance = MockKafkaProducer.return_value
         mock_producer_instance.publish.side_effect = Exception("Streaming failed")
-        
+
+        # Create a webhook subscription so process_new_event doesn't early-return
+        WebhookSubscriptionFactory(contract=contract, event_type="swap")
+
         streaming_settings = {
             "enabled": True,
             "backend": "kafka",
@@ -120,8 +129,16 @@ class TestEventStreaming:
         with patch.object(settings, "EVENT_STREAMING", streaming_settings):
             from soroscan.ingest import streaming
             streaming._producer_instance = None
-            
-            event_data = {"contract_id": contract.contract_id, "event_type": "swap", "ledger": 3000}
+
+            event = ContractEventFactory(
+                contract=contract, event_type="swap", ledger=3000, event_index=0
+            )
+            event_data = {
+                "contract_id": contract.contract_id,
+                "event_type": "swap",
+                "ledger": event.ledger,
+                "event_index": event.event_index,
+            }
             
             # Should NOT raise exception
             process_new_event.apply(args=[event_data])
