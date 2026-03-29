@@ -99,7 +99,7 @@ txaio==25.12.2
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 kafka-python-ng==2.2.3
-google-cloud-pubsub==2.28.1
+google-cloud-pubsub==2.29.0
 tzdata==2025.3
 tzlocal==5.3.1
 ujson==5.11.0
