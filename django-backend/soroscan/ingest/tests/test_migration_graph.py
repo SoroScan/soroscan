@@ -7,8 +7,6 @@ The conflict between 0027_merge_final_leaf_nodes and 0029_contractmetadata has b
 Validates: Requirements 2.1, 2.2
 """
 
-import importlib
-
 import pytest
 from django.db.migrations.loader import MigrationLoader
 

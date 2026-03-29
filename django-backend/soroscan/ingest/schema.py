@@ -21,6 +21,7 @@ from .models import (
     ContractDependency,
     ContractEvent,
     ContractInvocation,
+    ContractMetadata,
     Notification,
     TrackedContract,
     WebhookDeliveryLog,
