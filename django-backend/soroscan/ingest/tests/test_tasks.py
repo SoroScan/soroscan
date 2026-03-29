@@ -34,16 +34,6 @@ from .factories import (
 
 
 @pytest.fixture
-def user():
-    return UserFactory()
-
-
-@pytest.fixture
-def contract(user):
-    return TrackedContractFactory(owner=user)
-
-
-@pytest.fixture
 def event(contract):
     return ContractEventFactory(contract=contract, ledger=5000, event_index=0)
 
