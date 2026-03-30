@@ -75,11 +75,11 @@ export default function Home() {
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div>
-              <div className="text-[10px] text-terminal-gray tracking-widest mb-3">Python SDK</div>
+              <div className="text-[10px] text-terminal-gray-light tracking-widest mb-3 font-bold uppercase">Python SDK</div>
               <CodeSnippet code={PY_EXAMPLE} language="python" filename="example.py" />
             </div>
             <div>
-              <div className="text-[10px] text-terminal-gray tracking-widest mb-3">TypeScript SDK</div>
+              <div className="text-[10px] text-terminal-gray-light tracking-widest mb-3 font-bold uppercase">TypeScript SDK</div>
               <CodeSnippet code={TS_EXAMPLE} language="typescript" filename="example.ts" />
             </div>
           </div>

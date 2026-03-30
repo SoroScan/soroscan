@@ -69,14 +69,21 @@ export function LiveEventStream({ contractId }: LiveEventStreamProps) {
       {/* Header / Status */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-4 border-b-terminal border-terminal-green/30 bg-terminal-green/5">
         <div className="flex items-center gap-3">
-          <div className="text-terminal-cyan font-bold">LIVE_EVENT_STREAM</div>
-          <div className="h-4 w-[1px] bg-terminal-green/30" />
-          <div className={cn("flex items-center gap-2 text-xs", statusColor[status])}>
-             <span className={cn("w-2 h-2 rounded-full", status === "CONNECTED" && "animate-pulse", 
-               status === "CONNECTED" ? "bg-terminal-green" : 
-               status === "CONNECTING" ? "bg-terminal-warning" : 
-               status === "ERROR" ? "bg-terminal-danger" : "bg-terminal-gray"
-             )} />
+          <h2 className="text-terminal-cyan font-bold">LIVE_EVENT_STREAM</h2>
+          <div className="h-4 w-[1px] bg-terminal-green/30" aria-hidden="true" />
+          <div 
+            className={cn("flex items-center gap-2 text-xs", statusColor[status])}
+            role="status"
+            aria-live="polite"
+          >
+             <span 
+               className={cn("w-2 h-2 rounded-full", status === "CONNECTED" && "animate-pulse", 
+                 status === "CONNECTED" ? "bg-terminal-green" : 
+                 status === "CONNECTING" ? "bg-terminal-warning" : 
+                 status === "ERROR" ? "bg-terminal-danger" : "bg-terminal-gray"
+               )} 
+               aria-hidden="true"
+             />
              {status}
           </div>
         </div>
@@ -87,11 +94,13 @@ export function LiveEventStream({ contractId }: LiveEventStreamProps) {
              size="sm" 
              onClick={() => setIsPaused(!isPaused)}
              className="min-w-[100px]"
+             aria-pressed={isPaused}
            >
-             {isPaused ? <Play className="w-3 h-3 mr-2" /> : <Pause className="w-3 h-3 mr-2" />}
+             {isPaused ? <Play className="w-3 h-3 mr-2" aria-hidden="true" /> : <Pause className="w-3 h-3 mr-2" aria-hidden="true" />}
              {isPaused ? "RESUME" : "PAUSE"}
              {newEventsCount > 0 && isPaused && (
                <span className="absolute -top-1 -right-1 bg-terminal-danger text-terminal-black text-[8px] px-1 rounded-full animate-bounce font-bold">
+                 <span className="sr-only">New events: </span>
                  {newEventsCount > 99 ? "99+" : newEventsCount}
                </span>
              )}
@@ -108,21 +117,22 @@ export function LiveEventStream({ contractId }: LiveEventStreamProps) {
       <div className="px-4 py-2 flex items-center justify-between gap-4 border-b-terminal border-terminal-green/10">
         <div className="flex-1 max-w-sm">
           <Input 
+            label="Filter events"
             placeholder="FILTER_BY_TYPE_OR_CONTRACT..." 
             className="h-8 text-xs"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
         </div>
-        <div className="text-[10px] text-terminal-gray">
+        <div className="text-[10px] text-terminal-gray" aria-live="polite">
           SHOWING {filteredEvents.length} OF {displayEvents.length} BUFF_EVENTS
-          {isPaused && <span className="ml-2 text-terminal-warning animate-pulse">[PAUSED]</span>}
+          {isPaused && <span className="ml-2 text-terminal-warning animate-pulse" aria-hidden="true">[PAUSED]</span>}
         </div>
       </div>
 
       {/* Stream Window */}
       <div className="max-h-[500px] overflow-y-auto scrollbar-terminal custom-scrollbar">
-        <Table className="border-none">
+        <Table className="border-none" aria-label="Live event stream">
           <TableHeader className="sticky top-0 z-20 bg-terminal-black">
             <TableRow className="bg-terminal-green/10 hover:bg-terminal-green/10">
               <TableHead className="w-[100px] text-[10px]">TIME</TableHead>
@@ -142,26 +152,30 @@ export function LiveEventStream({ contractId }: LiveEventStreamProps) {
               filteredEvents.map((ev, i) => (
                 <TableRow key={`${ev.id}-${i}`} className="group/row">
                   <TableCell className="text-[10px] whitespace-nowrap opacity-70">
-                    {new Date(ev.ts).toLocaleTimeString([], { hour12: false })}
+                    <time dateTime={ev.ts}>
+                      {new Date(ev.ts).toLocaleTimeString([], { hour12: false })}
+                    </time>
                   </TableCell>
                   <TableCell>
                     <span className="text-[10px] px-1.5 py-0.5 border border-terminal-green/30 bg-terminal-green/5">
                       {ev.type}
                     </span>
                   </TableCell>
-                  <TableCell className="text-[10px] text-terminal-cyan">
-                    {ev.contract.slice(0, 4)}...{ev.contract.slice(-4)}
+                  <TableCell className="text-[10px] text-terminal-cyan font-mono">
+                    <span aria-label={`Contract ID: ${ev.contract}`}>
+                      {ev.contract.slice(0, 4)}...{ev.contract.slice(-4)}
+                    </span>
                   </TableCell>
                   <TableCell className="flex justify-center">
                     <button 
                       onClick={() => handleCopy(ev)}
-                      className="p-1 hover:text-terminal-green transition-colors"
-                      title="Copy Data"
+                      className="p-1 hover:text-terminal-green transition-colors outline-none focus-visible:ring-1 focus-visible:ring-terminal-green rounded-sm"
+                      aria-label={`Copy data for event ${ev.type}`}
                     >
                       {lastCopiedId === ev.id ? (
-                        <CheckCircle2 className="w-3 h-3 text-terminal-green" />
+                        <CheckCircle2 className="w-3 h-3 text-terminal-green" aria-hidden="true" />
                       ) : (
-                        <Copy className="w-3 h-3 opacity-30 group-hover/row:opacity-100" />
+                        <Copy className="w-3 h-3 opacity-30 group-hover/row:opacity-100" aria-hidden="true" />
                       )}
                     </button>
                   </TableCell>

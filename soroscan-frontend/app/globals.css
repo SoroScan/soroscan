@@ -53,6 +53,7 @@
   --color-terminal-danger: #ff3366;
   --color-terminal-warning: #ffaa00;
   --color-terminal-gray: #64748b;
+  --color-terminal-gray-light: #94a3b8;
 
   --font-terminal-mono: "JetBrains Mono", "IBM Plex Mono", monospace;
   --font-terminal-sans: "Inter", system-ui, sans-serif;
@@ -70,6 +71,17 @@
     to {
       transform: translateY(100%);
     }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

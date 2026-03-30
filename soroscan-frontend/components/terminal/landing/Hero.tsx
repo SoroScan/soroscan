@@ -32,33 +32,38 @@ export function Hero() {
     <section className="flex flex-col items-center text-center space-y-10 py-8 md:py-16">
       {/* Headline */}
       <div className="relative">
-        <div className="text-[10px] md:text-xs text-terminal-cyan/60 tracking-[0.3em] uppercase mb-3">
+        <div className="text-[10px] md:text-xs text-terminal-cyan tracking-[0.3em] uppercase mb-3 font-bold">
           Soroban Event Indexing, Reimagined
         </div>
         <h1 className="text-5xl sm:text-6xl md:text-7xl font-bold tracking-tight text-terminal-green font-terminal-mono leading-none">
           SOROSCAN
         </h1>
-        <div className="absolute -top-2 -right-6 md:-right-10 text-[9px] bg-terminal-cyan text-terminal-black px-1.5 py-0.5 font-bold">
+        <div className="absolute -top-2 -right-6 md:-right-10 text-[9px] bg-terminal-cyan text-terminal-black px-1.5 py-0.5 font-bold" aria-label="Version 1.0 Stable">
           v1.0 STABLE
         </div>
-        <p className="text-terminal-cyan text-base md:text-xl mt-4 border-y border-terminal-cyan/20 py-3 max-w-xl mx-auto font-terminal-mono">
+        <p className="text-terminal-cyan text-base md:text-xl mt-4 border-y border-terminal-cyan/40 py-3 max-w-xl mx-auto font-terminal-mono font-bold">
           &gt; THE_GRAPH_FOR_SOROBAN
         </p>
-        <p className="text-terminal-gray text-sm md:text-base max-w-lg mx-auto mt-3 leading-relaxed">
+        <p className="text-terminal-gray-light text-sm md:text-base max-w-lg mx-auto mt-3 leading-relaxed font-medium">
           Index, query, and subscribe to smart contract events on the Stellar blockchain.
           Reliable event ingestion for high-availability decentralised applications.
         </p>
       </div>
 
       {/* Animated terminal preview */}
-      <div className="w-full max-w-xl text-left bg-black/40 border border-terminal-green/30 p-4 rounded-sm font-terminal-mono text-xs text-terminal-gray space-y-1">
+      <div 
+        className="w-full max-w-xl text-left bg-black/40 border border-terminal-green/30 p-4 rounded-sm font-terminal-mono text-xs text-terminal-gray space-y-1"
+        role="log"
+        aria-label="System initialization log"
+        aria-live="polite"
+      >
         {TYPED_LINES.slice(0, lineIndex + 1).map((line, i) => (
           <div
             key={i}
             className={i < lineIndex ? "text-terminal-gray" : "text-terminal-green"}
           >
             {line}
-            {i === lineIndex && <span className="cursor-blink" />}
+            {i === lineIndex && <span className="cursor-blink" aria-hidden="true" />}
           </div>
         ))}
       </div>
@@ -74,11 +79,11 @@ export function Hero() {
       </div>
 
       {/* Stats bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 w-full max-w-2xl pt-4 border-t border-terminal-green/20">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 w-full max-w-2xl pt-4 border-t border-terminal-green/20" aria-label="System Statistics">
         {STATS.map((stat) => (
           <div key={stat.label} className="text-center">
             <div className="text-terminal-green font-bold text-xl md:text-2xl font-terminal-mono">{stat.value}</div>
-            <div className="text-terminal-gray text-[9px] md:text-[10px] tracking-widest mt-1">{stat.label}</div>
+            <div className="text-terminal-gray-light text-[9px] md:text-[10px] tracking-widest mt-1 font-bold">{stat.label}</div>
           </div>
         ))}
       </div>

@@ -59,10 +59,10 @@ export function Features() {
             <Card title={f.title} className="h-full hover:shadow-glow-green transition-shadow duration-300">
               <div className="flex flex-col gap-3">
                 <div className="flex items-center gap-2">
-                  {f.icon}
-                  <span className="text-[10px] text-terminal-gray tracking-widest">{f.title}</span>
+                  <span aria-hidden="true">{f.icon}</span>
+                  <span className="text-[10px] text-terminal-gray-light tracking-widest font-bold uppercase">{f.title}</span>
                 </div>
-                <p className="text-sm leading-relaxed text-terminal-gray">{f.body}</p>
+                <p className="text-sm leading-relaxed text-terminal-gray-light">{f.body}</p>
               </div>
             </Card>
           </div>

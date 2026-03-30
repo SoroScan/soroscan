@@ -48,7 +48,7 @@ export function Footer() {
         <h2 className="text-2xl md:text-3xl font-bold text-terminal-cyan tracking-tight font-terminal-mono">
           READY_TO_UPLINK?
         </h2>
-        <p className="text-terminal-gray max-w-md mx-auto text-sm leading-relaxed">
+        <p className="text-terminal-gray-light max-w-md mx-auto text-sm leading-relaxed font-medium">
           Join the decentralised indexing network and fuel your Soroban dApps with
           high-fidelity event data — free during open beta.
         </p>
@@ -67,19 +67,20 @@ export function Footer() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-10">
           {/* Brand */}
           <div className="col-span-2 md:col-span-1">
-            <Link href="/" className="text-terminal-green text-lg font-bold tracking-tighter hover:text-terminal-cyan transition-colors">
+            <Link href="/" className="text-terminal-green text-lg font-bold tracking-tighter hover:text-terminal-cyan transition-colors" aria-label="SoroScan Home">
               [SOROSCAN]
             </Link>
-            <p className="text-[11px] text-terminal-gray mt-2 leading-relaxed max-w-xs">
+            <p className="text-[11px] text-terminal-gray-light mt-2 leading-relaxed max-w-xs font-medium">
               The Graph for Soroban. Real-time event indexing for the Stellar ecosystem.
             </p>
             <a
               href="https://github.com/SoroScan/soroscan"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 mt-4 text-terminal-gray hover:text-terminal-green transition-colors text-xs"
+              className="inline-flex items-center gap-1.5 mt-4 text-terminal-gray-light hover:text-terminal-green transition-colors text-xs font-bold"
+              aria-label="SoroScan on GitHub"
             >
-              <Github size={14} />
+              <Github size={14} aria-hidden="true" />
               GitHub
             </a>
           </div>
@@ -87,8 +88,10 @@ export function Footer() {
           {/* Nav columns */}
           {NAV_COLS.map((col) => (
             <div key={col.heading}>
-              <h3 className="text-[10px] text-terminal-green tracking-widest mb-3">{col.heading}</h3>
-              <ul className="space-y-2">
+              <h3 className="text-[10px] text-terminal-green tracking-widest mb-3 font-bold" id={`footer-heading-${col.heading.toLowerCase()}`}>
+                {col.heading}
+              </h3>
+              <ul className="space-y-2" aria-labelledby={`footer-heading-${col.heading.toLowerCase()}`}>
                 {col.links.map((link) => (
                   <li key={link.label}>
                     {link.external ? (
@@ -96,14 +99,14 @@ export function Footer() {
                         href={link.href}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-[11px] text-terminal-gray hover:text-terminal-green transition-colors"
+                        className="text-[11px] text-terminal-gray-light hover:text-terminal-green transition-colors font-medium"
                       >
                         {link.label}
                       </a>
                     ) : (
                       <Link
                         href={link.href}
-                        className="text-[11px] text-terminal-gray hover:text-terminal-green transition-colors"
+                        className="text-[11px] text-terminal-gray-light hover:text-terminal-green transition-colors font-medium"
                       >
                         {link.label}
                       </Link>
@@ -118,13 +121,13 @@ export function Footer() {
         {/* Bottom bar */}
         <div className="border-t border-terminal-green/10 pt-4 flex flex-col md:flex-row justify-between items-center text-[10px] text-terminal-gray gap-3">
           <div className="flex flex-wrap gap-4 justify-center md:justify-start">
-            <span>&copy; 2026 SOROSCAN_INDEXER_SERVICES</span>
+            <span>&copy; {new Date().getFullYear()} SOROSCAN_INDEXER_SERVICES</span>
             <a href="#" className="hover:text-terminal-green underline underline-offset-4">TERMS_OF_SERVICE</a>
             <a href="#" className="hover:text-terminal-green underline underline-offset-4">PRIVACY_POLICY</a>
           </div>
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-terminal-green animate-pulse" />
+              <span className="w-2 h-2 rounded-full bg-terminal-green animate-pulse" aria-hidden="true" />
               STELLAR_MAINNET_UPLINK: ONLINE
             </span>
             <span className="border border-terminal-gray/30 px-2 py-0.5">
