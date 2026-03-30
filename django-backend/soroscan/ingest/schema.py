@@ -376,14 +376,27 @@ class Query:
         tags: Optional[List[str]] = None,
     ) -> list[ContractType]:
         """Get all tracked contracts. Optionally filter by alias substring. Sorted by alias when set."""
+        from django.db import connection
+        
         qs = TrackedContract.objects.select_related("contractmetadata").all()
         if is_active is not None:
             qs = qs.filter(is_active=is_active)
         if alias is not None:
             qs = qs.filter(alias__icontains=alias)
+        
+        # Handle tags filtering with database compatibility
         if tags is not None:
-            for tag in tags:
-                qs = qs.filter(tags__contains=[tag])
+            if hasattr(connection, 'vendor') and connection.vendor == 'sqlite':
+                # SQLite doesn't support JSON contains, use Python-side filtering
+                all_contracts = list(qs)
+                filtered = [c for c in all_contracts if any(tag in c.tags for tag in tags)]
+                qs = TrackedContract.objects.filter(id__in=[c.id for c in filtered])
+                qs = qs.select_related("contractmetadata")
+            else:
+                # PostgreSQL and others support JSON contains
+                for tag in tags:
+                    qs = qs.filter(tags__contains=[tag])
+        
         # Sort: contracts with an alias come first (alphabetically), then by -created_at
         qs = qs.annotate(
             _has_alias=Case(

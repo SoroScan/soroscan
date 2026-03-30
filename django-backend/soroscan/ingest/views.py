@@ -128,8 +128,21 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         if len(raw_tags) == 1 and "," in raw_tags[0]:
             raw_tags = [tag.strip() for tag in raw_tags[0].split(",") if tag.strip()]
         tags = [tag for tag in raw_tags if tag]
-        for tag in tags:
-            qs = qs.filter(tags__contains=[tag])
+        # For each tag, filter using Q object to handle both database (JSON contains) and Python fallback
+        from django.db.models import F, Q
+        from django.db import connection
+        
+        # Check if database supports JSON contains
+        if hasattr(connection, 'vendor') and connection.vendor == 'sqlite':
+            # SQLite doesn't support JSON contains, use Python-side filtering
+            if tags:
+                all_contracts = list(qs)
+                filtered = [c for c in all_contracts if any(tag in c.tags for tag in tags)]
+                qs = TrackedContract.objects.filter(id__in=[c.id for c in filtered])
+        else:
+            # PostgreSQL and others support JSON contains
+            for tag in tags:
+                qs = qs.filter(tags__contains=[tag])
 
         user = self.request.user
         if self.request.method in ["GET", "HEAD", "OPTIONS"]:
