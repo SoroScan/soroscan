@@ -292,6 +292,60 @@ class TestWebhookSubscriptionViewSet:
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not WebhookSubscription.objects.filter(id=webhook.id).exists()
 
+    def test_webhook_stats_empty(self, authenticated_client, contract):
+        webhook = WebhookSubscriptionFactory(contract=contract)
+        url = reverse("webhooksubscription-stats", args=[webhook.id])
+        response = authenticated_client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["total_deliveries"] == 0
+        assert response.data["successful"] == 0
+        assert response.data["failed"] == 0
+        assert response.data["success_rate"] == 0.0
+        assert response.data["avg_latency_ms"] is None
+        assert response.data["last_delivery_at"] is None
+
+    def test_webhook_stats(self, authenticated_client, contract):
+        from soroscan.ingest.models import WebhookDeliveryLog
+
+        webhook = WebhookSubscriptionFactory(contract=contract)
+        WebhookDeliveryLog.objects.create(
+            subscription=webhook, success=True, attempt_number=1,
+            status_code=200, duration_ms=120.0,
+        )
+        WebhookDeliveryLog.objects.create(
+            subscription=webhook, success=False, attempt_number=1,
+            status_code=500, duration_ms=300.0,
+        )
+
+        url = reverse("webhooksubscription-stats", args=[webhook.id])
+        response = authenticated_client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["total_deliveries"] == 2
+        assert response.data["successful"] == 1
+        assert response.data["failed"] == 1
+        assert response.data["success_rate"] == 50.0
+        assert response.data["avg_latency_ms"] == 210.0
+        assert response.data["last_delivery_at"] is not None
+
+    def test_webhook_stats_cached(self, authenticated_client, contract):
+        from django.core.cache import cache
+
+        webhook = WebhookSubscriptionFactory(contract=contract)
+        url = reverse("webhooksubscription-stats", args=[webhook.id])
+
+        cache.clear()
+        authenticated_client.get(url)
+
+        assert cache.get(f"webhook_stats_{webhook.id}") is not None
+
+    def test_webhook_stats_404_for_missing_webhook(self, authenticated_client):
+        url = reverse("webhooksubscription-stats", args=[99999])
+        response = authenticated_client.get(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
 
 @pytest.mark.django_db
 class TestRecordEventView:

@@ -473,7 +473,52 @@ class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
             )
 
         return Response({"status": "test_webhook_queued"})
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="WebhookStatsResponse",
+                fields={
+                    "total_deliveries": serializers.IntegerField(),
+                    "successful": serializers.IntegerField(),
+                    "failed": serializers.IntegerField(),
+                    "success_rate": serializers.FloatField(),
+                    "avg_latency_ms": serializers.FloatField(allow_null=True),
+                    "last_delivery_at": serializers.DateTimeField(allow_null=True),
+                },
+            )
+        }
+    )
+    @action(detail=True, methods=["get"], url_path="stats")
+    def stats(self, request, pk=None):
+        """Return cached 60s delivery statistics for a webhook subscription."""
+        from django.core.cache import cache
+        from django.db.models import Avg
+        from .models import WebhookDeliveryLog
 
+        cache_key = f"webhook_stats_{pk}"
+        cached = cache.get(cache_key)
+        if cached:
+            return Response(cached)
+
+        subscription = self.get_object()
+        logs = WebhookDeliveryLog.objects.filter(subscription=subscription)
+
+        total = logs.count()
+        successful = logs.filter(success=True).count()
+        agg = logs.aggregate(avg_latency=Avg("duration_ms"))
+        last = logs.order_by("-timestamp").values_list("timestamp", flat=True).first()
+
+        data = {
+            "total_deliveries": total,
+            "successful": successful,
+            "failed": total - successful,
+            "success_rate": round(successful / total * 100, 2) if total else 0.0,
+            "avg_latency_ms": round(agg["avg_latency"], 2) if agg["avg_latency"] else None,
+            "last_delivery_at": last,
+        }
+
+        cache.set(cache_key, data, timeout=60)
+        return Response(data)
 
 class TeamViewSet(viewsets.ModelViewSet):
     """

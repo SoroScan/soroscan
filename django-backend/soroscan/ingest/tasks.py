@@ -304,6 +304,25 @@ def _upsert_contract_event(
     raw_xdr = str(_event_attr(event, "xdr", "raw_xdr", default="") or "")
     signature_status = resolve_signature_status(contract, event, payload)
 
+    # Validate payload and optionally skip invalid events.
+    passed, schema_version = validate_event_payload(contract, event_type, payload, ledger=ledger)
+    m = _get_metrics()
+    validation_status = "passed" if passed else "failed"
+    m.events_validated_total.labels(status=validation_status, network=_network_label()).inc()
+
+    if not passed:
+        m.events_schema_validation_failures_total.labels(
+            contract_id=_short_contract_id(contract.contract_id),
+            network=_network_label(),
+            event_type=event_type,
+        ).inc()
+        m.events_skipped_total.labels(
+            contract_id=_short_contract_id(contract.contract_id),
+            network=_network_label(),
+            reason="schema_validation_failed",
+        ).inc()
+        return (None, False)
+
     timestamp = _event_attr(event, "timestamp", default=timezone.now())
     if isinstance(timestamp, datetime) and timezone.is_naive(timestamp):
         timestamp = timezone.make_aware(timestamp, dt_timezone.utc)
@@ -321,6 +340,8 @@ def _upsert_contract_event(
             "timestamp": timestamp,
             "raw_xdr": raw_xdr,
             "signature_status": signature_status,
+            "validation_status": validation_status,
+            "schema_version": schema_version,
         },
     )
 
@@ -330,6 +351,17 @@ def _upsert_contract_event(
         contract.save(update_fields=["last_event_at", "updated_at"])
 
     obj, created = result
+    if not created:
+        if (
+            obj.validation_status != validation_status
+            or obj.schema_version != schema_version
+            or obj.signature_status != signature_status
+        ):
+            obj.validation_status = validation_status
+            obj.schema_version = schema_version
+            obj.signature_status = signature_status
+            obj.save(update_fields=["validation_status", "schema_version", "signature_status"])
+
     if created:
         # Invalidate event count cache
         invalidate_event_count_cache(contract.contract_id)
@@ -397,34 +429,40 @@ def _try_decode_event(
 def validate_event_payload(
     contract: TrackedContract,
     event_type: str,
-    payload: dict[str, Any],
+    payload: Any,
     ledger: int | None = None,
 ) -> tuple[bool, int | None]:
     """
-    Validate event payload against the latest EventSchema for this contract+event_type.
+    Validate event payload against the configured schema.
+
+    Contract-level ``json_schema`` takes precedence. If unset, falls back to the
+    latest EventSchema for contract+event_type.
 
     Returns:
         (passed, version_used): passed is True if no schema exists or validation succeeded;
-        version_used is the EventSchema.version used, or None if no schema.
+        version_used is the schema version used (EventSchema or None for contract-level/no schema).
     """
-    if payload is None or not isinstance(payload, dict):
-        return (True, None)
-    schema = (
-        EventSchema.objects.filter(
-            contract=contract,
-            event_type=event_type,
+    schema = None
+    version_used = None
+
+    if contract.json_schema:
+        schema = contract.json_schema
+    else:
+        event_schema = (
+            EventSchema.objects.filter(contract=contract, event_type=event_type)
+            .order_by("-version")
+            .first()
         )
-        .order_by("-version")
-        .first()
-    )
+        if event_schema is not None:
+            schema = event_schema.json_schema
+            version_used = event_schema.version
+
     if schema is None:
-        return (True, None)
-    try:
-        jsonschema.validate(instance=payload, schema=schema.json_schema)
-        return (True, schema.version)
-    except jsonschema.ValidationError:
+        return True, None
+
+    if not isinstance(payload, dict):
         logger.warning(
-            "Event payload schema validation failed for contract_id=%s event_type=%s ledger=%s",
+            "Event payload schema validation failed (payload not object) for contract_id=%s event_type=%s ledger=%s",
             contract.contract_id,
             event_type,
             ledger,
@@ -434,7 +472,43 @@ def validate_event_payload(
                 "ledger": ledger,
             },
         )
-        return (False, schema.version)
+        return False, version_used
+
+    try:
+        jsonschema.validate(instance=payload, schema=schema)
+        return True, version_used
+    except jsonschema.ValidationError as exc:
+        logger.warning(
+            "Event payload schema validation failed for contract_id=%s event_type=%s ledger=%s error=%s",
+            contract.contract_id,
+            event_type,
+            ledger,
+            str(exc.message),
+            extra={
+                "contract_id": contract.contract_id,
+                "event_type": event_type,
+                "ledger": ledger,
+                "error": str(exc.message),
+            },
+        )
+        return False, version_used
+    except jsonschema.SchemaError as exc:
+        logger.error(
+            "Invalid event schema configured for contract_id=%s event_type=%s ledger=%s error=%s",
+            contract.contract_id,
+            event_type,
+            ledger,
+            str(exc),
+            extra={
+                "contract_id": contract.contract_id,
+                "event_type": event_type,
+                "ledger": ledger,
+                "error": str(exc),
+            },
+            exc_info=True,
+        )
+        # Fall back to accepting events when schema itself is misconfigured.
+        return True, None
 
 
 @shared_task(
@@ -531,7 +605,10 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
 
         if status_code == 429:
             error_msg = "Rate limited by subscriber (429)"
-            _log_delivery_attempt(webhook, event, attempt_number, status_code, False, error_msg, payload_size)
+            _log_delivery_attempt(
+                webhook, event, attempt_number, status_code, False, error_msg,
+                payload_size, duration_ms=(time.monotonic() - _start) * 1000
+            )
             attempt_logged = True
             _on_delivery_failure(webhook, self)
             m.webhook_deliveries_total.labels(status="rate_limited").inc()
@@ -552,7 +629,10 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
         success = 200 <= status_code < 300
         error_msg = "" if success else f"HTTP {status_code}"
 
-        _log_delivery_attempt(webhook, event, attempt_number, status_code, success, error_msg, payload_size)
+        _log_delivery_attempt(
+            webhook, event, attempt_number, status_code, success, error_msg,
+            payload_size, duration_ms=(time.monotonic() - _start) * 1000
+        )
         attempt_logged = True
 
         if success:
@@ -580,7 +660,10 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
     except requests.exceptions.Timeout:
         # Log timeout as 504 Gateway Timeout
         if not attempt_logged:
-            _log_delivery_attempt(webhook, event, attempt_number, 504, False, "Timeout exceeded", payload_size)
+            _log_delivery_attempt(
+                webhook, event, attempt_number, 504, False, "Timeout exceeded",
+                payload_size, duration_ms=(time.monotonic() - _start) * 1000
+            )
             attempt_logged = True
             _on_delivery_failure(webhook, self)
 
@@ -596,7 +679,10 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
 
     except requests.RequestException as exc:
         if not attempt_logged:
-            _log_delivery_attempt(webhook, event, attempt_number, None, False, str(exc), payload_size)
+            _log_delivery_attempt(
+                webhook, event, attempt_number, None, False, str(exc),
+                payload_size, duration_ms=(time.monotonic() - _start) * 1000
+            )
             _on_delivery_failure(webhook, self)
         m.webhook_deliveries_total.labels(status="failure").inc()
         m.webhook_delivery_duration_seconds.observe(time.monotonic() - _start)
@@ -633,6 +719,7 @@ def _log_delivery_attempt(
     success: bool,
     error: str,
     payload_bytes: int | None = None,
+    duration_ms: float | None = None,
 ) -> None:
     """Create a ``WebhookDeliveryLog`` record for one dispatch attempt."""
     from .models import WebhookDeliveryLog
@@ -645,6 +732,7 @@ def _log_delivery_attempt(
         success=success,
         error=error,
         payload_bytes=payload_bytes,
+        duration_ms=duration_ms,
     )
 
 
@@ -899,87 +987,12 @@ def ingest_latest_events() -> int:
                 ).inc()
                 continue
 
-            # Check rate limit before processing
-            if not check_ingest_rate(contract):
-                m.events_rate_limited_total.labels(
-                    contract_id=_short_contract_id(contract.contract_id),
-                    network=network,
-                ).inc()
-                logger.warning(
-                    "Rate limit exceeded for contract %s — skipping event",
-                    contract.contract_id,
-                    extra={"contract_id": contract.contract_id},
-                )
+            event_record, created = _upsert_contract_event(contract, event, fallback_event_index)
+            if event_record is None:
                 continue
-
-            # Check whitelist/blacklist filter before persisting
-            if not contract.should_ingest_event(event.type):
-                m.events_filtered_total.labels(
-                    contract_id=_short_contract_id(contract.contract_id),
-                    network=network,
-                    filter_type=contract.event_filter_type,
-                    event_type=event.type,
-                ).inc()
-                logger.debug(
-                    "Event type '%s' filtered (%s) for contract %s — skipping",
-                    event.type,
-                    contract.event_filter_type,
-                    contract.contract_id,
-                    extra={"contract_id": contract.contract_id, "event_type": event.type},
-                )
-                continue
-
-            payload = event.value
-            passed, version_used = validate_event_payload(
-                contract, event.type, payload, ledger=event.ledger
-            )
-            validation_status = "passed" if passed else "failed"
-            schema_version = version_used
-            # Emit validation counter immediately after the decision.
-            m.events_validated_total.labels(
-                status=validation_status,
-                network=network,
-            ).inc()
-            signature_status = resolve_signature_status(
-                contract,
-                event,
-                payload,
-            )
-
-            event_record, created = ContractEvent.objects.get_or_create(
-                tx_hash=event.tx_hash,
-                ledger=event.ledger,
-                event_type=event.type,
-                defaults={
-                    "contract": contract,
-                    "payload": payload,
-                    "timestamp": timezone.now(),
-                    "raw_xdr": event.xdr if hasattr(event, "xdr") else "",
-                    "validation_status": validation_status,
-                    "schema_version": schema_version,
-                    "signature_status": signature_status,
-                },
-            )
-
-            # Update validation status if needed
-            if not created:
-                if (
-                    event_record.validation_status != validation_status
-                    or event_record.schema_version != schema_version
-                    or event_record.signature_status != signature_status
-                ):
-                    event_record.validation_status = validation_status
-                    event_record.schema_version = schema_version
-                    event_record.signature_status = signature_status
-                    event_record.save(update_fields=["validation_status", "schema_version", "signature_status"])
 
             if created:
                 new_events += 1
-                m.events_ingested_total.labels(
-                    contract_id=_short_contract_id(contract.contract_id),
-                    network=network,
-                    event_type=event_record.event_type,
-                ).inc()
                 process_new_event.delay(
                     {
                         "contract_id": contract.contract_id,

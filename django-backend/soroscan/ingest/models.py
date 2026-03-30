@@ -122,6 +122,11 @@ class TrackedContract(models.Model):
         blank=True,
         help_text="Optional ABI/schema for decoding events",
     )
+    json_schema = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Optional JSON schema for validating decoded event payloads",
+    )
     last_indexed_ledger = models.PositiveBigIntegerField(
         null=True,
         blank=True,
@@ -594,6 +599,17 @@ class WebhookDeliveryLog(models.Model):
         null=True,
         blank=True,
         help_text="Size of the webhook payload in bytes",
+    )
+
+    payload_bytes = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Size of the webhook payload in bytes",
+    )
+    duration_ms = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Time taken for the webhook HTTP request in milliseconds",
     )
 
     class Meta:
