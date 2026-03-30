@@ -367,6 +367,19 @@ class TestDispatchWebhookSuspension:
         assert webhook.status == WebhookSubscription.STATUS_ACTIVE
         assert webhook.is_active is True
 
+    @responses.activate
+    def test_subscription_specific_max_retries_is_enforced(self, webhook, event):
+        webhook.max_retries = 2
+        webhook.save(update_fields=["max_retries"])
+        responses.add(responses.POST, webhook.target_url, status=500)
+
+        with pytest.raises(requests.exceptions.HTTPError):
+            dispatch_webhook.apply(args=[webhook.id, event.id], retries=2, throw=True)
+
+        webhook.refresh_from_db()
+        assert webhook.status == WebhookSubscription.STATUS_SUSPENDED
+        assert webhook.is_active is False
+
 
 # ---------------------------------------------------------------------------
 # dispatch_webhook — edge: subscription/event not found

@@ -137,7 +137,7 @@ class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
         (None, {
             "fields": (
                 "contract_id", "name", "alias", "description",
-                "owner", "team", "is_active",
+                "owner", "team", "is_active", "tags",
             ),
         }),
         ("Event Filtering", {
@@ -456,7 +456,7 @@ class WebhookSubscriptionAdmin(AdminAuditMixin, admin.ModelAdmin):
             "fields": ("contract", "target_url", "event_type", "is_active"),
         }),
         ("Configuration", {
-            "fields": ("timeout_seconds",),
+            "fields": ("timeout_seconds", "max_retries"),
         }),
         ("Retry Configuration", {
             "fields": ("retry_backoff_strategy", "retry_backoff_seconds"),

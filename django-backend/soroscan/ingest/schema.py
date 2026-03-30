@@ -63,6 +63,7 @@ class ContractType:
     deprecation_reason: auto
     event_filter_type: auto
     event_filter_list: strawberry.scalars.JSON
+    tags: strawberry.scalars.JSON
     created_at: auto
 
     @strawberry.field
@@ -368,13 +369,21 @@ class NotificationType:
 @strawberry.type
 class Query:
     @strawberry.field
-    def contracts(self, is_active: Optional[bool] = None, alias: Optional[str] = None) -> list[ContractType]:
+    def contracts(
+        self,
+        is_active: Optional[bool] = None,
+        alias: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+    ) -> list[ContractType]:
         """Get all tracked contracts. Optionally filter by alias substring. Sorted by alias when set."""
         qs = TrackedContract.objects.select_related("contractmetadata").all()
         if is_active is not None:
             qs = qs.filter(is_active=is_active)
         if alias is not None:
             qs = qs.filter(alias__icontains=alias)
+        if tags is not None:
+            for tag in tags:
+                qs = qs.filter(tags__contains=[tag])
         # Sort: contracts with an alias come first (alphabetically), then by -created_at
         qs = qs.annotate(
             _has_alias=Case(

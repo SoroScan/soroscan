@@ -37,6 +37,7 @@ from .models import (
     RemediationIncident,
     AdminAction,
     ContractInvocation,
+    ContractIngestHistory,
     ContractDependency,
     CallGraph,
 )
@@ -489,8 +490,6 @@ def validate_event_payload(
 @shared_task(
     name="ingest.tasks.dispatch_webhook",
     bind=True,
-    autoretry_for=(requests.exceptions.RequestException,),
-    max_retries=5,
 )
 def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
     """
@@ -559,6 +558,8 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
         digestmod=hashlib.sha256,
     ).hexdigest()
 
+    effective_max_retries = webhook.max_retries
+
     headers = {
         "Content-Type": "application/json",
         "X-SoroScan-Signature": f"sha256={sig_hex}",
@@ -581,7 +582,7 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
             error_msg = "Rate limited by subscriber (429)"
             _log_delivery_attempt(webhook, event, attempt_number, status_code, False, error_msg, payload_size)
             attempt_logged = True
-            _on_delivery_failure(webhook, self)
+            _on_delivery_failure(webhook, self, effective_max_retries)
             m.webhook_deliveries_total.labels(status="rate_limited").inc()
 
             countdown: int | None = None
@@ -593,7 +594,7 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
                     pass
             
             # Check if we've exhausted retries
-            if self.request.retries >= self.max_retries:
+            if self.request.retries >= effective_max_retries:
                 # Final attempt — don't retry, let the HTTPError propagate
                 raise requests.HTTPError("Rate limited (429)", response=response)
             
@@ -608,6 +609,7 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
             raise self.retry(
                 exc=requests.HTTPError("Rate limited (429)", response=response),
                 countdown=countdown,
+                max_retries=effective_max_retries,
             )
 
         success = 200 <= status_code < 300
@@ -634,7 +636,7 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
             )
             return True
 
-        _on_delivery_failure(webhook, self)
+        _on_delivery_failure(webhook, self, effective_max_retries)
         m.webhook_deliveries_total.labels(status="failure").inc()
         response.raise_for_status()
 
@@ -643,19 +645,19 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
         if not attempt_logged:
             _log_delivery_attempt(webhook, event, attempt_number, 504, False, "Timeout exceeded", payload_size)
             attempt_logged = True
-            _on_delivery_failure(webhook, self)
+            _on_delivery_failure(webhook, self, effective_max_retries)
 
         logger.warning(
             "Webhook %s dispatch timed out (attempt %s/%s) after %d seconds",
             subscription_id,
             attempt_number,
-            self.max_retries + 1,
+            effective_max_retries + 1,
             webhook.timeout_seconds,
             extra={"webhook_id": subscription_id},
         )
         
         # Check if we've exhausted retries
-        if self.request.retries >= self.max_retries:
+        if self.request.retries >= effective_max_retries:
             # Final attempt — don't retry, let the exception propagate
             raise
         
@@ -665,12 +667,12 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
             webhook.retry_backoff_strategy,
             webhook.retry_backoff_seconds,
         )
-        raise self.retry(countdown=countdown)
+        raise self.retry(countdown=countdown, max_retries=effective_max_retries)
 
     except requests.RequestException as exc:
         if not attempt_logged:
             _log_delivery_attempt(webhook, event, attempt_number, None, False, str(exc), payload_size)
-            _on_delivery_failure(webhook, self)
+            _on_delivery_failure(webhook, self, effective_max_retries)
         m.webhook_deliveries_total.labels(status="failure").inc()
         m.webhook_delivery_duration_seconds.observe(time.monotonic() - _start)
         m.task_duration_seconds.labels(task_name="dispatch_webhook").observe(
@@ -681,13 +683,13 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
             "Webhook %s dispatch failed (attempt %s/%s): %s",
             subscription_id,
             attempt_number,
-            self.max_retries + 1,
+            effective_max_retries + 1,
             exc,
             extra={"webhook_id": subscription_id},
         )
         
         # Check if we've exhausted retries
-        if self.request.retries >= self.max_retries:
+        if self.request.retries >= effective_max_retries:
             # Final attempt — don't retry, let the exception propagate
             raise
         
@@ -697,7 +699,7 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
             webhook.retry_backoff_strategy,
             webhook.retry_backoff_seconds,
         )
-        raise self.retry(countdown=countdown)
+        raise self.retry(countdown=countdown, max_retries=effective_max_retries)
 
     m.webhook_delivery_duration_seconds.observe(time.monotonic() - _start)
     m.task_duration_seconds.labels(task_name="dispatch_webhook").observe(
@@ -736,6 +738,7 @@ def _log_delivery_attempt(
 def _on_delivery_failure(
     webhook: WebhookSubscription,
     task_instance,
+    max_retries: int,
 ) -> None:
     """
     Atomically increment ``failure_count`` and, when all retries are exhausted,
@@ -745,7 +748,7 @@ def _on_delivery_failure(
         failure_count=F("failure_count") + 1,
     )
 
-    is_last_attempt = task_instance.request.retries >= task_instance.max_retries
+    is_last_attempt = task_instance.request.retries >= max_retries
     if is_last_attempt:
         WebhookSubscription.objects.filter(pk=webhook.pk).update(
             status=WebhookSubscription.STATUS_SUSPENDED,
@@ -754,7 +757,7 @@ def _on_delivery_failure(
         logger.error(
             "Webhook subscription %s suspended after %d consecutive failures",
             webhook.id,
-            task_instance.max_retries + 1,
+            max_retries + 1,
             extra={"webhook_id": webhook.id},
         )
         # Push in-app notification to the contract owner
@@ -768,7 +771,7 @@ def _on_delivery_failure(
                 message=(
                     f"Webhook to {webhook.target_url} for contract "
                     f"'{webhook.contract.name}' has been suspended after "
-                    f"{task_instance.max_retries + 1} consecutive failures."
+                    f"{max_retries + 1} consecutive failures."
                 ),
                 link=f"/webhooks/{webhook.id}",
             )
@@ -1117,6 +1120,7 @@ def ingest_latest_events() -> int:
         network = _network_label()
         # Track distinct ledger sequences visited in this poll.
         scanned_ledgers: set[int] = set()
+        ingest_ranges: dict[int, dict[str, int]] = {}
         client = None
 
         for fallback_event_index, event in enumerate(events_response.events):
@@ -1252,12 +1256,39 @@ def ingest_latest_events() -> int:
                     }
                 )
 
+            stats = ingest_ranges.setdefault(
+                contract.pk,
+                {
+                    "contract_id": contract.contract_id,
+                    "ledger_from": event_record.ledger,
+                    "ledger_to": event_record.ledger,
+                    "event_count": 0,
+                },
+            )
+            stats["ledger_from"] = min(stats["ledger_from"], event_record.ledger)
+            stats["ledger_to"] = max(stats["ledger_to"], event_record.ledger)
+            stats["event_count"] += 1
+
             if contract.last_indexed_ledger is None or event_record.ledger > contract.last_indexed_ledger:
                 contract.last_indexed_ledger = event_record.ledger
                 contract.save(update_fields=["last_indexed_ledger"])
 
         if scanned_ledgers:
             m.ledgers_scanned_total.labels(network=network).inc(len(scanned_ledgers))
+
+        if ingest_ranges:
+            ContractIngestHistory.objects.bulk_create(
+                [
+                    ContractIngestHistory(
+                        contract_id=contract_pk,
+                        ledger_from=stats["ledger_from"],
+                        ledger_to=stats["ledger_to"],
+                        event_count=stats["event_count"],
+                    )
+                    for contract_pk, stats in ingest_ranges.items()
+                    if stats["event_count"] > 0
+                ]
+            )
 
         # Trigger incremental dependency analysis if new events were processed
         if new_events > 0:
@@ -1360,6 +1391,7 @@ def backfill_contract_events(
             batch_end = min(batch_start + BATCH_LEDGER_SIZE - 1, end_ledger)
             _batch_start_time = time.monotonic()
             batch_events = client.get_events_range(contract.contract_id, batch_start, batch_end)
+            batch_processed = 0
 
             # Create batch_cache for this batch to avoid redundant RPC calls
             batch_cache = {}
@@ -1381,10 +1413,19 @@ def backfill_contract_events(
                     continue
                 _, created = result
                 processed_events += 1
+                batch_processed += 1
                 if created:
                     created_events += 1
                 else:
                     updated_events += 1
+
+            if batch_processed > 0:
+                ContractIngestHistory.objects.create(
+                    contract=contract,
+                    ledger_from=batch_start,
+                    ledger_to=batch_end,
+                    event_count=batch_processed,
+                )
 
             contract.last_indexed_ledger = batch_end
             contract.save(update_fields=["last_indexed_ledger"])
