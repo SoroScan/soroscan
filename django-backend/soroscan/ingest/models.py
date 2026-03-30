@@ -179,6 +179,11 @@ class TrackedContract(models.Model):
         blank=True,
         help_text="List of event type names used by the whitelist/blacklist filter.",
     )
+    tags = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of free-form tags for organizing contracts (e.g. payment, governance, test).",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -551,6 +556,11 @@ class WebhookSubscription(models.Model):
         validators=[MinValueValidator(1), MaxValueValidator(3600)],
         help_text="Base seconds for backoff calculation (1-3600, default: 60)",
     )
+    max_retries = models.PositiveIntegerField(
+        default=5,
+        validators=[MinValueValidator(1), MaxValueValidator(20)],
+        help_text="Maximum number of retry attempts before the webhook is suspended (1-20).",
+    )
 
     class Meta:
         ordering = ["-created_at"]
@@ -625,6 +635,44 @@ class WebhookDeliveryLog(models.Model):
     def __str__(self):
         status_label = "OK" if self.success else f"FAIL({self.status_code})"
         return f"Delivery #{self.attempt_number} [{status_label}] sub={self.subscription_id}"
+
+
+class ContractIngestHistory(models.Model):
+    """Recent ingest execution summary rows for tracked contracts."""
+
+    contract = models.ForeignKey(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name="ingest_history",
+    )
+    timestamp = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,
+        help_text="UTC time when this ingest run summary was recorded",
+    )
+    ledger_from = models.PositiveBigIntegerField(
+        help_text="First ledger covered by this ingest run",
+    )
+    ledger_to = models.PositiveBigIntegerField(
+        help_text="Last ledger covered by this ingest run",
+    )
+    event_count = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of events processed for this ledger range",
+    )
+
+    class Meta:
+        ordering = ["-timestamp"]
+        indexes = [
+            models.Index(fields=["contract", "-timestamp"]),
+            models.Index(fields=["contract", "ledger_from", "ledger_to"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"IngestHistory(contract={self.contract_id}, range={self.ledger_from}-{self.ledger_to}, "
+            f"events={self.event_count})"
+        )
 
 
 class EventDeduplicationLog(models.Model):

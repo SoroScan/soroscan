@@ -30,6 +30,7 @@ from .models import (
     APIKey,
     AdminAction,
     ContractEvent,
+    ContractIngestHistory,
     ContractInvocation,
     IngestError,
     Team,
@@ -123,6 +124,13 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = TrackedContract.objects.all()
+        raw_tags = self.request.query_params.getlist("tag")
+        if len(raw_tags) == 1 and "," in raw_tags[0]:
+            raw_tags = [tag.strip() for tag in raw_tags[0].split(",") if tag.strip()]
+        tags = [tag for tag in raw_tags if tag]
+        for tag in tags:
+            qs = qs.filter(tags__contains=[tag])
+
         user = self.request.user
         if self.request.method in ["GET", "HEAD", "OPTIONS"]:
             if user.is_authenticated:
@@ -174,6 +182,37 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
 
         stats = get_or_set_json(cache_key, query_cache_ttl(), _build)
         return Response(stats)
+
+    @extend_schema(
+        responses=inline_serializer(
+            name="ContractIngestHistoryItem",
+            fields={
+                "timestamp": serializers.DateTimeField(),
+                "ledger_from": serializers.IntegerField(),
+                "ledger_to": serializers.IntegerField(),
+                "event_count": serializers.IntegerField(),
+            },
+        )(many=True)
+    )
+    @action(detail=True, methods=["get"], url_path="ingest-history")
+    def ingest_history(self, request, pk=None):
+        """Return the most recent 10 ingest history rows for a contract."""
+        contract = self.get_object()
+        cache_key = stable_cache_key(
+            "rest_contract_ingest_history",
+            {"contract_pk": contract.pk, "cid": contract.contract_id},
+        )
+
+        def _build():
+            rows = (
+                ContractIngestHistory.objects.filter(contract=contract)
+                .values("timestamp", "ledger_from", "ledger_to", "event_count")
+                .order_by("-timestamp")[:10]
+            )
+            return list(rows)
+
+        payload = get_or_set_json(cache_key, 60, _build)
+        return Response(payload)
 
 
 class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
