@@ -12,6 +12,8 @@ import styles from "@/components/ingest/ingest-terminal.module.css";
 import { useToast } from "@/context/ToastContext";
 import { parseSearchQuery, matchesFilters } from "@/lib/search-parser";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Search, Database, AlertCircle } from "lucide-react";
 
 const PAGE_SIZE = 20;
 
@@ -207,31 +209,63 @@ export function EventExplorerDashboard() {
             <p className={styles.summary}>
               {loading
                 ? "Loading..."
-                : `Showing ${startIndex}-${endIndex} of ${totalCount}+`}
+                : filteredEvents.length > 0 
+                  ? `Showing ${startIndex}-${endIndex} of ${totalCount}+`
+                  : "No events"}
             </p>
           </div>
 
-          {error && (
-            <div className={`${styles.status} ${styles.error}`} aria-live="polite">
-              {error}
-            </div>
+          {error ? (
+            <EmptyState
+              variant="error"
+              title="Connection Error"
+              description={error}
+              icon={AlertCircle}
+              action={{
+                label: "Retry Connection",
+                onClick: () => handleFilterChange({}),
+              }}
+            />
+          ) : !loading && !filters.contractId ? (
+            <EmptyState
+              variant="no-data"
+              title="No Contract Selected"
+              description="Please select a contract from the filter bar to browse its events."
+              icon={Database}
+            />
+          ) : !loading && filteredEvents.length === 0 ? (
+            <EmptyState
+              variant="no-results"
+              title="No Events Found"
+              description={filters.searchQuery 
+                ? `No events matching "${filters.searchQuery}" were found for this contract.`
+                : "No events have been recorded for this contract yet."
+              }
+              icon={Search}
+              action={filters.searchQuery ? {
+                label: "Clear Search",
+                onClick: () => handleFilterChange({ searchQuery: "" }),
+              } : undefined}
+            />
+          ) : (
+            <>
+              <EventTable
+                events={filteredEvents}
+                loading={loading}
+                onEventClick={setSelectedEvent}
+              />
+
+              <PaginationControls
+                currentPage={currentPage}
+                hasNext={hasNext}
+                hasPrev={currentPage > 1}
+                onPageChange={setCurrentPage}
+                startIndex={startIndex}
+                endIndex={endIndex}
+                totalCount={totalCount}
+              />
+            </>
           )}
-
-          <EventTable
-            events={filteredEvents}
-            loading={loading}
-            onEventClick={setSelectedEvent}
-          />
-
-          <PaginationControls
-            currentPage={currentPage}
-            hasNext={hasNext}
-            hasPrev={currentPage > 1}
-            onPageChange={setCurrentPage}
-            startIndex={startIndex}
-            endIndex={endIndex}
-            totalCount={totalCount}
-          />
         </section>
       </main>
 

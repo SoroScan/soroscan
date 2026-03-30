@@ -6,6 +6,8 @@ import { Button } from "@/components/terminal/Button";
 import { ContractTable } from "./components/ContractTable";
 import { RegisterModal } from "./components/RegisterModal";
 import { DeleteConfirmModal } from "./components/DeleteConfirmModal";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Plus, Database, AlertCircle } from "lucide-react";
 import {
   listContracts,
   registerContract,
@@ -82,23 +84,39 @@ export default function ContractsPage() {
           </Button>
         </div>
 
-        {error && (
-          <Card>
-            <div className="p-4 border border-terminal-danger bg-terminal-danger/10 text-terminal-danger">
-              {error}
-            </div>
+        {error ? (
+          <EmptyState
+            variant="error"
+            title="Database Error"
+            description={error}
+            icon={AlertCircle}
+            action={{
+              label: "Retry Load",
+              onClick: loadContracts,
+            }}
+          />
+        ) : (
+          <Card title="TRACKED_CONTRACTS">
+            {isLoading ? (
+              <div className="text-center py-12 text-terminal-gray font-terminal-mono">
+                LOADING...
+              </div>
+            ) : contracts.length === 0 ? (
+              <EmptyState
+                variant="no-data"
+                title="No Contracts Tracked"
+                description="You haven't registered any contracts yet. Register a contract to start monitoring its events in real-time."
+                icon={Database}
+                action={{
+                  label: "Register First Contract",
+                  onClick: () => setIsRegisterModalOpen(true),
+                }}
+              />
+            ) : (
+              <ContractTable contracts={contracts} onDelete={handleDeleteClick} />
+            )}
           </Card>
         )}
-
-        <Card title="TRACKED_CONTRACTS">
-          {isLoading ? (
-            <div className="text-center py-12 text-terminal-gray font-terminal-mono">
-              LOADING...
-            </div>
-          ) : (
-            <ContractTable contracts={contracts} onDelete={handleDeleteClick} />
-          )}
-        </Card>
 
         <RegisterModal
           isOpen={isRegisterModalOpen}

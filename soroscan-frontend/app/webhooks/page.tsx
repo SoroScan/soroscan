@@ -9,6 +9,8 @@ import { Modal } from "@/components/terminal/Modal"
 import { WebhookTable } from "./components/WebhookTable"
 import { CreateWebhookModal } from "./components/CreateWebhookModal"
 import { MOCK_WEBHOOKS } from "./mock-data"
+import { EmptyState } from "@/components/ui/EmptyState"
+import { Webhook as WebhookIcon } from "lucide-react"
 import type { Webhook } from "./types"
 
 function generateId() {
@@ -146,13 +148,26 @@ export default function WebhooksPage() {
             </h2>
             <div className="h-[2px] w-full bg-terminal-green/20" />
           </div>
-          <WebhookTable
-            webhooks={webhooks}
-            onDelete={handleDelete}
-            onTest={handleTest}
-            testingId={testingId}
-            testResult={testResult}
-          />
+          {webhooks.length === 0 ? (
+            <EmptyState
+              variant="no-data"
+              title="No Webhooks Configured"
+              description="You haven't set up any webhook subscriptions yet. Configure a webhook to receive real-time notifications when contract events occur."
+              icon={WebhookIcon}
+              action={{
+                label: "Create First Webhook",
+                onClick: () => setCreateOpen(true),
+              }}
+            />
+          ) : (
+            <WebhookTable
+              webhooks={webhooks}
+              onDelete={handleDelete}
+              onTest={handleTest}
+              testingId={testingId}
+              testResult={testResult}
+            />
+          )}
         </section>
 
       </main>

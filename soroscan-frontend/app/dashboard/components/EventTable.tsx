@@ -57,18 +57,9 @@ export function EventTable({ events, loading, onEventClick }: EventTableProps) {
           </tr>
         </thead>
         <tbody>
-          {!events.length ? (
-            <tr>
-              <td colSpan={6} className={styles.emptyTable}>
-                {loading
-                  ? "Loading events..."
-                  : "No events found. Select a contract and adjust filters to view events."}
-              </td>
-            </tr>
-          ) : (
-            events.map((event) => (
-              <tr
-                key={event.id}
+          {events.map((event) => (
+            <tr
+              key={event.id}
                 style={{
                   cursor: "pointer",
                   transition: "all 0.2s ease",
@@ -165,7 +156,7 @@ export function EventTable({ events, loading, onEventClick }: EventTableProps) {
                 </td>
               </tr>
             ))
-          )}
+          }
         </tbody>
       </table>
     </div>

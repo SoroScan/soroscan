@@ -25,14 +25,6 @@ export function ContractTable({ contracts, onDelete }: ContractTableProps) {
     router.push(`/contracts/${id}`);
   };
 
-  if (contracts.length === 0) {
-    return (
-      <div className="text-center text-terminal-gray py-8 font-terminal-mono">
-        No contracts registered. Click &quot;Register Contract&quot; to add one.
-      </div>
-    );
-  }
-
   return (
     <>
       {/* ── Mobile card view (< 640px) ── */}
