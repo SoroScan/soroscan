@@ -59,6 +59,26 @@ class TestGraphQLQueries:
         assert len(result.data["contracts"]) == 1
         assert result.data["contracts"][0]["isActive"] is True
 
+    def test_query_contracts_filter_by_tags(self, contract):
+        contract.tags = ["payment", "prod"]
+        contract.save(update_fields=["tags"])
+        TrackedContractFactory(owner=contract.owner, tags=["governance"])
+
+        query = """
+            query {
+                contracts(tags: ["payment"]) {
+                    contractId
+                    tags
+                }
+            }
+        """
+        result = schema.execute_sync(query)
+
+        assert result.errors is None
+        assert len(result.data["contracts"]) == 1
+        assert result.data["contracts"][0]["contractId"] == contract.contract_id
+        assert "payment" in result.data["contracts"][0]["tags"]
+
     def test_schema_has_subscription_type(self):
         """Test that the schema includes subscription type."""
         # Verify the schema has a subscription type

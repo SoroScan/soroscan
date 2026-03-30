@@ -150,6 +150,7 @@ CACHES = {
 }
 # TTL for REST/GraphQL search, stats, and timeline responses (seconds)
 QUERY_CACHE_TTL_SECONDS = env.int("QUERY_CACHE_TTL_SECONDS", default=60)
+MAX_QUERY_DEPTH = max(1, env.int("MAX_QUERY_DEPTH", default=15))
 
 # Rate limiting configuration (via environment variables)
 RATE_LIMIT_ANON = env("RATE_LIMIT_ANON", default="60/minute")

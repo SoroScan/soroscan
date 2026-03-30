@@ -15,8 +15,10 @@ from rest_framework_simplejwt.views import (
 )
 
 from soroscan.graphql_views import ThrottledGraphQLView
-from soroscan.ingest.views import audit_trail_view, contract_status
+from soroscan.ingest.views import TrackedContractViewSet, audit_trail_view, contract_status
 from soroscan.ingest.schema import schema
+
+contract_ingest_history_view = TrackedContractViewSet.as_view({"get": "ingest_history"})
 
 urlpatterns = [
     # Prometheus metrics — must be unauthenticated; placed before any auth middleware
@@ -26,6 +28,11 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/audit-trail/", audit_trail_view, name="audit-trail"),
     path("api/contracts/status/", contract_status, name="contract-status"),
+    path(
+        "api/contracts/<int:pk>/ingest-history/",
+        contract_ingest_history_view,
+        name="contract-ingest-history-direct",
+    ),
     path("api/ingest/", include("soroscan.ingest.urls")),
     path("graphql/", ThrottledGraphQLView.as_view(schema=schema)),
     # JWT Authentication

@@ -7,7 +7,13 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from soroscan.ingest.models import Team, TeamMembership, TrackedContract, WebhookSubscription
+from soroscan.ingest.models import (
+    ContractIngestHistory,
+    Team,
+    TeamMembership,
+    TrackedContract,
+    WebhookSubscription,
+)
 
 from .factories import (
     ContractEventFactory,
@@ -97,6 +103,34 @@ class TestTrackedContractViewSet:
         assert response.data["total_events"] == 8
         assert response.data["unique_event_types"] == 2
         assert "last_activity" in response.data
+
+    def test_list_contracts_filter_by_tag(self, authenticated_client, user):
+        tagged = TrackedContractFactory(owner=user, tags=["payment", "prod"])
+        TrackedContractFactory(owner=user, tags=["governance"])
+
+        url = reverse("contract-list")
+        response = authenticated_client.get(url, {"tag": "payment"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data["results"]) == 1
+        assert response.data["results"][0]["contract_id"] == tagged.contract_id
+
+    def test_contract_ingest_history_returns_latest_ten_desc(self, authenticated_client, contract):
+        for idx in range(12):
+            ContractIngestHistory.objects.create(
+                contract=contract,
+                ledger_from=1000 + idx,
+                ledger_to=1000 + idx,
+                event_count=idx + 1,
+            )
+
+        url = reverse("contract-ingest-history", args=[contract.id])
+        response = authenticated_client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 10
+        assert response.data[0]["ledger_from"] == 1011
+        assert response.data[-1]["ledger_from"] == 1002
 
     def test_update_contract(self, authenticated_client, contract):
         url = reverse("contract-detail", args=[contract.id])
@@ -260,11 +294,14 @@ class TestWebhookSubscriptionViewSet:
             "event_type": "swap",
             "target_url": "https://example.com/webhook",
             "is_active": True,
+            "max_retries": 7,
         }
         response = authenticated_client.post(url, data)
 
         assert response.status_code == status.HTTP_201_CREATED
         assert WebhookSubscription.objects.filter(target_url="https://example.com/webhook").exists()
+        created = WebhookSubscription.objects.get(target_url="https://example.com/webhook")
+        assert created.max_retries == 7
 
     def test_create_webhook_validation_error(self, authenticated_client):
         url = reverse("webhook-list")

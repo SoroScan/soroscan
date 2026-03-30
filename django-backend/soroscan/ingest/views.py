@@ -192,7 +192,8 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
                 "ledger_to": serializers.IntegerField(),
                 "event_count": serializers.IntegerField(),
             },
-        )(many=True)
+            many=True,
+        )
     )
     @action(detail=True, methods=["get"], url_path="ingest-history")
     def ingest_history(self, request, pk=None):
