@@ -29,6 +29,7 @@ __all__ = [
     "webhook_payload_bytes",
     "cache_hits_total",
     "cache_misses_total",
+    "event_streaming_total",
 ]
 
 
@@ -199,4 +200,11 @@ cache_misses_total = _get_or_create(
     "soroscan_cache_misses_total",
     "Total number of cache misses",
     ["cache_type"],
+)
+
+event_streaming_total = _get_or_create(
+    Counter,
+    "soroscan_event_streaming_total",
+    "Total number of event streaming attempts by status and backend",
+    ["status", "backend"],
 )

@@ -260,6 +260,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "ingest.tasks.aggregate_event_statistics",
         "schedule": 3600,  # hourly
     },
+    "recompute-call-graph": {
+        "task": "ingest.tasks.recompute_call_graph",
+        "schedule": 3600,  # hourly
+    },
 }
 
 # Data Retention Configuration
@@ -360,6 +364,22 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@soroscan.io")
 
 # Alert settings
 SLACK_ALERT_TIMEOUT_SECONDS = env.int("SLACK_ALERT_TIMEOUT_SECONDS", default=10)
+
+# ---------------------------------------------------------------------------
+# Event Streaming Configuration (Issue: Downstream Integration)
+# ---------------------------------------------------------------------------
+EVENT_STREAMING = {
+    "enabled": env.bool("EVENT_STREAMING_ENABLED", default=False),
+    "backend": env("EVENT_STREAMING_BACKEND", default="kafka"),  # 'kafka' or 'pubsub'
+    "kafka": {
+        "bootstrap_servers": env.list("KAFKA_BOOTSTRAP_SERVERS", default=["localhost:9092"]),
+        "topic_template": env("KAFKA_TOPIC_TEMPLATE", default="soroscan-events-{contract_id}"),
+    },
+    "pubsub": {
+        "project_id": env("PUBSUB_PROJECT_ID", default=""),
+        "topic_template": env("PUBSUB_TOPIC_TEMPLATE", default="soroscan-events-{contract_id}"),
+    },
+}
 
 # ---------------------------------------------------------------------------
 # S3 / Archive storage configuration
