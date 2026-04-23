@@ -26,6 +26,8 @@ from .models import (
     EventSchema,
     IndexerState,
     IngestError,
+    Organization,
+    OrganizationMembership,
     RemediationIncident,
     RemediationRule,
     Team,
@@ -98,7 +100,7 @@ class AdminAuditMixin:
 
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
-    list_display = ["name", "slug", "created_by", "created_at"]
+    list_display = ["name", "organization", "slug", "created_by", "created_at"]
     search_fields = ["name", "slug"]
     prepopulated_fields = {"slug": ("name",)}
 
@@ -108,6 +110,20 @@ class TeamMembershipAdmin(admin.ModelAdmin):
     list_display = ["team", "user", "role", "joined_at"]
     list_filter = ["role"]
     search_fields = ["team__name", "user__username"]
+
+
+@admin.register(Organization)
+class OrganizationAdmin(admin.ModelAdmin):
+    list_display = ["name", "slug", "owner", "quota", "created_at"]
+    search_fields = ["name", "slug", "owner__username"]
+    readonly_fields = ["created_at", "updated_at"]
+
+
+@admin.register(OrganizationMembership)
+class OrganizationMembershipAdmin(admin.ModelAdmin):
+    list_display = ["organization", "user", "role", "invited_by", "joined_at"]
+    list_filter = ["role"]
+    search_fields = ["organization__name", "user__username"]
 
 
 
