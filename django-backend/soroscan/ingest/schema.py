@@ -142,6 +142,10 @@ class EventType:
     def contract_name(self) -> str:
         return self.contract.name
 
+    @strawberry.field
+    def transaction_id(self) -> str:
+        return self.tx_hash
+
 
 @strawberry_django.type(ContractInvocation)
 class InvocationType:

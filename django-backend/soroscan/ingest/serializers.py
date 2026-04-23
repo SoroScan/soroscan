@@ -6,7 +6,15 @@ from rest_framework import serializers
 from django.utils.text import slugify
 
 from .cache_utils import get_event_count
-from .models import APIKey, ContractEvent, ContractInvocation, Team, TeamMembership, TrackedContract, WebhookSubscription
+from .models import (
+    APIKey,
+    ContractEvent,
+    ContractInvocation,
+    Team,
+    TeamMembership,
+    TrackedContract,
+    WebhookSubscription,
+)
 
 
 class TeamSerializer(serializers.ModelSerializer):
@@ -105,7 +113,6 @@ class TrackedContractSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("You are not a member of this team.")
         return value
 
-
 class ContractEventSerializer(serializers.ModelSerializer):
     """
     Serializer for ContractEvent model.
@@ -114,6 +121,7 @@ class ContractEventSerializer(serializers.ModelSerializer):
 
     contract_id = serializers.CharField(source="contract.contract_id", read_only=True)
     contract_name = serializers.CharField(source="contract.name", read_only=True)
+    transaction_id = serializers.CharField(source="tx_hash", read_only=True)
 
     class Meta:
         model = ContractEvent
@@ -130,6 +138,7 @@ class ContractEventSerializer(serializers.ModelSerializer):
             "event_index",
             "timestamp",
             "tx_hash",
+            "transaction_id",
             "schema_version",
             "validation_status",
             "signature_status",
@@ -146,6 +155,7 @@ class ContractEventSerializer(serializers.ModelSerializer):
             "ledger",
             "timestamp",
             "tx_hash",
+            "transaction_id",
             "schema_version",
             "validation_status",
             "signature_status",
@@ -285,6 +295,7 @@ class APIKeySerializer(serializers.ModelSerializer):
             "id",
             "name",
             "key",
+            "team",
             "tier",
             "quota_per_hour",
             "is_active",
@@ -305,6 +316,7 @@ class EventSearchSerializer(serializers.ModelSerializer):
 
     contract_id = serializers.CharField(source="contract.contract_id", read_only=True)
     contract_name = serializers.CharField(source="contract.name", read_only=True)
+    transaction_id = serializers.CharField(source="tx_hash", read_only=True)
     relevance_score = serializers.SerializerMethodField()
 
     class Meta:
@@ -320,6 +332,7 @@ class EventSearchSerializer(serializers.ModelSerializer):
             "event_index",
             "timestamp",
             "tx_hash",
+            "transaction_id",
             "validation_status",
             "signature_status",
             "relevance_score",

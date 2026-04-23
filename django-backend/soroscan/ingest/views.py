@@ -30,6 +30,7 @@ from .cache_utils import cache_result, get_or_set_json, query_cache_ttl, stable_
 from .models import (
     APIKey,
     AdminAction,
+    ArchivedEventBatch,
     ContractEvent,
     ContractInvocation,
     IngestError,
@@ -37,7 +38,6 @@ from .models import (
     TeamMembership,
     TrackedContract,
     WebhookSubscription,
-    ArchivedEventBatch,
 )
 from .serializers import (
     APIKeySerializer,
