@@ -527,6 +527,15 @@ class Query:
             return None
 
     @strawberry.field
+    def transaction(self, id: str) -> list[EventType]:
+        """Return cross-contract events grouped by atomic transaction id."""
+        return list(
+            ContractEvent.objects.select_related("contract")
+            .filter(tx_hash=id)
+            .order_by("ledger", "event_index", "id")
+        )
+
+    @strawberry.field
     def search_events(self, query: EventSearchQuery) -> list[EventSearchResult]:
         """
         Full-text and field-level search on contract event payloads.

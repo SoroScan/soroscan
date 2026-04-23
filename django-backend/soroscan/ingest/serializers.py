@@ -295,7 +295,6 @@ class APIKeySerializer(serializers.ModelSerializer):
             "id",
             "name",
             "key",
-            "team",
             "tier",
             "quota_per_hour",
             "is_active",

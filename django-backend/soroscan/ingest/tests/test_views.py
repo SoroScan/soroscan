@@ -7,7 +7,12 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from soroscan.ingest.models import Team, TeamMembership, TrackedContract, WebhookSubscription
+from soroscan.ingest.models import (
+    Team,
+    TeamMembership,
+    TrackedContract,
+    WebhookSubscription,
+)
 
 from .factories import (
     ContractEventFactory,
@@ -488,6 +493,56 @@ class TestEventExplorerPageView:
         response = api_client.get(url)
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.django_db
+class TestTransactionCorrelationView:
+    def test_transaction_endpoint_groups_events(self, authenticated_client, user):
+        contract_a = TrackedContractFactory(owner=user)
+        contract_b = TrackedContractFactory(owner=user)
+        tx_id = "tx-shared-001"
+        ContractEventFactory(contract=contract_a, tx_hash=tx_id, ledger=100, event_index=0)
+        ContractEventFactory(contract=contract_b, tx_hash=tx_id, ledger=100, event_index=1)
+
+        response = authenticated_client.get(reverse("transaction-events", args=[tx_id]))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["transaction_id"] == tx_id
+        assert response.data["event_count"] == 2
+        assert all(item["transaction_id"] == tx_id for item in response.data["events"])
+
+
+@pytest.mark.django_db
+class TestTransactionCorrelationView:
+    def test_transaction_endpoint_groups_events(self, authenticated_client, user):
+        contract_a = TrackedContractFactory(owner=user)
+        contract_b = TrackedContractFactory(owner=user)
+        shared_tx = "tx-shared-001"
+        ContractEventFactory(contract=contract_a, tx_hash=shared_tx, ledger=12, event_index=1)
+        ContractEventFactory(contract=contract_b, tx_hash=shared_tx, ledger=12, event_index=2)
+
+        url = reverse("transaction-events", args=[shared_tx])
+        response = authenticated_client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["transaction_id"] == shared_tx
+        assert response.data["event_count"] == 2
+
+
+@pytest.mark.django_db
+class TestTransactionCorrelationView:
+    def test_transaction_endpoint_groups_events(self, authenticated_client, user):
+        contract_a = TrackedContractFactory(owner=user)
+        contract_b = TrackedContractFactory(owner=user)
+        shared_tx = "tx-shared-001"
+        ContractEventFactory(contract=contract_a, tx_hash=shared_tx, ledger=12, event_index=1)
+        ContractEventFactory(contract=contract_b, tx_hash=shared_tx, ledger=12, event_index=2)
+
+        url = reverse("transaction-events", args=[shared_tx])
+        response = authenticated_client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["transaction_id"] == shared_tx
+        assert response.data["event_count"] == 2
 
     def test_contract_event_types_endpoint(self, api_client, contract):
         # Create events with different types
