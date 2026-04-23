@@ -30,14 +30,15 @@ from .cache_utils import cache_result, get_or_set_json, query_cache_ttl, stable_
 from .models import (
     APIKey,
     AdminAction,
+    ArchivedEventBatch,
     ContractEvent,
     ContractInvocation,
     IngestError,
+    IndexerState,
     Team,
     TeamMembership,
     TrackedContract,
     WebhookSubscription,
-    ArchivedEventBatch,
 )
 from .serializers import (
     APIKeySerializer,
@@ -176,6 +177,38 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         stats = get_or_set_json(cache_key, query_cache_ttl(), _build)
         return Response(stats)
 
+    @action(detail=True, methods=["get"])
+    def completeness(self, request, pk=None):
+        contract = self.get_object()
+        state = IndexerState.objects.filter(key=f"completeness:{contract.id}").first()
+        if state:
+            try:
+                return Response(json.loads(state.value))
+            except json.JSONDecodeError:
+                pass
+
+        from .tasks import _calculate_completeness
+
+        return Response(_calculate_completeness(contract))
+
+    @action(detail=False, methods=["get"])
+    def completeness_dashboard(self, request):
+        from .tasks import _calculate_completeness
+
+        rows = []
+        for contract in self.get_queryset():
+            state = IndexerState.objects.filter(key=f"completeness:{contract.id}").first()
+            if state:
+                try:
+                    rows.append(json.loads(state.value))
+                    continue
+                except json.JSONDecodeError:
+                    pass
+            rows.append(_calculate_completeness(contract))
+
+        rows.sort(key=lambda item: item.get("completeness_percentage", 100.0))
+        return Response({"contracts": rows})
+
 
 class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -194,6 +227,7 @@ class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
         "contract__contract_id",
         "event_type",
         "ledger",
+        "tx_hash",
         "validation_status",
         "decoding_status",
         "signature_status",
@@ -775,6 +809,25 @@ def contract_timeline_view(request, contract_id: str):
     contract = get_object_or_404(TrackedContract, contract_id=contract_id)
     frontend_base = _frontend_base_url()
     return redirect(f"{frontend_base}/contracts/{contract.contract_id}/timeline")
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def transaction_events_view(request, tx_id: str):
+    """Return all events participating in the same atomic transaction."""
+    events = list(
+        ContractEvent.objects.select_related("contract")
+        .filter(tx_hash=tx_id)
+        .order_by("ledger", "event_index", "id")
+    )
+    serializer = ContractEventSerializer(events, many=True)
+    return Response(
+        {
+            "transaction_id": tx_id,
+            "event_count": len(events),
+            "events": serializer.data,
+        }
+    )
 
 
 def contract_event_explorer_view(request, contract_id: str):

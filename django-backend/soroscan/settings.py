@@ -260,6 +260,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "ingest.tasks.aggregate_event_statistics",
         "schedule": 3600,  # hourly
     },
+    "reconcile-event-completeness": {
+        "task": "ingest.tasks.reconcile_event_completeness",
+        "schedule": 300,  # every 5 minutes
+    },
     "recompute-call-graph": {
         "task": "ingest.tasks.recompute_call_graph",
         "schedule": 3600,  # hourly
@@ -370,14 +374,18 @@ SLACK_ALERT_TIMEOUT_SECONDS = env.int("SLACK_ALERT_TIMEOUT_SECONDS", default=10)
 # ---------------------------------------------------------------------------
 EVENT_STREAMING = {
     "enabled": env.bool("EVENT_STREAMING_ENABLED", default=False),
-    "backend": env("EVENT_STREAMING_BACKEND", default="kafka"),  # 'kafka' or 'pubsub'
+    "backend": env("EVENT_STREAMING_BACKEND", default="kafka"),  # 'kafka', 'pubsub', or 'sqs'
     "kafka": {
         "bootstrap_servers": env.list("KAFKA_BOOTSTRAP_SERVERS", default=["localhost:9092"]),
-        "topic_template": env("KAFKA_TOPIC_TEMPLATE", default="soroscan-events-{contract_id}"),
+        "topic": env("KAFKA_TOPIC", default="soroscan.events"),
+        "schema_registry_url": env("KAFKA_SCHEMA_REGISTRY_URL", default=""),
     },
     "pubsub": {
         "project_id": env("PUBSUB_PROJECT_ID", default=""),
-        "topic_template": env("PUBSUB_TOPIC_TEMPLATE", default="soroscan-events-{contract_id}"),
+        "topic": env("PUBSUB_TOPIC", default="soroscan.events"),
+    },
+    "sqs": {
+        "queue_url": env("SQS_QUEUE_URL", default=""),
     },
 }
 

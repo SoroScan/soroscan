@@ -22,7 +22,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519
 from celery.signals import task_postrun, task_prerun
 from django.conf import settings
-from django.db.models import F
+from django.db.models import Count, F, Max, Min
 from django.utils import timezone
 
 from .cache_utils import invalidate_event_count_cache
@@ -159,6 +159,54 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _calculate_completeness(contract: TrackedContract) -> dict[str, Any]:
+    stats = ContractEvent.objects.filter(contract=contract).aggregate(
+        min_ledger=Min("ledger"),
+        max_ledger=Max("ledger"),
+        observed_ledgers=Count("ledger", distinct=True),
+    )
+    min_ledger = stats["min_ledger"]
+    max_ledger = stats["max_ledger"]
+    observed_ledgers = stats["observed_ledgers"] or 0
+    if min_ledger is None or max_ledger is None:
+        return {
+            "contract_id": contract.contract_id,
+            "completeness_percentage": 100.0,
+            "observed_ledgers": 0,
+            "expected_ledgers": 0,
+            "missing_ledgers": 0,
+            "gaps": [],
+        }
+
+    expected_ledgers = (max_ledger - min_ledger + 1) if max_ledger >= min_ledger else 0
+    missing_ledgers = max(expected_ledgers - observed_ledgers, 0)
+
+    ledgers = (
+        ContractEvent.objects.filter(contract=contract)
+        .order_by("ledger")
+        .values_list("ledger", flat=True)
+        .distinct()
+    )
+    gaps: list[dict[str, int]] = []
+    previous = None
+    for ledger in ledgers:
+        if previous is not None and ledger > previous + 1:
+            gaps.append({"from_ledger": previous + 1, "to_ledger": ledger - 1})
+        previous = ledger
+
+    completeness_percentage = (
+        100.0 if expected_ledgers == 0 else (observed_ledgers / expected_ledgers) * 100.0
+    )
+    return {
+        "contract_id": contract.contract_id,
+        "completeness_percentage": round(completeness_percentage, 4),
+        "observed_ledgers": observed_ledgers,
+        "expected_ledgers": expected_ledgers,
+        "missing_ledgers": missing_ledgers,
+        "gaps": gaps,
+    }
 
 
 def _extract_event_index(event: Any, fallback_index: int = 0) -> int:
@@ -930,6 +978,14 @@ def process_new_event(event_data: dict[str, Any]) -> None:
         event_type__in=[event_type, ""]
     )
 
+    # CDC streaming should not depend on webhook subscriptions.
+    producer = get_producer()
+    if producer:
+        try:
+            producer.publish(contract_id, event_data)
+        except Exception:
+            logger.exception("Failed to stream event to backend", extra={"contract_id": contract_id})
+
     if not webhooks.exists():
         logger.info(
             "No active webhooks for contract %s event_type %s",
@@ -985,14 +1041,6 @@ def process_new_event(event_data: dict[str, Any]) -> None:
 
     # Evaluate alert rules asynchronously (separate queue, non-blocking)
     evaluate_alert_rules.apply_async(args=[event_obj.id], queue="default")
-
-    # Stream event to Kafka/PubSub if enabled
-    producer = get_producer()
-    if producer:
-        try:
-            producer.publish(contract_id, event_data)
-        except Exception:
-            logger.exception("Failed to stream event to backend", extra={"contract_id": contract_id})
 
     logger.info(
         "Dispatched event to %s webhooks",
@@ -1332,6 +1380,16 @@ def ingest_latest_events() -> int:
                 )
 
             if contract.last_indexed_ledger is None or event_record.ledger > contract.last_indexed_ledger:
+                if (
+                    contract.last_indexed_ledger is not None
+                    and event_record.ledger > contract.last_indexed_ledger + 1
+                ):
+                    _get_metrics().ledger_gaps_total.labels(
+                        contract_id=_short_contract_id(contract.contract_id)
+                    ).inc()
+                    _get_metrics().missing_events_total.labels(
+                        contract_id=_short_contract_id(contract.contract_id)
+                    ).inc(event_record.ledger - contract.last_indexed_ledger - 1)
                 contract.last_indexed_ledger = event_record.ledger
                 contract.save(update_fields=["last_indexed_ledger"])
 
@@ -1398,6 +1456,55 @@ def aggregate_event_statistics() -> dict[str, Any]:
         "active_contracts": active_contracts,
         "timestamp": timezone.now().isoformat(),
     }
+
+
+@shared_task(name="ingest.tasks.reconcile_event_completeness")
+def reconcile_event_completeness() -> dict[str, Any]:
+    """
+    Detect ledger gaps, record completeness, and trigger backfill repairs.
+    """
+    _start = time.monotonic()
+    m = _get_metrics()
+    summaries: list[dict[str, Any]] = []
+    repair_jobs = 0
+
+    for contract in TrackedContract.objects.filter(is_active=True):
+        summary = _calculate_completeness(contract)
+        summaries.append(summary)
+
+        IndexerState.objects.update_or_create(
+            key=f"completeness:{contract.id}",
+            defaults={"value": json.dumps(summary)},
+        )
+
+        if summary["missing_ledgers"] > 0:
+            m.ledger_gaps_total.labels(contract_id=_short_contract_id(contract.contract_id)).inc(
+                len(summary["gaps"])
+            )
+            m.missing_events_total.labels(contract_id=_short_contract_id(contract.contract_id)).inc(
+                summary["missing_ledgers"]
+            )
+            for gap in summary["gaps"][:10]:
+                backfill_contract_events.delay(
+                    contract.contract_id,
+                    gap["from_ledger"],
+                    gap["to_ledger"],
+                )
+                repair_jobs += 1
+
+        if summary["completeness_percentage"] < 99.9:
+            logger.warning(
+                "Contract completeness dropped below SLO",
+                extra={
+                    "contract_id": contract.contract_id,
+                    "completeness_percentage": summary["completeness_percentage"],
+                },
+            )
+
+    m.task_duration_seconds.labels(task_name="reconcile_event_completeness").observe(
+        time.monotonic() - _start
+    )
+    return {"contracts_checked": len(summaries), "repair_jobs": repair_jobs}
 
 
 @shared_task(bind=True, queue="backfill", max_retries=3, default_retry_delay=60)
