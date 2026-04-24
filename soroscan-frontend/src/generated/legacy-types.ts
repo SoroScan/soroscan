@@ -60,7 +60,10 @@ export type EventEdge = {
 
 export type Mutation = {
   __typename?: 'Mutation';
+  clearAllNotifications: Scalars['Boolean']['output'];
   login: AuthPayload;
+  markAllNotificationsRead: Scalars['Boolean']['output'];
+  markNotificationRead: Scalars['Boolean']['output'];
   refreshToken: AuthPayload;
 };
 
@@ -71,22 +74,47 @@ export type MutationLoginArgs = {
 };
 
 
+export type MutationMarkNotificationReadArgs = {
+  notificationId: Scalars['Int']['input'];
+};
+
+
 export type MutationRefreshTokenArgs = {
   refresh: Scalars['String']['input'];
+};
+
+export type Notification = {
+  __typename?: 'Notification';
+  createdAt: Scalars['String']['output'];
+  id: Scalars['Int']['output'];
+  isRead: Scalars['Boolean']['output'];
+  link: Scalars['String']['output'];
+  message: Scalars['String']['output'];
+  notificationType: Scalars['String']['output'];
+  title: Scalars['String']['output'];
 };
 
 export type Query = {
   __typename?: 'Query';
   events: EventConnection;
   me?: Maybe<User>;
+  notifications: Array<Notification>;
   recentErrors: Array<ErrorLog>;
   systemMetrics: SystemMetrics;
+  unreadNotificationCount: Scalars['Int']['output'];
 };
 
 
 export type QueryEventsArgs = {
   contractId?: InputMaybe<Scalars['String']['input']>;
   first: Scalars['Int']['input'];
+};
+
+
+export type QueryNotificationsArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  notificationType?: InputMaybe<Scalars['String']['input']>;
+  unreadOnly?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 
@@ -97,6 +125,7 @@ export type QueryRecentErrorsArgs = {
 export type Subscription = {
   __typename?: 'Subscription';
   contractEvent: ContractEvent;
+  notifications: Notification;
 };
 
 
@@ -126,6 +155,37 @@ export type GetSystemMetricsQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type GetSystemMetricsQuery = { __typename?: 'Query', systemMetrics: { __typename?: 'SystemMetrics', eventsIndexedToday: number, eventsIndexedTotal: number, webhookSuccessRate: number, avgWebhookDeliveryTime: number, activeContracts: number, lastSynced?: string | null, dbStatus: string, redisStatus: string }, recentErrors: Array<{ __typename?: 'ErrorLog', id: string, timestamp: string, level: string, message: string, context?: string | null }> };
+
+export type GetNotificationsQueryVariables = Exact<{
+  notificationType?: InputMaybe<Scalars['String']['input']>;
+  unreadOnly?: InputMaybe<Scalars['Boolean']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+}>;
+
+
+export type GetNotificationsQuery = { __typename?: 'Query', unreadNotificationCount: number, notifications: Array<{ __typename?: 'Notification', id: number, notificationType: string, title: string, message: string, link: string, isRead: boolean, createdAt: string }> };
+
+export type MarkNotificationReadMutationVariables = Exact<{
+  id: Scalars['Int']['input'];
+}>;
+
+
+export type MarkNotificationReadMutation = { __typename?: 'Mutation', markNotificationRead: boolean };
+
+export type MarkAllNotificationsReadMutationVariables = Exact<{ [key: string]: never; }>;
+
+
+export type MarkAllNotificationsReadMutation = { __typename?: 'Mutation', markAllNotificationsRead: boolean };
+
+export type ClearAllNotificationsMutationVariables = Exact<{ [key: string]: never; }>;
+
+
+export type ClearAllNotificationsMutation = { __typename?: 'Mutation', clearAllNotifications: boolean };
+
+export type OnNotificationSubscriptionVariables = Exact<{ [key: string]: never; }>;
+
+
+export type OnNotificationSubscription = { __typename?: 'Subscription', notifications: { __typename?: 'Notification', id: number, notificationType: string, title: string, message: string, link: string, isRead: boolean, createdAt: string } };
 
 export type LoginMutationVariables = Exact<{
   email: Scalars['String']['input'];

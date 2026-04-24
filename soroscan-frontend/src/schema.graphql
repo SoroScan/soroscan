@@ -11,15 +11,23 @@ type Query {
   # Admin / system
   systemMetrics: SystemMetrics!
   recentErrors(limit: Int): [ErrorLog!]!
+
+  # Notifications
+  notifications(notificationType: String, unreadOnly: Boolean, limit: Int): [Notification!]!
+  unreadNotificationCount: Int!
 }
 
 type Mutation {
   login(email: String!, password: String!): AuthPayload!
   refreshToken(refresh: String!): AuthPayload!
+  markNotificationRead(notificationId: Int!): Boolean!
+  markAllNotificationsRead: Boolean!
+  clearAllNotifications: Boolean!
 }
 
 type Subscription {
   contractEvent(contractId: String!): ContractEvent!
+  notifications: Notification!
 }
 
 type AuthPayload {
@@ -74,4 +82,14 @@ type ContractEvent {
   ledgerSequence: Int!
   timestamp: String!
   payload: String!
+}
+
+type Notification {
+  id: Int!
+  notificationType: String!
+  title: String!
+  message: String!
+  link: String!
+  isRead: Boolean!
+  createdAt: String!
 }
