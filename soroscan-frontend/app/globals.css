@@ -71,6 +71,15 @@
       transform: translateY(100%);
     }
   }
+
+  @keyframes progress-indeterminate {
+    0% {
+      transform: translateX(-125%);
+    }
+    100% {
+      transform: translateX(325%);
+    }
+  }
 }
 
 :root {
