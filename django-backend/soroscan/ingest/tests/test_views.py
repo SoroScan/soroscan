@@ -178,7 +178,7 @@ class TestTeamViewSet:
         assert response.status_code == status.HTTP_201_CREATED
         assert Team.objects.filter(name="Platform").exists()
         assert TeamMembership.objects.filter(
-            team__name="Platform", user=user, role=TeamMembership.Role.OWNER
+            team__name="Platform", user=user, role=TeamMembership.Role.ADMIN
         ).exists()
 
         listed = authenticated_client.get(url)
