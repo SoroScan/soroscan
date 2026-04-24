@@ -10,11 +10,35 @@ from .models import (
     APIKey,
     ContractEvent,
     ContractInvocation,
+    Organization,
+    OrganizationMembership,
     Team,
     TeamMembership,
     TrackedContract,
     WebhookSubscription,
 )
+
+
+class OrganizationSerializer(serializers.ModelSerializer):
+    """Organization serializer with owner-managed tenancy settings."""
+
+    class Meta:
+        model = Organization
+        fields = ["id", "name", "slug", "settings", "quota", "created_at", "updated_at"]
+        read_only_fields = ["id", "slug", "created_at", "updated_at"]
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated:
+            raise serializers.ValidationError("Authentication required.")
+        org = Organization.objects.create(owner=user, **validated_data)
+        OrganizationMembership.objects.get_or_create(
+            organization=org,
+            user=user,
+            defaults={"role": OrganizationMembership.Role.OWNER, "invited_by": user},
+        )
+        return org
 
 
 class TeamSerializer(serializers.ModelSerializer):
