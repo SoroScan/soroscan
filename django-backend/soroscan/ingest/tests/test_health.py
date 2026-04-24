@@ -4,7 +4,6 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from soroscan.health import health_view, readiness_view
 
 
 @pytest.fixture
