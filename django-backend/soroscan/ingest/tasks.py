@@ -25,7 +25,13 @@ from django.conf import settings
 from django.db.models import F
 from django.utils import timezone
 
-from .cache_utils import invalidate_event_count_cache
+from .cache_utils import (
+    invalidate_event_count_cache,
+    get_cached_decoded_payload,
+    set_cached_decoded_payload,
+    invalidate_decoded_payload_cache,
+    _SENTINEL,
+)
 from .models import (
     ContractABI,
     ContractEvent,
@@ -456,6 +462,9 @@ def _upsert_contract_event(
 
         # --- ABI-based XDR decoding (issue #58) ---
         _try_decode_event(obj, contract, event_type, raw_xdr)
+    else:
+        # Event updated — invalidate decoded payload cache so next query re-decodes
+        invalidate_decoded_payload_cache(obj.pk)
 
     return result
 
@@ -468,9 +477,19 @@ def _try_decode_event(
 ) -> None:
     """Attempt ABI decoding for a newly created event.
 
+    Checks Redis cache first (key: decoded:{event_id}, TTL 24h).
     Never raises — failures are recorded via ``decoding_status``.
     """
     from .decoder import decode_event_payload
+
+    # Check cache first
+    cached = get_cached_decoded_payload(obj.pk)
+    if cached is not _SENTINEL:
+        if cached is not None:
+            obj.decoded_payload = cached
+            obj.decoding_status = "success"
+            obj.save(update_fields=["decoded_payload", "decoding_status"])
+        return
 
     try:
         abi = ContractABI.objects.get(contract=contract)
@@ -488,6 +507,7 @@ def _try_decode_event(
         if decoded is not None:
             obj.decoded_payload = decoded
             obj.decoding_status = "success"
+            set_cached_decoded_payload(obj.pk, decoded)
         else:
             obj.decoding_status = "failed"
         obj.save(update_fields=["decoded_payload", "decoding_status"])
@@ -930,6 +950,14 @@ def process_new_event(event_data: dict[str, Any]) -> None:
         event_type__in=[event_type, ""]
     )
 
+    # CDC streaming should not depend on webhook subscriptions.
+    producer = get_producer()
+    if producer:
+        try:
+            producer.publish(contract_id, event_data)
+        except Exception:
+            logger.exception("Failed to stream event to backend", extra={"contract_id": contract_id})
+
     if not webhooks.exists():
         logger.info(
             "No active webhooks for contract %s event_type %s",
@@ -985,14 +1013,6 @@ def process_new_event(event_data: dict[str, Any]) -> None:
 
     # Evaluate alert rules asynchronously (separate queue, non-blocking)
     evaluate_alert_rules.apply_async(args=[event_obj.id], queue="default")
-
-    # Stream event to Kafka/PubSub if enabled
-    producer = get_producer()
-    if producer:
-        try:
-            producer.publish(contract_id, event_data)
-        except Exception:
-            logger.exception("Failed to stream event to backend", extra={"contract_id": contract_id})
 
     logger.info(
         "Dispatched event to %s webhooks",
