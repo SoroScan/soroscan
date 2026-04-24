@@ -3,6 +3,8 @@
 ISSUES.md
 FRONTEND_ISSUES.md
 update-main.sh
+ALT_ISSUES.md
+venv/
 node_modules
 venv/
 AGENTS.md
