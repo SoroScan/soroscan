@@ -8,8 +8,6 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from soroscan.ingest.models import (
-    Organization,
-    OrganizationMembership,
     Team,
     TeamMembership,
     TrackedContract,
@@ -167,18 +165,12 @@ class TestTrackedContractViewSet:
 @pytest.mark.django_db
 class TestTeamViewSet:
     def test_create_and_list_team(self, authenticated_client, user):
-        org = Organization.objects.create(name="Acme", slug="acme", owner=user)
-        OrganizationMembership.objects.create(
-            organization=org, user=user, role=OrganizationMembership.Role.OWNER
-        )
         url = reverse("team-list")
-        response = authenticated_client.post(
-            url, {"name": "Platform", "organization": org.id}, format="json"
-        )
+        response = authenticated_client.post(url, {"name": "Platform"}, format="json")
         assert response.status_code == status.HTTP_201_CREATED
         assert Team.objects.filter(name="Platform").exists()
         assert TeamMembership.objects.filter(
-            team__name="Platform", user=user, role=TeamMembership.Role.OWNER
+            team__name="Platform", user=user, role=TeamMembership.Role.ADMIN
         ).exists()
 
         listed = authenticated_client.get(url)
@@ -196,13 +188,14 @@ class TestTeamViewSet:
             organization=org, user=member, role=OrganizationMembership.Role.MEMBER
         )
         team = Team.objects.create(name="Shared", slug="shared", organization=org, created_by=owner)
+        team = Team.objects.create(name="Shared", slug="shared", created_by=owner)
         TeamMembership.objects.create(
             team=team, user=owner, role=TeamMembership.Role.ADMIN
         )
         TeamMembership.objects.create(
             team=team, user=member, role=TeamMembership.Role.MEMBER
         )
-        shared = TrackedContractFactory(owner=owner, team=team, organization=org)
+        shared = TrackedContractFactory(owner=owner, team=team)
 
         api_client.force_authenticate(user=member)
         url = reverse("contract-list")
