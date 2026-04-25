@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 
 type HealthState = "healthy" | "degraded" | "critical";
 
@@ -50,6 +51,7 @@ export default function DashboardPage() {
   return (
     <main className="min-h-screen bg-terminal-black p-8 text-terminal-green font-terminal-mono">
       <div className="mx-auto max-w-6xl space-y-8">
+        <Breadcrumbs />
         <header className="space-y-3">
           <p className="text-xs tracking-[0.2em] text-terminal-gray">[PERFORMANCE_DASHBOARD]</p>
           <h1 className="text-3xl">API Latency, Cache, and System Health</h1>

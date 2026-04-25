@@ -4,6 +4,7 @@ import * as React from "react"
 import { Plus, Activity, CheckCircle2, AlertTriangle } from "lucide-react"
 import { Navbar } from "@/components/terminal/landing/Navbar"
 import { Footer } from "@/components/terminal/landing/Footer"
+import { Breadcrumbs } from "@/components/ui/breadcrumbs"
 import { Button } from "@/components/terminal/Button"
 import { Modal } from "@/components/terminal/Modal"
 import { WebhookTable } from "./components/WebhookTable"
@@ -79,8 +80,8 @@ export default function WebhooksPage() {
   return (
     <div className="min-h-screen font-terminal-mono selection:bg-terminal-green selection:text-terminal-black">
       <Navbar />
-
       <main className="container mx-auto px-6 md:px-8 py-10 md:py-14 space-y-8 max-w-7xl">
+        <Breadcrumbs />
 
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

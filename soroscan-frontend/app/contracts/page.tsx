@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { Card } from "@/components/terminal/Card";
 import { Button } from "@/components/terminal/Button";
 import { ContractTable } from "./components/ContractTable";
@@ -68,6 +69,7 @@ export default function ContractsPage() {
   return (
     <div className="min-h-screen bg-terminal-black p-8">
       <div className="max-w-7xl mx-auto space-y-6">
+        <Breadcrumbs />
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-terminal-mono text-terminal-green mb-2">

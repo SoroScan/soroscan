@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import ThemeSelector from "./components/ThemeSelector";
 import NotificationPrefs from "./components/NotificationPrefs";
 import APIKeyManager from "./components/APIKeyManager";
@@ -44,6 +45,7 @@ export default function SettingsPage() {
   return (
     <main className="min-h-screen bg-[#0a0e27] text-green-400 p-6 font-mono">
       <div className="max-w-2xl mx-auto">
+        <Breadcrumbs />
         {/* Header */}
         <div className="mb-6 border-b border-green-500/30 pb-4">
           <h1 className="text-green-400 text-xl font-bold tracking-widest">

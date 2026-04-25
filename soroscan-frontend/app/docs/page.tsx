@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import "../styles/landing.css"
 import { Navbar } from "@/components/terminal/landing/Navbar"
 import { Footer } from "@/components/terminal/landing/Footer"
+import { Breadcrumbs } from "@/components/ui/breadcrumbs"
 import { CodeSnippet } from "@/components/terminal/landing/CodeSnippet"
 import { Card } from "@/components/terminal/Card"
 import { Button } from "@/components/terminal/Button"
@@ -79,8 +80,8 @@ export default function DocsPage() {
   return (
     <div className="min-h-screen font-terminal-mono selection:bg-terminal-green selection:text-terminal-black">
       <Navbar />
-
       <main className="container mx-auto px-6 md:px-8 py-12 md:py-16 space-y-20 max-w-5xl">
+        <Breadcrumbs />
 
         {/* Page header */}
         <div className="space-y-4">
