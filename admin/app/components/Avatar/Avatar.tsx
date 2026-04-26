@@ -32,7 +32,7 @@ function colorFromName(name: string): string {
 }
 
 /** Derives up to 2 uppercase initials from a name string */
-function getInitials(name: string): string {
+export function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return '?';
   if (parts.length === 1) return parts[0][0].toUpperCase();
@@ -49,8 +49,8 @@ export function Avatar({ src, name, size = 'md', color }: AvatarProps) {
   return (
     <div className="relative inline-flex group">
       <div
-        className={`${sizeClass} rounded-full overflow-hidden flex items-center justify-center font-semibold text-white select-none focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-white`}
-        style={showImage ? undefined : { backgroundColor: bg }}
+        className={`${sizeClass} rounded-sm overflow-hidden flex items-center justify-center font-bold select-none focus:outline-none focus:ring-1 focus:ring-[#00ff88]`}
+        style={showImage ? undefined : { backgroundColor: bg, border: '1px solid #00ff88', color: '#00ff88' }}
         role="img"
         aria-label={name}
         tabIndex={0}
@@ -64,7 +64,7 @@ export function Avatar({ src, name, size = 'md', color }: AvatarProps) {
             onError={() => setImgError(true)}
           />
         ) : (
-          <span aria-hidden="true">{initials}</span>
+          <span aria-hidden="true" className="font-mono tracking-wider">{initials}</span>
         )}
       </div>
 
@@ -73,10 +73,11 @@ export function Avatar({ src, name, size = 'md', color }: AvatarProps) {
         role="tooltip"
         className="
           pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2
-          whitespace-nowrap rounded bg-zinc-800 px-2 py-1 text-xs text-white shadow-lg
+          whitespace-nowrap rounded px-2 py-1 text-xs font-mono shadow-lg
           opacity-0 group-hover:opacity-100 group-focus-within:opacity-100
           transition-opacity duration-150 z-50
         "
+        style={{ background: '#0d1a0d', border: '1px solid #00ff88', color: '#00ff88' }}
       >
         {name}
       </span>

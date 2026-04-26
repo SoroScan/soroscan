@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useApiExplorer } from './context';
+import { useApiExplorer } from '../context';
 
 type TabType = 'body' | 'headers';
 

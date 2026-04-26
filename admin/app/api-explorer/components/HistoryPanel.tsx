@@ -1,8 +1,8 @@
 'use client';
 
 import React from 'react';
-import { useApiExplorer } from './context';
-import type { HistoryEntry, HttpMethod } from './types';
+import { useApiExplorer } from '../context';
+import type { HistoryEntry, HttpMethod } from '../types';
 
 const METHOD_COLORS: Record<HttpMethod, string> = {
   GET: 'text-green-400',

@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import { useApiExplorer } from './context';
-import type { HttpMethod, Parameter } from './types';
+import { useApiExplorer } from '../context';
+import type { HttpMethod, Parameter } from '../types';
 
 const HTTP_METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
