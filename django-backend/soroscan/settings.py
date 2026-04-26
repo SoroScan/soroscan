@@ -227,6 +227,9 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_ROUTES = {
+    "ingest.tasks.ingest_latest_events": {"queue": "high_priority"},
+    "ingest.tasks.dispatch_webhook": {"queue": "default"},
+    "ingest.tasks.aggregate_event_statistics": {"queue": "low_priority"},
     "soroscan.ingest.tasks.backfill_contract_events": {"queue": "backfill"},
     "soroscan.ingest.tasks.evaluate_remediation_rules": {"queue": "default"},
 }
@@ -235,6 +238,10 @@ CELERY_TASK_ROUTES = {
 CELERY_BEAT_SCHEDULE = {
     "cleanup-webhook-delivery-logs": {
         "task": "soroscan.ingest.tasks.cleanup_webhook_delivery_logs",
+        "schedule": 86400,  # daily
+    },
+    "cleanup-old-dedup-logs": {
+        "task": "soroscan.ingest.tasks.cleanup_old_dedup_logs",
         "schedule": 86400,  # daily
     },
     "cleanup-silk-data": {
@@ -252,8 +259,23 @@ CELERY_BEAT_SCHEDULE = {
     "check-scheduled-resumes": {
         "task": "soroscan.ingest.tasks.check_scheduled_resumes",
         "schedule": 60,  # every minute
+    "aggregate-event-statistics": {
+        "task": "ingest.tasks.aggregate_event_statistics",
+        "schedule": 3600,  # hourly
+    },
+    "reconcile-event-completeness": {
+        "task": "ingest.tasks.reconcile_event_completeness",
+        "schedule": 300,  # every 5 minutes
+    },
+    "recompute-call-graph": {
+        "task": "ingest.tasks.recompute_call_graph",
+        "schedule": 3600,  # hourly
     },
 }
+
+# Data Retention Configuration
+# Number of days to retain deduplication logs before cleanup
+DEDUP_LOG_RETENTION_DAYS = env("DEDUP_LOG_RETENTION_DAYS", default=90, cast=int)
 
 # Stellar / Soroban Configuration
 SOROBAN_RPC_URL = env("SOROBAN_RPC_URL", default="https://soroban-testnet.stellar.org")
@@ -264,12 +286,20 @@ STELLAR_NETWORK_PASSPHRASE = env(
 SOROSCAN_CONTRACT_ID = env("SOROSCAN_CONTRACT_ID", default="")
 INDEXER_SECRET_KEY = env("INDEXER_SECRET_KEY", default="")
 
+# ---------------------------------------------------------------------------
+# GraphQL Introspection (security: disable in production)
+# ---------------------------------------------------------------------------
+# Set GRAPHQL_INTROSPECTION_ENABLED=True to allow introspection queries.
+# Defaults to True in DEBUG mode, False otherwise.
+GRAPHQL_INTROSPECTION_ENABLED = env.bool(
+    "GRAPHQL_INTROSPECTION_ENABLED",
+    default=DEBUG,
+)
+
 # Prometheus
 # Expose the /metrics endpoint without authentication.
 # The URL is registered in urls.py via django_prometheus.urls.
 PROMETHEUS_EXPORT_MIGRATIONS = False  # avoid migration noise in metrics
-
-# Logging: set LOG_FORMAT=json for structured JSON logs (no PII in messages or extra).
 LOG_FORMAT = env("LOG_FORMAT", default="")
 LOGGING = {
     "version": 1,
@@ -349,6 +379,26 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@soroscan.io")
 
 # Alert settings
 SLACK_ALERT_TIMEOUT_SECONDS = env.int("SLACK_ALERT_TIMEOUT_SECONDS", default=10)
+
+# ---------------------------------------------------------------------------
+# Event Streaming Configuration (Issue: Downstream Integration)
+# ---------------------------------------------------------------------------
+EVENT_STREAMING = {
+    "enabled": env.bool("EVENT_STREAMING_ENABLED", default=False),
+    "backend": env("EVENT_STREAMING_BACKEND", default="kafka"),  # 'kafka', 'pubsub', or 'sqs'
+    "kafka": {
+        "bootstrap_servers": env.list("KAFKA_BOOTSTRAP_SERVERS", default=["localhost:9092"]),
+        "topic": env("KAFKA_TOPIC", default="soroscan.events"),
+        "schema_registry_url": env("KAFKA_SCHEMA_REGISTRY_URL", default=""),
+    },
+    "pubsub": {
+        "project_id": env("PUBSUB_PROJECT_ID", default=""),
+        "topic": env("PUBSUB_TOPIC", default="soroscan.events"),
+    },
+    "sqs": {
+        "queue_url": env("SQS_QUEUE_URL", default=""),
+    },
+}
 
 # ---------------------------------------------------------------------------
 # S3 / Archive storage configuration
