@@ -1,7 +1,6 @@
 import pytest
 from django.test import Client, override_settings
 from django.urls import path
-from django.http import HttpResponse
 
 from soroscan.urls import handler404_view, handler500_view
 

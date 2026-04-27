@@ -5,18 +5,6 @@ from django.conf import settings
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import include, path
-
-
-def handler404_view(request, exception=None):
-    return JsonResponse({"error": "Not found", "status": 404}, status=404)
-
-
-def handler500_view(request):
-    return JsonResponse({"error": "Internal server error", "status": 500}, status=500)
-
-
-handler404 = handler404_view
-handler500 = handler500_view
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularRedocView,
@@ -31,6 +19,18 @@ from soroscan.graphql_views import ThrottledGraphQLView
 from soroscan.health import health_view, readiness_view
 from soroscan.ingest.views import audit_trail_view, contract_status, rate_limit_analytics_view
 from soroscan.ingest.schema import schema
+
+
+def handler404_view(request, exception=None):
+    return JsonResponse({"error": "Not found", "status": 404}, status=404)
+
+
+def handler500_view(request):
+    return JsonResponse({"error": "Internal server error", "status": 500}, status=500)
+
+
+handler404 = handler404_view
+handler500 = handler500_view
 
 urlpatterns = [
     # Prometheus metrics — must be unauthenticated; placed before any auth middleware
