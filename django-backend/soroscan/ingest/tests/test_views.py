@@ -357,6 +357,112 @@ class TestWebhookSubscriptionViewSet:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_create_webhook_https_url_accepted_in_production(self, authenticated_client, contract, settings):
+        """Test that HTTPS URLs are accepted when DEBUG=False (production mode)."""
+        settings.DEBUG = False
+        url = reverse("webhook-list")
+        data = {
+            "contract": contract.id,
+            "event_type": "swap",
+            "target_url": "https://secure.example.com/webhook",
+            "is_active": True,
+        }
+        response = authenticated_client.post(url, data)
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert WebhookSubscription.objects.filter(target_url="https://secure.example.com/webhook").exists()
+
+    def test_create_webhook_http_url_rejected_in_production(self, authenticated_client, contract, settings):
+        """Test that HTTP URLs are rejected when DEBUG=False (production mode)."""
+        settings.DEBUG = False
+        url = reverse("webhook-list")
+        data = {
+            "contract": contract.id,
+            "event_type": "swap",
+            "target_url": "http://insecure.example.com/webhook",
+            "is_active": True,
+        }
+        response = authenticated_client.post(url, data)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "target_url" in response.data
+        assert "HTTPS" in str(response.data["target_url"])
+        assert "production" in str(response.data["target_url"]).lower()
+
+    def test_create_webhook_http_url_accepted_in_debug(self, authenticated_client, contract, settings):
+        """Test that HTTP URLs are accepted when DEBUG=True (development mode)."""
+        settings.DEBUG = True
+        url = reverse("webhook-list")
+        data = {
+            "contract": contract.id,
+            "event_type": "swap",
+            "target_url": "http://localhost:8000/webhook",
+            "is_active": True,
+        }
+        response = authenticated_client.post(url, data)
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert WebhookSubscription.objects.filter(target_url="http://localhost:8000/webhook").exists()
+
+    def test_create_webhook_https_url_accepted_in_debug(self, authenticated_client, contract, settings):
+        """Test that HTTPS URLs are also accepted when DEBUG=True."""
+        settings.DEBUG = True
+        url = reverse("webhook-list")
+        data = {
+            "contract": contract.id,
+            "event_type": "swap",
+            "target_url": "https://example.com/webhook",
+            "is_active": True,
+        }
+        response = authenticated_client.post(url, data)
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert WebhookSubscription.objects.filter(target_url="https://example.com/webhook").exists()
+
+    def test_create_webhook_invalid_scheme_rejected(self, authenticated_client, contract, settings):
+        """Test that URLs with invalid schemes (not http/https) are rejected."""
+        settings.DEBUG = True
+        url = reverse("webhook-list")
+        data = {
+            "contract": contract.id,
+            "event_type": "swap",
+            "target_url": "ftp://example.com/webhook",
+            "is_active": True,
+        }
+        response = authenticated_client.post(url, data)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "target_url" in response.data
+        assert "ftp" in str(response.data["target_url"]).lower()
+
+    def test_update_webhook_http_url_rejected_in_production(self, authenticated_client, contract, settings):
+        """Test that updating to HTTP URL is rejected in production mode."""
+        settings.DEBUG = False
+        webhook = WebhookSubscriptionFactory(contract=contract, target_url="https://example.com/webhook")
+        url = reverse("webhook-detail", args=[webhook.id])
+        data = {
+            "target_url": "http://insecure.example.com/webhook",
+        }
+        response = authenticated_client.patch(url, data)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "target_url" in response.data
+        assert "HTTPS" in str(response.data["target_url"])
+
+    def test_update_webhook_https_url_accepted_in_production(self, authenticated_client, contract, settings):
+        """Test that updating to HTTPS URL is accepted in production mode."""
+        settings.DEBUG = False
+        webhook = WebhookSubscriptionFactory(contract=contract, target_url="https://example.com/webhook")
+        url = reverse("webhook-detail", args=[webhook.id])
+        data = {
+            "target_url": "https://new-secure.example.com/webhook",
+        }
+        response = authenticated_client.patch(url, data)
+
+        assert response.status_code == status.HTTP_200_OK
+        webhook.refresh_from_db()
+        assert webhook.target_url == "https://new-secure.example.com/webhook"
+
 
 @pytest.mark.django_db
 class TestRecordEventView:

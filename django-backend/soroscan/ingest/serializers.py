@@ -292,6 +292,34 @@ class WebhookSubscriptionSerializer(serializers.ModelSerializer):
             "secret": {"write_only": True},
         }
 
+    def validate_target_url(self, value):
+        """
+        Validate that the target URL uses HTTPS in production mode.
+        HTTP URLs are only allowed when DEBUG=True.
+        """
+        from django.conf import settings
+        from urllib.parse import urlparse
+
+        if not value:
+            raise serializers.ValidationError("Target URL is required.")
+
+        parsed = urlparse(value)
+        
+        # In production (DEBUG=False), only allow HTTPS
+        if not settings.DEBUG and parsed.scheme != 'https':
+            raise serializers.ValidationError(
+                "Only HTTPS URLs are allowed in production mode. "
+                "Please use an HTTPS endpoint to ensure secure webhook delivery."
+            )
+        
+        # Ensure the scheme is either http or https
+        if parsed.scheme not in ('http', 'https'):
+            raise serializers.ValidationError(
+                f"Invalid URL scheme '{parsed.scheme}'. Only HTTP and HTTPS are supported."
+            )
+        
+        return value
+
     def validate_filter_condition(self, value):
         if value in (None, {}):
             return value
