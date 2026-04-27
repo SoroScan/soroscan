@@ -1220,6 +1220,9 @@ def platform_stats(request):
         "total_contracts": total_contracts,
         "total_events_24h": total_events_24h,
         "active_webhooks": active_webhooks,
+    })
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def admin_ingest_errors_view(request):
