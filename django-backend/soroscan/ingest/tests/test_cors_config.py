@@ -1,4 +1,3 @@
-import pytest
 from soroscan import settings as app_settings
 
 
