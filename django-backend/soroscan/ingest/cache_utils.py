@@ -41,6 +41,51 @@ def invalidate_contract_query_cache(contract_id: str) -> None:
     cache.delete(stable_cache_key("contract_stats", {"contract_id": contract_id}))
 
 
+def get_event_count(contract_id: str) -> int:
+    """Get cached event count for a contract with 5-minute TTL."""
+    from .metrics import cache_hits_total, cache_misses_total
+    
+    key = f"event_count:{contract_id}"
+    count = cache.get(key)
+    if count is None:
+        cache_misses_total.labels(cache_type="event_count").inc()
+        from .models import ContractEvent
+        count = ContractEvent.objects.filter(contract__contract_id=contract_id).count()
+        cache.set(key, count, 300)  # 5 min TTL
+    else:
+        cache_hits_total.labels(cache_type="event_count").inc()
+    return count
+
+
+def invalidate_event_count_cache(contract_id: str) -> None:
+    """Invalidate event count cache for a contract."""
+    key = f"event_count:{contract_id}"
+    cache.delete(key)
+
+
+DECODED_PAYLOAD_TTL = 86_400  # 24 hours
+
+
+def decoded_payload_cache_key(event_id: int) -> str:
+    """Return the Redis key for a cached decoded payload."""
+    return f"soroscan:decoded:{event_id}"
+
+
+def get_cached_decoded_payload(event_id: int) -> Any:
+    """Return cached decoded payload or _SENTINEL if not cached."""
+    return cache.get(decoded_payload_cache_key(event_id), _SENTINEL)
+
+
+def set_cached_decoded_payload(event_id: int, payload: Any) -> None:
+    """Store decoded payload in cache with 24-hour TTL."""
+    cache.set(decoded_payload_cache_key(event_id), payload, timeout=DECODED_PAYLOAD_TTL)
+
+
+def invalidate_decoded_payload_cache(event_id: int) -> None:
+    """Invalidate the decoded payload cache for a specific event."""
+    cache.delete(decoded_payload_cache_key(event_id))
+
+
 def cache_result(ttl: int) -> Callable:
     """Cache successful DRF function-view responses for ``ttl`` seconds."""
 

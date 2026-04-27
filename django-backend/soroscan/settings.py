@@ -155,10 +155,11 @@ QUERY_CACHE_TTL_SECONDS = env.int("QUERY_CACHE_TTL_SECONDS", default=60)
 RATE_LIMIT_ANON = env("RATE_LIMIT_ANON", default="60/minute")
 RATE_LIMIT_USER = env("RATE_LIMIT_USER", default="300/minute")
 RATE_LIMIT_INGEST = env("RATE_LIMIT_INGEST", default="10/minute")
-RATE_LIMIT_GRAPHQL = env("RATE_LIMIT_GRAPHQL", default="100/minute")
+RATE_LIMIT_GRAPHQL = env("RATE_LIMIT_GRAPHQL", default="60/minute")
 
 # REST Framework
 REST_FRAMEWORK = {
+    "EXCEPTION_HANDLER": "soroscan.exceptions.custom_exception_handler",
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ],
@@ -260,11 +261,51 @@ CELERY_BEAT_SCHEDULE = {
         "task": "ingest.tasks.aggregate_event_statistics",
         "schedule": 3600,  # hourly
     },
+    "aggregate-organization-costs": {
+        "task": "ingest.tasks.aggregate_organization_costs",
+        "schedule": 3600,  # hourly
+    },
+    "reconcile-event-completeness": {
+        "task": "ingest.tasks.reconcile_event_completeness",
+        "schedule": 300,  # every 5 minutes
+    },
+    "recompute-call-graph": {
+        "task": "ingest.tasks.recompute_call_graph",
+        "schedule": 3600,  # hourly
+    },
 }
 
 # Data Retention Configuration
 # Number of days to retain deduplication logs before cleanup
 DEDUP_LOG_RETENTION_DAYS = env("DEDUP_LOG_RETENTION_DAYS", default=90, cast=int)
+
+# Alert deduplication window
+ALERT_DEDUP_WINDOW_SECONDS = env.int("ALERT_DEDUP_WINDOW_SECONDS", default=300)
+
+# Webhook delivery + escalation configuration
+WEBHOOK_ESCALATION_TIMEOUT_SECONDS = env.int(
+    "WEBHOOK_ESCALATION_TIMEOUT_SECONDS", default=10
+)
+WEBHOOK_ESCALATION_DEDUP_SECONDS = env.int(
+    "WEBHOOK_ESCALATION_DEDUP_SECONDS", default=300
+)
+WEBHOOK_ESCALATION_SLACK_TARGET = env(
+    "WEBHOOK_ESCALATION_SLACK_TARGET", default=""
+)
+WEBHOOK_ESCALATION_SMS_TARGET = env(
+    "WEBHOOK_ESCALATION_SMS_TARGET", default=""
+)
+WEBHOOK_ESCALATION_PAGERDUTY_TARGET = env(
+    "WEBHOOK_ESCALATION_PAGERDUTY_TARGET", default=""
+)
+
+# Dependency change alert deduplication
+DOWNSTREAM_ALERT_DEDUP_SECONDS = env.int("DOWNSTREAM_ALERT_DEDUP_SECONDS", default=3600)
+
+# Cost model defaults (USD)
+COST_RPC_PER_CALL_USD = env("COST_RPC_PER_CALL_USD", default="0.00001")
+COST_STORAGE_PER_GB_USD = env("COST_STORAGE_PER_GB_USD", default="0.10")
+COST_COMPUTE_PER_UNIT_USD = env("COST_COMPUTE_PER_UNIT_USD", default="0.00002")
 
 # Stellar / Soroban Configuration
 SOROBAN_RPC_URL = env("SOROBAN_RPC_URL", default="https://soroban-testnet.stellar.org")
@@ -275,23 +316,31 @@ STELLAR_NETWORK_PASSPHRASE = env(
 SOROSCAN_CONTRACT_ID = env("SOROSCAN_CONTRACT_ID", default="")
 INDEXER_SECRET_KEY = env("INDEXER_SECRET_KEY", default="")
 
+# ---------------------------------------------------------------------------
+# GraphQL Introspection (security: disable in production)
+# ---------------------------------------------------------------------------
+# Set GRAPHQL_INTROSPECTION_ENABLED=True to allow introspection queries.
+# Defaults to True in DEBUG mode, False otherwise.
+GRAPHQL_INTROSPECTION_ENABLED = env.bool(
+    "GRAPHQL_INTROSPECTION_ENABLED",
+    default=DEBUG,
+)
+
 # Prometheus
 # Expose the /metrics endpoint without authentication.
 # The URL is registered in urls.py via django_prometheus.urls.
 PROMETHEUS_EXPORT_MIGRATIONS = False  # avoid migration noise in metrics
-
-# Logging: set LOG_FORMAT=json for structured JSON logs (no PII in messages or extra).
 LOG_FORMAT = env("LOG_FORMAT", default="")
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
         "default": {
-            "format": "%(asctime)s %(name)s %(levelname)s %(message)s",
+            "format": "%(asctime)s %(name)s %(levelname)s [req:%(request_id)s] %(message)s",
         },
         "json": {
             "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
-            "format": "%(asctime)s %(name)s %(levelname)s %(message)s",
+            "format": "%(asctime)s %(name)s %(levelname)s %(request_id)s %(message)s",
         },
     },
     "handlers": {
@@ -360,6 +409,26 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@soroscan.io")
 
 # Alert settings
 SLACK_ALERT_TIMEOUT_SECONDS = env.int("SLACK_ALERT_TIMEOUT_SECONDS", default=10)
+
+# ---------------------------------------------------------------------------
+# Event Streaming Configuration (Issue: Downstream Integration)
+# ---------------------------------------------------------------------------
+EVENT_STREAMING = {
+    "enabled": env.bool("EVENT_STREAMING_ENABLED", default=False),
+    "backend": env("EVENT_STREAMING_BACKEND", default="kafka"),  # 'kafka', 'pubsub', or 'sqs'
+    "kafka": {
+        "bootstrap_servers": env.list("KAFKA_BOOTSTRAP_SERVERS", default=["localhost:9092"]),
+        "topic": env("KAFKA_TOPIC", default="soroscan.events"),
+        "schema_registry_url": env("KAFKA_SCHEMA_REGISTRY_URL", default=""),
+    },
+    "pubsub": {
+        "project_id": env("PUBSUB_PROJECT_ID", default=""),
+        "topic": env("PUBSUB_TOPIC", default="soroscan.events"),
+    },
+    "sqs": {
+        "queue_url": env("SQS_QUEUE_URL", default=""),
+    },
+}
 
 # ---------------------------------------------------------------------------
 # S3 / Archive storage configuration

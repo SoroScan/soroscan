@@ -5,6 +5,7 @@ from factory.django import DjangoModelFactory
 from soroscan.ingest.models import (
     ContractABI,
     ContractEvent,
+    ContractMetadata,
     EventSchema,
     RemediationIncident,
     RemediationRule,
@@ -34,6 +35,7 @@ class TrackedContractFactory(DjangoModelFactory):
     description = "Test contract"
     owner = factory.SubFactory(UserFactory)
     is_active = True
+    network = TrackedContract.Network.MAINNET
     deprecation_status = TrackedContract.DeprecationStatus.ACTIVE
     deprecation_reason = ""
     event_filter_type = TrackedContract.FILTER_NONE
@@ -137,3 +139,16 @@ class RemediationIncidentFactory(DjangoModelFactory):
     contract = factory.SubFactory(TrackedContractFactory)
     status = RemediationIncident.STATUS_ALERTED
     anomaly_snapshot = {"type": "no_events_for_minutes", "minutes": 60}
+
+
+class ContractMetadataFactory(DjangoModelFactory):
+    class Meta:
+        model = ContractMetadata
+
+    contract = factory.SubFactory(TrackedContractFactory)
+    name = factory.Sequence(lambda n: f"Contract Metadata {n}")
+    description = factory.Faker("paragraph")
+    tags = factory.LazyFunction(list)
+    documentation_url = ""
+    github_repo = ""
+    team_email = ""

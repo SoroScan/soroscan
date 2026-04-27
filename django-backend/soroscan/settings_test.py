@@ -110,6 +110,7 @@ QUERY_CACHE_TTL_SECONDS = 60
 
 # REST Framework
 REST_FRAMEWORK = {
+    "EXCEPTION_HANDLER": "soroscan.exceptions.custom_exception_handler",
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 50,
     "DEFAULT_FILTER_BACKENDS": [
@@ -146,6 +147,27 @@ SOROBAN_RPC_URL = "https://soroban-testnet.stellar.org"
 STELLAR_NETWORK_PASSPHRASE = "Test SDF Network ; September 2015"
 SOROSCAN_CONTRACT_ID = "C" + "A" * 55
 INDEXER_SECRET_KEY = ""
+
+# Event Streaming Configuration (Disabled by default for tests)
+EVENT_STREAMING = {
+    "enabled": False,
+    "backend": "kafka",
+    "kafka": {
+        "bootstrap_servers": ["localhost:9092"],
+        "topic": "soroscan.events",
+        "schema_registry_url": "",
+    },
+    "pubsub": {
+        "project_id": "test-project",
+        "topic": "soroscan.events",
+    },
+    "sqs": {
+        "queue_url": "",
+    },
+}
+
+# GraphQL Introspection — enabled in tests/dev
+GRAPHQL_INTROSPECTION_ENABLED = True
 
 # Logging
 LOGGING = {
