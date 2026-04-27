@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("ingest", "0023_webhookdeliverylog_payload_bytes"),
+        ("ingest", "0038_dependencyimpactassessment_organizationbudget_and_more"),
     ]
 
     operations = [
