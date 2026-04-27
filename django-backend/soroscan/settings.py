@@ -205,8 +205,9 @@ SIMPLE_JWT = {
 }
 
 # CORS
+origins_str = env("ALLOWED_ORIGINS", default="")
+CORS_ALLOWED_ORIGINS = [o.strip() for o in origins_str.split(",") if o.strip()] if origins_str else []
 CORS_ALLOW_ALL_ORIGINS = DEBUG
-CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
 CORS_ALLOW_CREDENTIALS = True  # Required for Apollo Client with credentials: 'include'
 
 # Channels
