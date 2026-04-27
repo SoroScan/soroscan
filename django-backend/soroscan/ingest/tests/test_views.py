@@ -7,7 +7,14 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from soroscan.ingest.models import Team, TeamMembership, TrackedContract, WebhookSubscription
+from soroscan.ingest.models import (
+    Organization,
+    OrganizationMembership,
+    Team,
+    TeamMembership,
+    TrackedContract,
+    WebhookSubscription,
+)
 
 from .factories import (
     ContractEventFactory,
@@ -147,12 +154,27 @@ class TestTrackedContractViewSet:
             }
         ]
 
+    def test_contract_completeness_endpoint_returns_percentage(self, authenticated_client, contract):
+        ContractEventFactory(contract=contract, ledger=100, event_index=0)
+        ContractEventFactory(contract=contract, ledger=102, event_index=0)
+
+        response = authenticated_client.get(reverse("contract-completeness", args=[contract.id]))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["missing_ledgers"] == 1
+        assert response.data["completeness_percentage"] < 100.0
+
 
 @pytest.mark.django_db
 class TestTeamViewSet:
     def test_create_and_list_team(self, authenticated_client, user):
+        org = Organization.objects.create(name="Acme", slug="acme", owner=user)
+        OrganizationMembership.objects.create(
+            organization=org, user=user, role=OrganizationMembership.Role.OWNER
+        )
         url = reverse("team-list")
-        response = authenticated_client.post(url, {"name": "Platform"}, format="json")
+        response = authenticated_client.post(
+            url, {"name": "Platform", "organization": org.id}, format="json"
+        )
         assert response.status_code == status.HTTP_201_CREATED
         assert Team.objects.filter(name="Platform").exists()
         assert TeamMembership.objects.filter(
@@ -164,16 +186,25 @@ class TestTeamViewSet:
         assert len(listed.data["results"]) >= 1
 
     def test_team_member_sees_team_contract(self, api_client):
+        from soroscan.ingest.models import Organization, OrganizationMembership
+
         owner = UserFactory()
         member = UserFactory()
-        team = Team.objects.create(name="Shared", slug="shared", created_by=owner)
+        org = Organization.objects.create(name="Shared Org", slug="shared-org", owner=owner)
+        OrganizationMembership.objects.create(
+            organization=org, user=owner, role=OrganizationMembership.Role.OWNER
+        )
+        OrganizationMembership.objects.create(
+            organization=org, user=member, role=OrganizationMembership.Role.MEMBER
+        )
+        team = Team.objects.create(name="Shared", slug="shared", organization=org, created_by=owner)
         TeamMembership.objects.create(
             team=team, user=owner, role=TeamMembership.Role.ADMIN
         )
         TeamMembership.objects.create(
             team=team, user=member, role=TeamMembership.Role.MEMBER
         )
-        shared = TrackedContractFactory(owner=owner, team=team)
+        shared = TrackedContractFactory(owner=owner, team=team, organization=org)
 
         api_client.force_authenticate(user=member)
         url = reverse("contract-list")
@@ -292,6 +323,40 @@ class TestWebhookSubscriptionViewSet:
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not WebhookSubscription.objects.filter(id=webhook.id).exists()
 
+    def test_webhook_dry_run_uses_filter_condition(self, authenticated_client, contract):
+        webhook = WebhookSubscriptionFactory(
+            contract=contract,
+            filter_condition={
+                "op": "and",
+                "conditions": [
+                    {"op": "eq", "field": "event_type", "value": "transfer"},
+                    {"op": "gte", "field": "payload.amount", "value": 1000},
+                ],
+            },
+        )
+
+        url = reverse("webhook-dry-run", args=[webhook.id])
+        response = authenticated_client.post(
+            url,
+            {
+                "sample_event": {
+                    "event_type": "transfer",
+                    "payload": {"amount": 900},
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["matched"] is False
+
+    def test_webhook_dry_run_rejects_non_object_sample(self, authenticated_client, contract):
+        webhook = WebhookSubscriptionFactory(contract=contract)
+        url = reverse("webhook-dry-run", args=[webhook.id])
+        response = authenticated_client.post(url, {"sample_event": "bad"}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
 
 @pytest.mark.django_db
 class TestRecordEventView:
@@ -395,6 +460,25 @@ class TestContractStatusView:
 
 
 @pytest.mark.django_db
+class TestRateLimitAnalyticsView:
+    def test_rate_limit_analytics_returns_metrics(self, authenticated_client, user):
+        from soroscan.ingest.models import APIKey
+        from soroscan.throttles import _BUCKET_TTL
+
+        key = APIKey.objects.create(user=user, name="Analytics Key", tier="free")
+        now_bucket = int(timezone.now().timestamp()) // _BUCKET_TTL
+        cache.set(f"soroscan_api_key_quota_history:{key.id}:{now_bucket}", 12, timeout=3600)
+
+        url = reverse("rate-limit-analytics")
+        response = authenticated_client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["window_hours"] == 168
+        assert len(response.data["api_keys"]) == 1
+        assert response.data["api_keys"][0]["name"] == "Analytics Key"
+
+
+@pytest.mark.django_db
 class TestTimelinePageView:
     def test_contract_timeline_page_redirects_to_frontend(self, api_client, contract, settings):
         settings.FRONTEND_BASE_URL = "http://localhost:3000"
@@ -435,6 +519,23 @@ class TestEventExplorerPageView:
         response = api_client.get(url)
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.django_db
+class TestTransactionCorrelationView:
+    def test_transaction_endpoint_groups_events(self, authenticated_client, user):
+        contract_a = TrackedContractFactory(owner=user)
+        contract_b = TrackedContractFactory(owner=user)
+        shared_tx = "tx-shared-001"
+        ContractEventFactory(contract=contract_a, tx_hash=shared_tx, ledger=12, event_index=1)
+        ContractEventFactory(contract=contract_b, tx_hash=shared_tx, ledger=12, event_index=2)
+
+        url = reverse("transaction-events", args=[shared_tx])
+        response = authenticated_client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["transaction_id"] == shared_tx
+        assert response.data["event_count"] == 2
 
     def test_contract_event_types_endpoint(self, api_client, contract):
         # Create events with different types

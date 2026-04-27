@@ -78,6 +78,11 @@ class EvaluateConditionTests(TestCase):
         self.assertTrue(evaluate_condition(c, {"event_type": "swap"}))
         self.assertFalse(evaluate_condition(c, {"event_type": "mint"}))
 
+    def test_regex_operator(self):
+        c = {"op": "regex", "field": "event_type", "value": "^trans.*$"}
+        self.assertTrue(evaluate_condition(c, {"event_type": "transfer"}))
+        self.assertFalse(evaluate_condition(c, {"event_type": "mint"}))
+
     def test_and(self):
         c = {
             "op": "and",
@@ -480,6 +485,7 @@ class EventSearchTests(TestCase):
 
 class SendAlertTests(TestCase):
     def setUp(self):
+        cache.clear()
         self.user = User.objects.create_user(username="alertuser", password="pass")
         self.contract = TrackedContract.objects.create(
             contract_id="B" * 56,
@@ -564,6 +570,9 @@ class SendAlertTests(TestCase):
 
         result = send_alert(self.rule.id, 9999)
         self.assertEqual(result, "skipped:event_gone")
+
+    def tearDown(self):
+        cache.clear()
 
 
 class EvaluateAlertRulesTests(TestCase):
