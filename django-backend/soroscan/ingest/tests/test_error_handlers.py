@@ -26,7 +26,10 @@ def client():
 def test_404_returns_json(client):
     response = client.get("/api/this-route-does-not-exist/")
     assert response.status_code == 404
-    assert response.json() == {"error": "Not found", "status": 404}
+    data = response.json()
+    assert data["error"] == "Not found"
+    assert data["status"] == 404
+    assert "request_id" in data
 
 
 @pytest.mark.django_db
@@ -34,4 +37,7 @@ def test_404_returns_json(client):
 def test_500_returns_json(client):
     response = client.get("/test-500/")
     assert response.status_code == 500
-    assert response.json() == {"error": "Internal server error", "status": 500}
+    data = response.json()
+    assert data["error"] == "Internal server error"
+    assert data["status"] == 500
+    assert "request_id" in data
