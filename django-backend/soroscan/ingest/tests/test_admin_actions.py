@@ -8,7 +8,7 @@ from soroscan.ingest.admin import WebhookDeliveryLogAdmin
 from soroscan.ingest.models import WebhookDeliveryLog
 from soroscan.ingest.tests.factories import WebhookSubscriptionFactory, ContractEventFactory
 
-from django.contrib.messages.storage.fallback import FallbackStorage
+
 
 @pytest.mark.django_db
 class TestWebhookRetryAction:
