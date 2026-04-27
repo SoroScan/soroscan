@@ -16,7 +16,12 @@ from rest_framework_simplejwt.views import (
 
 from soroscan.graphql_views import ThrottledGraphQLView
 from soroscan.health import health_view, readiness_view
-from soroscan.ingest.views import audit_trail_view, contract_status, rate_limit_analytics_view
+from soroscan.ingest.views import (
+    audit_trail_view,
+    contract_status,
+    platform_stats,
+    rate_limit_analytics_view,
+)
 from soroscan.ingest.schema import schema
 
 urlpatterns = [
@@ -29,6 +34,7 @@ urlpatterns = [
 
     path("admin/", admin.site.urls),
     path("api/audit-trail/", audit_trail_view, name="audit-trail"),
+    path("api/stats/", platform_stats, name="platform-stats-api"),
     path("api/contracts/status/", contract_status, name="contract-status"),
     path("api/analytics/rate-limits/", rate_limit_analytics_view, name="rate-limit-analytics"),
     path("api/ingest/", include("soroscan.ingest.urls")),

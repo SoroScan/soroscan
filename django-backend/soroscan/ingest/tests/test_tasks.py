@@ -1068,7 +1068,12 @@ class TestWebhookConsecutiveFailures:
         webhook.failure_count = 3
         webhook.save()
 
-        responses.add(responses.POST, webhook.target_url, status=200)
+        responses.add(
+            responses.POST,
+            webhook.target_url,
+            status=200,
+            headers={"X-SoroScan-Ack": "ok"},
+        )
 
         dispatch_webhook.apply(args=[webhook.id, event.id])
 
@@ -1120,7 +1125,12 @@ class TestWebhookConsecutiveFailures:
 
         # Now succeed
         responses.reset()
-        responses.add(responses.POST, webhook.target_url, status=200)
+        responses.add(
+            responses.POST,
+            webhook.target_url,
+            status=200,
+            headers={"X-SoroScan-Ack": "ok"},
+        )
         dispatch_webhook.apply(args=[webhook.id, event.id])
 
         webhook.refresh_from_db()

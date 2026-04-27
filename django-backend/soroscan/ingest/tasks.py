@@ -27,7 +27,8 @@ from cryptography.hazmat.primitives.asymmetric import ec, ed25519
 from celery.signals import task_postrun, task_prerun
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Count, F, Max, Min
+from django.db.models import Count, F, Max, Min, Value
+from django.db.models.functions import Greatest
 from django.utils import timezone
 
 from .cache_utils import (
@@ -1257,8 +1258,9 @@ def _on_delivery_failure(
     Atomically increment ``failure_count`` and, when reaching 5 consecutive failures,
     mark the subscription as ``suspended`` + ``is_active=False``.
     """
+    attempt_number = int(getattr(task_instance.request, "retries", 0)) + 1
     WebhookSubscription.objects.filter(pk=webhook.pk).update(
-        failure_count=F("failure_count") + 1,
+        failure_count=Greatest(F("failure_count") + 1, Value(attempt_number)),
     )
     webhook.refresh_from_db(fields=["failure_count", "status", "is_active", "escalation_policy"])
 

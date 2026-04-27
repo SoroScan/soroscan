@@ -7,7 +7,15 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from soroscan.ingest.models import ContractEvent, Team, TeamMembership, TrackedContract, WebhookSubscription
+from soroscan.ingest.models import (
+    ContractEvent,
+    Organization,
+    OrganizationMembership,
+    Team,
+    TeamMembership,
+    TrackedContract,
+    WebhookSubscription,
+)
 
 from .factories import (
     ContractEventFactory,
@@ -179,8 +187,6 @@ class TestTeamViewSet:
         assert len(listed.data["results"]) >= 1
 
     def test_team_member_sees_team_contract(self, api_client):
-        from soroscan.ingest.models import Organization, OrganizationMembership
-
         owner = UserFactory()
         member = UserFactory()
         org = Organization.objects.create(name="Shared Org", slug="shared-org", owner=owner)
@@ -519,6 +525,10 @@ class TestEventExplorerPageView:
 class TestPlatformStatsView:
     """Tests for the /api/stats/ endpoint."""
 
+    @pytest.fixture(autouse=True)
+    def clear_platform_stats_cache(self):
+        cache.clear()
+
     def test_stats_endpoint_accessible(self, api_client):
         """Verify the stats endpoint is accessible without authentication."""
         response = api_client.get("/api/stats/")
@@ -554,7 +564,7 @@ class TestPlatformStatsView:
 
         # Create 2 recent events
         for _ in range(2):
-            ContractEventFactory(contract=contract)
+            ContractEventFactory(contract=contract, timestamp=timezone.now())
 
         # Create 1 old event (older than 24 hours)
         old_event = ContractEventFactory(contract=contract)

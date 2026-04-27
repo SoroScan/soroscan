@@ -7,6 +7,8 @@ The conflict between 0027_merge_final_leaf_nodes and 0029_contractmetadata has b
 Validates: Requirements 2.1, 2.2
 """
 
+from pathlib import Path
+
 import pytest
 from django.db.migrations.loader import MigrationLoader
 
@@ -21,10 +23,13 @@ def test_single_leaf_node():
     """
     Assert the ingest migration graph has exactly one leaf node.
 
-    The current leaf is '0038_dependencyimpactassessment_organizationbudget_and_more'
-    (added by issues #339, #340, #341).
+    The leaf should match the latest numbered migration file in ingest/migrations.
     """
     loader = MigrationLoader(None, ignore_no_migrations=True)
+
+    migration_dir = Path(__file__).resolve().parents[1] / "migrations"
+    migration_files = sorted(migration_dir.glob("[0-9][0-9][0-9][0-9]_*.py"))
+    expected_leaf = migration_files[-1].stem
 
     # leaf_nodes(app) returns nodes that no other migration depends on
     leaf_nodes = loader.graph.leaf_nodes(app="ingest")
@@ -32,9 +37,8 @@ def test_single_leaf_node():
     assert len(leaf_nodes) == 1, (
         f"Expected 1 leaf node for 'ingest', found {len(leaf_nodes)}: {leaf_nodes}"
     )
-    assert leaf_nodes[0][1] == "0038_dependencyimpactassessment_organizationbudget_and_more", (
-        "Expected leaf node '0038_dependencyimpactassessment_organizationbudget_and_more', "
-        f"got '{leaf_nodes[0][1]}'"
+    assert leaf_nodes[0][1] == expected_leaf, (
+        f"Expected leaf node '{expected_leaf}', got '{leaf_nodes[0][1]}'"
     )
 
 
