@@ -447,10 +447,11 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
             id=subscription_id,
             is_active=True,
             status=WebhookSubscription.STATUS_ACTIVE,
+            is_deleted=False,
         )
     except WebhookSubscription.DoesNotExist:
         logger.warning(
-            "Webhook subscription %s not found, inactive, or suspended — skipping",
+            "Webhook subscription %s not found, inactive, suspended, or deleted — skipping",
             subscription_id,
             extra={"webhook_id": subscription_id},
         )
@@ -643,15 +644,16 @@ def _on_delivery_failure(
     task_instance,
 ) -> None:
     """
-    Atomically increment ``failure_count`` and, when all retries are exhausted,
+    Atomically increment ``failure_count`` and, when reaching 5 consecutive failures,
     mark the subscription as ``suspended`` + ``is_active=False``.
     """
     WebhookSubscription.objects.filter(pk=webhook.pk).update(
         failure_count=F("failure_count") + 1,
     )
 
-    is_last_attempt = task_instance.request.retries >= task_instance.max_retries
-    if is_last_attempt:
+    # Check if we've reached 5 consecutive failures
+    webhook.refresh_from_db()
+    if webhook.failure_count >= 5:
         WebhookSubscription.objects.filter(pk=webhook.pk).update(
             status=WebhookSubscription.STATUS_SUSPENDED,
             is_active=False,
@@ -659,7 +661,7 @@ def _on_delivery_failure(
         logger.error(
             "Webhook subscription %s suspended after %d consecutive failures",
             webhook.id,
-            task_instance.max_retries + 1,
+            webhook.failure_count,
             extra={"webhook_id": webhook.id},
         )
         # Push in-app notification to the contract owner
@@ -673,11 +675,12 @@ def _on_delivery_failure(
                 message=(
                     f"Webhook to {webhook.target_url} for contract "
                     f"'{webhook.contract.name}' has been suspended after "
-                    f"{task_instance.max_retries + 1} consecutive failures."
+                    f"5 consecutive failures."
                 ),
                 link=f"/webhooks/{webhook.id}",
             )
         except Exception:
+            logger.exception("Failed to create webhook_failure notification for webhook %s", webhook.id)
             logger.exception("Failed to create webhook_failure notification for webhook %s", webhook.id)
 
 

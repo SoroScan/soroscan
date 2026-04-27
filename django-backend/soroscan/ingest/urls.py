@@ -15,6 +15,7 @@ from .views import (
     WebhookSubscriptionViewSet,
     contract_timeline_view,
     health_check,
+    platform_stats,
     record_event_view,
     restore_archived_events,
 )
@@ -37,6 +38,7 @@ urlpatterns = [
     path("", include(router.urls)),
     path("record/", record_event_view, name="record-event"),
     path("health/", health_check, name="health-check"),
+    path("stats/", platform_stats, name="platform-stats"),
     path("events/restore-archive/", restore_archived_events, name="restore-archive"),
     path("audit-trail/", audit_trail_view, name="audit-trail"),
 ]

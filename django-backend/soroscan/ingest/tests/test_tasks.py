@@ -798,3 +798,152 @@ class TestEvaluateRemediationRules:
         incident = RemediationIncident.objects.get(rule=rule, contract=contract)
         assert incident.status == RemediationIncident.STATUS_RESOLVED
         assert AdminAction.objects.filter(action="remediation_resolved").exists()
+
+
+
+# ---------------------------------------------------------------------------
+# Issue #370: Soft Delete Functionality
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestWebhookSoftDelete:
+    """Tests for soft delete functionality on WebhookSubscription."""
+
+    def test_soft_delete_sets_flags(self, webhook):
+        """Verify soft_delete() sets is_deleted=True and deleted_at."""
+        assert webhook.is_deleted is False
+        assert webhook.deleted_at is None
+
+        webhook.soft_delete()
+
+        webhook.refresh_from_db()
+        assert webhook.is_deleted is True
+        assert webhook.deleted_at is not None
+
+    def test_soft_deleted_excluded_from_default_manager(self, webhook):
+        """Verify that soft-deleted webhooks are excluded from objects.all()."""
+        webhook.soft_delete()
+
+        # Should not appear in default manager
+        assert not WebhookSubscription.objects.filter(pk=webhook.pk).exists()
+
+    def test_soft_deleted_accessible_via_all_objects(self, webhook):
+        """Verify that soft-deleted webhooks are accessible via all_objects."""
+        webhook.soft_delete()
+
+        # Should appear in all_objects manager
+        assert WebhookSubscription.all_objects.filter(pk=webhook.pk).exists()
+
+    def test_soft_deleted_not_dispatched(self, webhook, event):
+        """Verify that dispatch_webhook skips soft-deleted webhooks."""
+        webhook.soft_delete()
+
+        result = dispatch_webhook.apply(args=[webhook.id, event.id])
+
+        assert result.result is False
+        # No delivery log should be created
+        assert not WebhookDeliveryLog.objects.filter(subscription=webhook).exists()
+
+    def test_api_delete_performs_soft_delete(self, webhook):
+        """Verify that API DELETE endpoint performs soft delete."""
+        from rest_framework.test import APIRequestFactory
+        from soroscan.ingest.views import WebhookSubscriptionViewSet
+
+        factory = APIRequestFactory()
+        request = factory.delete(f"/webhooks/{webhook.id}/")
+        request.user = webhook.contract.owner
+
+        view = WebhookSubscriptionViewSet.as_view({"delete": "destroy"})
+        response = view(request, pk=webhook.id)
+
+        assert response.status_code == 204
+        webhook.refresh_from_db()
+        assert webhook.is_deleted is True
+
+
+# ---------------------------------------------------------------------------
+# Issue #372: Automatically Disable After 5 Consecutive Failures
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestWebhookConsecutiveFailures:
+    """Tests for automatic webhook disabling after 5 consecutive failures."""
+
+    @responses.activate
+    def test_failure_count_increments_on_failure(self, webhook, event):
+        """Verify failure_count increments on each failure."""
+        responses.add(responses.POST, webhook.target_url, status=500)
+
+        assert webhook.failure_count == 0
+
+        with pytest.raises(Retry):
+            dispatch_webhook.apply(args=[webhook.id, event.id], throw=True)
+
+        webhook.refresh_from_db()
+        assert webhook.failure_count == 1
+
+    @responses.activate
+    def test_failure_count_reset_on_success(self, webhook, event):
+        """Verify failure_count resets to 0 on successful delivery."""
+        webhook.failure_count = 3
+        webhook.save()
+
+        responses.add(responses.POST, webhook.target_url, status=200)
+
+        dispatch_webhook.apply(args=[webhook.id, event.id])
+
+        webhook.refresh_from_db()
+        assert webhook.failure_count == 0
+
+    @responses.activate
+    def test_webhook_disabled_after_5_failures(self, webhook, event):
+        """Verify webhook is disabled after 5 consecutive failures."""
+        responses.add(responses.POST, webhook.target_url, status=500)
+
+        # Simulate 5 consecutive failures
+        for i in range(5):
+            with pytest.raises(Retry):
+                dispatch_webhook.apply(args=[webhook.id, event.id], throw=True)
+
+        webhook.refresh_from_db()
+        assert webhook.failure_count == 5
+        assert webhook.is_active is False
+        assert webhook.status == WebhookSubscription.STATUS_SUSPENDED
+
+    @responses.activate
+    def test_webhook_not_disabled_before_5_failures(self, webhook, event):
+        """Verify webhook remains active with fewer than 5 failures."""
+        responses.add(responses.POST, webhook.target_url, status=500)
+
+        # Simulate 4 consecutive failures
+        for i in range(4):
+            with pytest.raises(Retry):
+                dispatch_webhook.apply(args=[webhook.id, event.id], throw=True)
+
+        webhook.refresh_from_db()
+        assert webhook.failure_count == 4
+        assert webhook.is_active is True
+        assert webhook.status == WebhookSubscription.STATUS_ACTIVE
+
+    @responses.activate
+    def test_success_after_failures_prevents_disabling(self, webhook, event):
+        """Verify that a success resets failure_count and prevents disabling."""
+        responses.add(responses.POST, webhook.target_url, status=500)
+
+        # Simulate 4 failures
+        for i in range(4):
+            with pytest.raises(Retry):
+                dispatch_webhook.apply(args=[webhook.id, event.id], throw=True)
+
+        webhook.refresh_from_db()
+        assert webhook.failure_count == 4
+
+        # Now succeed
+        responses.reset()
+        responses.add(responses.POST, webhook.target_url, status=200)
+        dispatch_webhook.apply(args=[webhook.id, event.id])
+
+        webhook.refresh_from_db()
+        assert webhook.failure_count == 0
+        assert webhook.is_active is True
+        assert webhook.status == WebhookSubscription.STATUS_ACTIVE

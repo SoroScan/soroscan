@@ -404,7 +404,7 @@ class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
     - POST /webhooks/ - Create a new webhook
     - GET /webhooks/{id}/ - Get webhook details
     - PUT /webhooks/{id}/ - Update webhook
-    - DELETE /webhooks/{id}/ - Delete webhook
+    - DELETE /webhooks/{id}/ - Soft delete webhook
     - POST /webhooks/{id}/test/ - Send a test webhook
     """
 
@@ -416,6 +416,12 @@ class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
         if self.request.method in ['GET', 'HEAD', 'OPTIONS']:
             return WebhookSubscription.objects.all()
         return WebhookSubscription.objects.filter(contract__owner=self.request.user)
+
+    def destroy(self, request, *args, **kwargs):
+        """Soft delete the webhook subscription."""
+        instance = self.get_object()
+        instance.soft_delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         request=None,
@@ -902,3 +908,46 @@ def audit_trail_view(request):
 
     serializer = AdminActionSerializer(qs[:limit], many=True)
     return Response(serializer.data)
+
+
+
+@extend_schema(
+    responses=inline_serializer(
+        name="PlatformStatsResponse",
+        fields={
+            "total_contracts": serializers.IntegerField(),
+            "total_events_24h": serializers.IntegerField(),
+            "active_webhooks": serializers.IntegerField(),
+        },
+    ),
+)
+@api_view(["GET"])
+@permission_classes([AllowAny])
+@cache_result(ttl=300)
+def platform_stats(request):
+    """
+    Get platform-wide statistics.
+
+    Returns:
+    - total_contracts: Total number of tracked contracts
+    - total_events_24h: Total events processed in the last 24 hours
+    - active_webhooks: Count of active webhook subscriptions
+    """
+    # Total tracked contracts
+    total_contracts = TrackedContract.objects.count()
+
+    # Total events in last 24 hours
+    cutoff_time = timezone.now() - timedelta(hours=24)
+    total_events_24h = ContractEvent.objects.filter(timestamp__gte=cutoff_time).count()
+
+    # Active webhooks (not deleted, is_active=True, status=active)
+    active_webhooks = WebhookSubscription.objects.filter(
+        is_active=True,
+        status=WebhookSubscription.STATUS_ACTIVE,
+    ).count()
+
+    return Response({
+        "total_contracts": total_contracts,
+        "total_events_24h": total_events_24h,
+        "active_webhooks": active_webhooks,
+    })

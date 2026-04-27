@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
+from django.utils import timezone
 from django.utils.text import slugify
 
 User = get_user_model()
@@ -481,6 +482,13 @@ class ContractEvent(models.Model):
         super().save(*args, **kwargs)
 
 
+class WebhookSubscriptionManager(models.Manager):
+    """Custom manager for WebhookSubscription that excludes soft-deleted webhooks."""
+
+    def get_queryset(self):
+        return super().get_queryset().filter(is_deleted=False)
+
+
 class WebhookSubscription(models.Model):
     """
     Webhook subscriptions for push notifications on specific events.
@@ -525,6 +533,19 @@ class WebhookSubscription(models.Model):
         validators=[MinValueValidator(1), MaxValueValidator(60)],
         help_text="Timeout for webhook dispatch in seconds (1-60, default: 10)",
     )
+    is_deleted = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Soft delete flag: True when deleted, False when active",
+    )
+    deleted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp when the webhook was soft-deleted",
+    )
+
+    objects = WebhookSubscriptionManager()
+    all_objects = models.Manager()  # Access all webhooks including deleted ones
 
     class Meta:
         ordering = ["-created_at"]
@@ -537,6 +558,12 @@ class WebhookSubscription(models.Model):
         if not self.secret:
             self.secret = secrets.token_hex(32)
         super().save(*args, **kwargs)
+
+    def soft_delete(self):
+        """Soft delete the webhook subscription."""
+        self.is_deleted = True
+        self.deleted_at = timezone.now()
+        self.save(update_fields=["is_deleted", "deleted_at"])
 
 
 class WebhookDeliveryLog(models.Model):

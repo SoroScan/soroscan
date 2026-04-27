@@ -7,7 +7,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from soroscan.ingest.models import Team, TeamMembership, TrackedContract, WebhookSubscription
+from soroscan.ingest.models import ContractEvent, Team, TeamMembership, TrackedContract, WebhookSubscription
 
 from .factories import (
     ContractEventFactory,
@@ -433,3 +433,114 @@ class TestEventExplorerPageView:
         response = api_client.get(url)
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+
+@pytest.mark.django_db
+class TestPlatformStatsView:
+    """Tests for the /api/stats/ endpoint."""
+
+    def test_stats_endpoint_accessible(self, api_client):
+        """Verify the stats endpoint is accessible without authentication."""
+        response = api_client.get("/api/stats/")
+        assert response.status_code == 200
+
+    def test_stats_returns_required_fields(self, api_client):
+        """Verify the stats endpoint returns all required fields."""
+        response = api_client.get("/api/stats/")
+        data = response.json()
+
+        assert "total_contracts" in data
+        assert "total_events_24h" in data
+        assert "active_webhooks" in data
+
+    def test_stats_total_contracts_count(self, api_client, user):
+        """Verify total_contracts count is accurate."""
+        from .factories import TrackedContractFactory
+
+        # Create 3 contracts
+        for _ in range(3):
+            TrackedContractFactory(owner=user)
+
+        response = api_client.get("/api/stats/")
+        data = response.json()
+
+        assert data["total_contracts"] == 3
+
+    def test_stats_total_events_24h_count(self, api_client, contract):
+        """Verify total_events_24h only counts events from last 24 hours."""
+        from .factories import ContractEventFactory
+        from django.utils import timezone
+        from datetime import timedelta
+
+        # Create 2 recent events
+        for _ in range(2):
+            ContractEventFactory(contract=contract)
+
+        # Create 1 old event (older than 24 hours)
+        old_event = ContractEventFactory(contract=contract)
+        ContractEvent.objects.filter(pk=old_event.pk).update(
+            timestamp=timezone.now() - timedelta(hours=25)
+        )
+
+        response = api_client.get("/api/stats/")
+        data = response.json()
+
+        # Should only count the 2 recent events
+        assert data["total_events_24h"] == 2
+
+    def test_stats_active_webhooks_count(self, api_client, contract):
+        """Verify active_webhooks only counts active, non-deleted webhooks."""
+        from .factories import WebhookSubscriptionFactory
+
+        # Create 2 active webhooks
+        for _ in range(2):
+            WebhookSubscriptionFactory(
+                contract=contract,
+                is_active=True,
+                status=WebhookSubscription.STATUS_ACTIVE,
+            )
+
+        # Create 1 suspended webhook (should not be counted)
+        WebhookSubscriptionFactory(
+            contract=contract,
+            is_active=False,
+            status=WebhookSubscription.STATUS_SUSPENDED,
+        )
+
+        # Create 1 soft-deleted webhook (should not be counted)
+        deleted_webhook = WebhookSubscriptionFactory(contract=contract)
+        deleted_webhook.soft_delete()
+
+        response = api_client.get("/api/stats/")
+        data = response.json()
+
+        # Should only count the 2 active webhooks
+        assert data["active_webhooks"] == 2
+
+    def test_stats_response_is_cached(self, api_client, contract):
+        """Verify the stats endpoint response is cached."""
+        from .factories import ContractEventFactory
+
+        # Make first request
+        response1 = api_client.get("/api/stats/")
+        data1 = response1.json()
+
+        # Create a new event
+        ContractEventFactory(contract=contract)
+
+        # Make second request - should return cached data
+        response2 = api_client.get("/api/stats/")
+        data2 = response2.json()
+
+        # Data should be the same (cached)
+        assert data1 == data2
+
+    def test_stats_zero_values(self, api_client):
+        """Verify stats endpoint returns 0 for empty database."""
+        response = api_client.get("/api/stats/")
+        data = response.json()
+
+        assert data["total_contracts"] == 0
+        assert data["total_events_24h"] == 0
+        assert data["active_webhooks"] == 0
