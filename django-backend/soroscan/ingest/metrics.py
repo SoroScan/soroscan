@@ -23,6 +23,7 @@ __all__ = [
     "webhook_ack_total",
     "webhook_sla_total",
     "webhook_escalations_total",
+    "webhook_deduplicated_total",
     "alert_rules_evaluated_total",
     "alert_deduplicated_total",
     "remediation_rules_evaluated_total",
@@ -164,6 +165,12 @@ webhook_escalations_total = _get_or_create(
     "soroscan_webhook_escalations_total",
     "Number of escalation notifications sent for webhook failures",
     ["channel", "status"],
+)
+
+webhook_deduplicated_total = _get_or_create(
+    Counter,
+    "soroscan_webhook_deduplicated_total",
+    "Number of webhook deliveries skipped due to deduplication",
 )
 
 alert_rules_evaluated_total = _get_or_create(

@@ -304,6 +304,9 @@ WEBHOOK_ESCALATION_PAGERDUTY_TARGET = env(
     "WEBHOOK_ESCALATION_PAGERDUTY_TARGET", default=""
 )
 
+# Webhook deduplication window
+WEBHOOK_DEDUP_WINDOW_SECONDS = env.int("WEBHOOK_DEDUP_WINDOW_SECONDS", default=300)
+
 # Dependency change alert deduplication
 DOWNSTREAM_ALERT_DEDUP_SECONDS = env.int("DOWNSTREAM_ALERT_DEDUP_SECONDS", default=3600)
 

@@ -800,6 +800,31 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
         )
         return False
 
+    # Deduplicate identical webhook deliveries to prevent floods
+    dedup_window = int(getattr(settings, "WEBHOOK_DEDUP_WINDOW_SECONDS", 300))
+    dedup_material = json.dumps(
+        {
+            "subscription_id": subscription_id,
+            "contract_id": event.contract.contract_id,
+            "event_type": event.event_type,
+            "ledger": event.ledger,
+            "event_index": event.event_index,
+            "payload": event.payload,
+        },
+        sort_keys=True,
+    )
+    dedup_hash = hashlib.sha256(dedup_material.encode("utf-8")).hexdigest()
+    dedup_key = f"soroscan:webhooks:dedup:{subscription_id}:{dedup_hash}"
+    if not cache.add(dedup_key, "1", timeout=dedup_window):
+        logger.info(
+            "Deduplicated webhook delivery for subscription=%s event=%s",
+            subscription_id,
+            event_id,
+            extra={"webhook_id": subscription_id, "event_id": event_id},
+        )
+        m.webhook_deduplicated_total.inc()
+        return True  # Consider deduplicated delivery as successful
+
     event_data = {
         "contract_id": event.contract.contract_id,
         "event_type": event.event_type,
