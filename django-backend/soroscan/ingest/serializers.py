@@ -19,6 +19,7 @@ from .models import (
     Team,
     TeamMembership,
     TrackedContract,
+    WebhookDeliveryLog,
     WebhookSubscription,
 )
 
@@ -376,6 +377,31 @@ class WebhookSubscriptionSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"contract": "Contract events are known to be massive."})
                 
         return attrs
+
+class WebhookDeliveryLogSerializer(serializers.ModelSerializer):
+    """
+    Serializer for WebhookDeliveryLog model.
+    Provides read-only details of webhook delivery attempts.
+    """
+
+    subscription_id = serializers.IntegerField(source="subscription.id", read_only=True)
+    target_url = serializers.URLField(source="subscription.target_url", read_only=True)
+
+    class Meta:
+        from .models import WebhookDeliveryLog
+        model = WebhookDeliveryLog
+        fields = [
+            "id",
+            "subscription_id",
+            "target_url",
+            "status_code",
+            "error",
+            "success",
+            "timestamp",
+            "attempt_number",
+        ]
+        read_only_fields = fields
+
 
 class RecordEventRequestSerializer(serializers.Serializer):
     """

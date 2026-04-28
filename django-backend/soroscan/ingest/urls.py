@@ -26,6 +26,7 @@ from .views import (
     restore_archived_events,
     transaction_events_view,
     vulnerability_impact_view,
+    webhook_failures_view,
 )
 
 router = DefaultRouter()
@@ -73,4 +74,5 @@ urlpatterns = [
     path("deletion-requests/", deletion_requests_view, name="deletion-requests"),
     path("compliance-export/", compliance_export_view, name="compliance-export"),
     path("networks/", networks_view, name="networks"),
+    path("webhooks/failures/", webhook_failures_view, name="webhook-failures"),
 ]

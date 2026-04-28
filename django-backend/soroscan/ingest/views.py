@@ -42,6 +42,7 @@ from .models import (
     Team,
     TeamMembership,
     TrackedContract,
+    WebhookDeliveryLog,
     WebhookSubscription,
 )
 from .serializers import (
@@ -57,6 +58,7 @@ from .serializers import (
     TeamMemberAddSerializer,
     TeamSerializer,
     TrackedContractSerializer,
+    WebhookDeliveryLogSerializer,
     WebhookSubscriptionSerializer,
 )
 from .stellar_client import SorobanClient
@@ -1287,6 +1289,61 @@ def rate_limit_analytics_view(request):
             "api_keys": results,
         }
     )
+
+
+@extend_schema(
+    parameters=[
+        inline_serializer(
+            name="WebhookFailuresParams",
+            fields={
+                "subscription_id": serializers.IntegerField(required=False),
+                "limit": serializers.IntegerField(required=False),
+            },
+        )
+    ],
+    responses=WebhookDeliveryLogSerializer(many=True),
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def webhook_failures_view(request):
+    """
+    Get recent webhook delivery failures for debugging.
+    
+    Query params:
+    - subscription_id: Filter by specific webhook subscription (optional)
+    - limit: Maximum number of results (default: 100, max: 1000)
+    
+    Returns:
+    - List of failed webhook deliveries with URL, error message, and HTTP status code
+    """
+    # Start with failed deliveries only
+    qs = WebhookDeliveryLog.objects.filter(success=False).select_related("subscription")
+    
+    # Filter by user's subscriptions (only show failures for webhooks they own)
+    qs = qs.filter(subscription__contract__owner=request.user)
+    
+    # Optional filter by subscription_id
+    subscription_id = request.query_params.get("subscription_id")
+    if subscription_id:
+        try:
+            qs = qs.filter(subscription_id=int(subscription_id))
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "subscription_id must be an integer"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+    
+    # Pagination
+    try:
+        limit = max(1, min(int(request.query_params.get("limit", 100)), 1000))
+    except (ValueError, TypeError):
+        limit = 100
+    
+    # Order by most recent first
+    qs = qs.order_by("-timestamp")[:limit]
+    
+    serializer = WebhookDeliveryLogSerializer(qs, many=True)
+    return Response(serializer.data)
 
 
 # ---------------------------------------------------------------------------
