@@ -1,8 +1,7 @@
 from django.test import TestCase
 from rest_framework.exceptions import ValidationError
 from soroscan.ingest.serializers import WebhookSubscriptionSerializer
-from soroscan.ingest.tests.factories import WebhookSubscriptionFactory, TrackedContractFactory
-from unittest.mock import patch
+from soroscan.ingest.tests.factories import TrackedContractFactory
 
 class WebhookPayloadLimitTests(TestCase):
     def setUp(self):
@@ -18,7 +17,7 @@ class WebhookPayloadLimitTests(TestCase):
             "secret": "testsecret123"
         })
         
-        with self.assertRaises(ValidationError) as context:
+        with self.assertRaises(ValidationError):
             serializer.is_valid(raise_exception=True)
             
         self.assertIn("contract", serializer.errors)
@@ -37,7 +36,7 @@ class WebhookPayloadLimitTests(TestCase):
             "secret": "testsecret123"
         })
         
-        with self.assertRaises(ValidationError) as context:
+        with self.assertRaises(ValidationError):
             serializer.is_valid(raise_exception=True)
             
         self.assertIn("contract", serializer.errors)
