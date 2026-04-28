@@ -52,14 +52,18 @@ class APIKeyThrottle(BaseThrottle):
 
         from soroscan.ingest.models import APIKey, ContractQuota
 
-        try:
-            api_key = APIKey.objects.select_related("user").get(
-                key=key_str, is_active=True
-            )
-        except APIKey.DoesNotExist:
-            # Invalid / revoked key → reject
-            self._set_headers(request, limit=0, remaining=0, reset=self._next_reset())
-            return False
+        # Check if the key was already authenticated and attached to the request
+        api_key = getattr(request, "api_key", None)
+
+        if not api_key:
+            try:
+                api_key = APIKey.objects.select_related("user").get(
+                    key=key_str, is_active=True
+                )
+            except APIKey.DoesNotExist:
+                # Invalid / revoked key → reject
+                self._set_headers(request, limit=0, remaining=0, reset=self._next_reset())
+                return False
 
         # Determine effective quota (contract-level override wins when lower)
         quota = api_key.quota_per_hour
