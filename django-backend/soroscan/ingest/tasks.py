@@ -958,6 +958,7 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
         if success:
             WebhookSubscription.objects.filter(pk=webhook.pk).update(
                 failure_count=0,
+                success_count=F("success_count") + 1,
                 last_triggered=timezone.now(),
             )
             logger.info(
@@ -1365,6 +1366,7 @@ def _on_delivery_failure(
     """
     WebhookSubscription.objects.filter(pk=webhook.pk).update(
         failure_count=F("failure_count") + 1,
+        total_failure_count=F("total_failure_count") + 1,
     )
     webhook.refresh_from_db(fields=["failure_count", "status", "is_active", "escalation_policy"])
 

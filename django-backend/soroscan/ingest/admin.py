@@ -506,11 +506,13 @@ class WebhookSubscriptionAdmin(AdminAuditMixin, admin.ModelAdmin):
         "is_active_display",
         "timeout_seconds",
         "failure_count",
+        "success_count",
+        "total_failure_count",
         "last_delivery_status",
     ]
     list_filter = ["is_active", "status", "contract", "created_at", "retry_backoff_strategy"]
     search_fields = ["target_url", "contract__name", "event_type"]
-    readonly_fields = ["secret", "created_at", "last_triggered", "failure_count", "status"]
+    readonly_fields = ["secret", "created_at", "last_triggered", "failure_count", "success_count", "total_failure_count", "status"]
     fieldsets = (
         (None, {
             "fields": ("contract", "target_url", "event_type", "is_active"),
@@ -532,7 +534,7 @@ class WebhookSubscriptionAdmin(AdminAuditMixin, admin.ModelAdmin):
                           "Exponential: base * 2^attempt | Linear: base * attempt | Fixed: base",
         }),
         ("Status", {
-            "fields": ("status", "failure_count", "last_triggered"),
+            "fields": ("status", "failure_count", "success_count", "total_failure_count", "last_triggered"),
             "classes": ("collapse",),
         }),
         ("Secret", {

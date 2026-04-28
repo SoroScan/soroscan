@@ -733,7 +733,9 @@ class WebhookSubscription(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     last_triggered = models.DateTimeField(null=True, blank=True)
-    failure_count = models.PositiveIntegerField(default=0)
+    failure_count = models.PositiveIntegerField(default=0, help_text="Consecutive failures since last success")
+    success_count = models.PositiveIntegerField(default=0, help_text="Total successful delivery attempts")
+    total_failure_count = models.PositiveIntegerField(default=0, help_text="Total failed delivery attempts")
     timeout_seconds = models.IntegerField(
         default=10,
         validators=[MinValueValidator(1), MaxValueValidator(60)],

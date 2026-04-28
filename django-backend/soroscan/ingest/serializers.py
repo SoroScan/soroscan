@@ -286,8 +286,18 @@ class WebhookSubscriptionSerializer(serializers.ModelSerializer):
             "created_at",
             "last_triggered",
             "failure_count",
+            "success_count",
+            "total_failure_count",
         ]
-        read_only_fields = ["id", "contract_id", "created_at", "last_triggered", "failure_count"]
+        read_only_fields = [
+            "id",
+            "contract_id",
+            "created_at",
+            "last_triggered",
+            "failure_count",
+            "success_count",
+            "total_failure_count",
+        ]
         extra_kwargs = {
             "secret": {"write_only": True},
         }
