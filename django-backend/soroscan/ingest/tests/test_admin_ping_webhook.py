@@ -82,7 +82,7 @@ class TestPingWebhookAdminView:
         request = self._make_request()
 
         with patch.object(self.admin, "message_user") as mock_msg:
-            response = self.admin.ping_webhook(request, sub.pk)
+            self.admin.ping_webhook(request, sub.pk)
 
         _, msg_text, level = mock_msg.call_args[0]
         assert "failed" in msg_text.lower()
