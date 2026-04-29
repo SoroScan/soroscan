@@ -165,6 +165,40 @@ class TestTrackedContractViewSet:
         assert response.data["missing_ledgers"] == 1
         assert response.data["completeness_percentage"] < 100.0
 
+    def test_dry_run_does_not_persist_contract(self, authenticated_client):
+        url = reverse("contract-list")
+        data = {
+            "contract_id": "C" + "B" * 55,
+            "name": "Dry Run Contract",
+            "description": "Should not be saved",
+            "is_active": True,
+        }
+        response = authenticated_client.post(url + "?dry_run=true", data)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data == {"detail": "Valid"}
+        assert not TrackedContract.objects.filter(name="Dry Run Contract").exists()
+
+    def test_dry_run_validates_input(self, authenticated_client):
+        url = reverse("contract-list")
+        data = {"name": "Missing contract_id"}
+        response = authenticated_client.post(url + "?dry_run=true", data)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "contract_id" in response.data
+
+    def test_dry_run_false_persists_contract(self, authenticated_client):
+        url = reverse("contract-list")
+        data = {
+            "contract_id": "C" + "C" * 55,
+            "name": "Persisted Contract",
+            "is_active": True,
+        }
+        response = authenticated_client.post(url + "?dry_run=false", data)
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert TrackedContract.objects.filter(name="Persisted Contract").exists()
+
 
 @pytest.mark.django_db
 class TestTeamViewSet:
@@ -358,6 +392,41 @@ class TestWebhookSubscriptionViewSet:
         response = authenticated_client.post(url, {"sample_event": "bad"}, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_duplicate_webhook_returns_400(self, authenticated_client, contract):
+        url = reverse("webhook-list")
+        data = {
+            "contract": contract.id,
+            "event_type": "transfer",
+            "target_url": "https://example.com/hook",
+            "is_active": True,
+        }
+        first = authenticated_client.post(url, data)
+        assert first.status_code == status.HTTP_201_CREATED
+
+        second = authenticated_client.post(url, data)
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert "target_url" in second.data
+
+    def test_same_url_different_contract_is_allowed(self, authenticated_client, user, contract):
+        other = TrackedContractFactory(owner=user)
+        url = reverse("webhook-list")
+
+        r1 = authenticated_client.post(url, {
+            "contract": contract.id,
+            "event_type": "transfer",
+            "target_url": "https://example.com/shared",
+            "is_active": True,
+        })
+        assert r1.status_code == status.HTTP_201_CREATED
+
+        r2 = authenticated_client.post(url, {
+            "contract": other.id,
+            "event_type": "transfer",
+            "target_url": "https://example.com/shared",
+            "is_active": True,
+        })
+        assert r2.status_code == status.HTTP_201_CREATED
 
 
 @pytest.mark.django_db

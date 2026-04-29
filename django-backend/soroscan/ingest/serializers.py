@@ -366,15 +366,28 @@ class WebhookSubscriptionSerializer(serializers.ModelSerializer):
         contract = attrs.get("contract")
         if not contract and self.instance:
             contract = self.instance.contract
-            
+
+        target_url = attrs.get("target_url")
+        if not target_url and self.instance:
+            target_url = self.instance.target_url
+
+        if contract and target_url:
+            qs = WebhookSubscription.objects.filter(contract=contract, target_url=target_url)
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError(
+                    {"target_url": "A webhook subscription for this URL and contract already exists."}
+                )
+
         if contract:
             estimated_size = contract.metadata.get("estimated_payload_size", 0)
             if estimated_size > 1048576:  # 1MB
                 raise serializers.ValidationError({"contract": "Estimated payload exceeds 1MB limit."})
-                
+
             if contract.metadata.get("is_massive", False):
                 raise serializers.ValidationError({"contract": "Contract events are known to be massive."})
-                
+
         return attrs
 
 class RecordEventRequestSerializer(serializers.Serializer):
