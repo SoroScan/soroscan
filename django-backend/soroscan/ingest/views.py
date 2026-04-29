@@ -128,6 +128,16 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
             response.data.setdefault("warnings", [])
         return response
 
+    def create(self, request, *args, **kwargs):
+        dry_run = request.query_params.get("dry_run", "").lower() == "true"
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if dry_run:
+            return Response({"detail": "Valid"}, status=status.HTTP_200_OK)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
 
@@ -850,6 +860,8 @@ def record_event_view(request):
         fields={
             "status": serializers.CharField(),
             "service": serializers.CharField(),
+            "uptime_seconds": serializers.IntegerField(),
+            "uptime": serializers.CharField(),
         },
     )
 )
@@ -857,7 +869,24 @@ def record_event_view(request):
 @permission_classes([AllowAny])
 def health_check(request):
     """Health check endpoint."""
-    return Response({"status": "healthy", "service": "soroscan"})
+    from soroscan.ingest.apps import IngestConfig
+
+    uptime_seconds = 0
+    if IngestConfig.start_time is not None:
+        uptime_seconds = int(time.monotonic() - IngestConfig.start_time)
+
+    d = uptime_seconds // 86400
+    h = (uptime_seconds % 86400) // 3600
+    m = (uptime_seconds % 3600) // 60
+    s = uptime_seconds % 60
+    uptime_human = f"{d}d {h:02d}:{m:02d}:{s:02d}"
+
+    return Response({
+        "status": "healthy",
+        "service": "soroscan",
+        "uptime_seconds": uptime_seconds,
+        "uptime": uptime_human,
+    })
 
 
 @extend_schema(
