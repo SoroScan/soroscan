@@ -128,6 +128,16 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
             response.data.setdefault("warnings", [])
         return response
 
+    def create(self, request, *args, **kwargs):
+        dry_run = request.query_params.get("dry_run", "").lower() == "true"
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if dry_run:
+            return Response({"detail": "Valid"}, status=status.HTTP_200_OK)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
 
