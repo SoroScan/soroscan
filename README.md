@@ -329,3 +329,9 @@ kubectl scale deployment/soroscan-worker --replicas=3 -n soroscan
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
+
+---
+
+## 📚 Additional Documentation
+
+- [DATABASE_TUNING.md](DATABASE_TUNING.md) — PostgreSQL tuning parameters for high-volume indexing
