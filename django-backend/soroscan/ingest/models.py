@@ -240,6 +240,27 @@ class TeamMembership(models.Model):
         return f"{self.user} @ {self.team} ({self.role})"
 
 
+class BlacklistedContract(models.Model):
+    """
+    Contracts whose events should never be indexed (spam prevention).
+    """
+
+    contract_id = models.CharField(
+        max_length=56,
+        unique=True,
+        db_index=True,
+        help_text="Stellar contract address to block from indexing",
+    )
+    reason = models.TextField(blank=True, help_text="Optional reason for blacklisting")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Blacklisted: {self.contract_id}"
+
+
 class TrackedContract(models.Model):
     """
     Contracts registered for event indexing.

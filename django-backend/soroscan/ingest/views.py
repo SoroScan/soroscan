@@ -310,7 +310,13 @@ class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
     ordering = ["-timestamp"]
 
     def get_queryset(self):
-        return ContractEvent.objects.select_related("contract").all()
+        qs = ContractEvent.objects.select_related("contract").all()
+        type_param = self.request.query_params.get("type", "").strip()
+        if type_param:
+            types = [t.strip() for t in type_param.split(",") if t.strip()]
+            if types:
+                qs = qs.filter(event_type__in=types)
+        return qs
 
     @extend_schema(
         parameters=[
@@ -647,6 +653,61 @@ class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
 
         matched = evaluate_condition(webhook.filter_condition, sample_event)
         return Response({"matched": bool(matched)})
+
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="WebhookEventPayloadSchema",
+                fields={"schema": serializers.JSONField()},
+            )
+        },
+    )
+    @action(detail=False, methods=["get"], url_path="schema", url_name="event-schema", permission_classes=[AllowAny])
+    def event_schema(self, request):
+        """Return a JSON Schema describing the webhook event payload structure."""
+        payload_schema = {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "title": "SoroScan Webhook Event Payload",
+            "type": "object",
+            "required": ["contract_id", "event_type", "ledger", "timestamp", "payload"],
+            "properties": {
+                "contract_id": {
+                    "type": "string",
+                    "description": "Stellar contract address (C...)",
+                    "pattern": "^C[A-Z2-7]{55}$",
+                },
+                "event_type": {
+                    "type": "string",
+                    "description": "Type of the emitted event (e.g. 'transfer', 'swap')",
+                },
+                "ledger": {
+                    "type": "integer",
+                    "description": "Ledger sequence number when the event was emitted",
+                },
+                "event_index": {
+                    "type": "integer",
+                    "description": "Position of the event within the ledger",
+                },
+                "tx_hash": {
+                    "type": "string",
+                    "description": "Transaction hash that produced the event",
+                },
+                "timestamp": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "ISO 8601 timestamp of the event",
+                },
+                "payload": {
+                    "type": "object",
+                    "description": "Decoded event payload (contract-specific fields)",
+                },
+                "signature": {
+                    "type": "string",
+                    "description": "HMAC-SHA256 signature header value (sha256=<hex>)",
+                },
+            },
+        }
+        return Response(payload_schema)
 
 
 class TeamViewSet(viewsets.ModelViewSet):

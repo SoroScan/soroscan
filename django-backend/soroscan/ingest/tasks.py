@@ -56,6 +56,7 @@ from .models import (
     OrganizationBudget,
     OrganizationCostSnapshot,
     WebhookDeadLetter,
+    BlacklistedContract,
 )
 from .rate_limit import check_ingest_rate
 from .stellar_client import SorobanClient
@@ -2014,6 +2015,20 @@ def ingest_latest_events() -> int:
                     ),
                     network=network,
                     reason="no_contract",
+                ).inc()
+                continue
+
+            # Skip blacklisted contracts
+            if BlacklistedContract.objects.filter(contract_id=event.contract_id).exists():
+                logger.info(
+                    "Skipping blacklisted contract %s",
+                    event.contract_id,
+                    extra={"contract_id": event.contract_id},
+                )
+                m.events_skipped_total.labels(
+                    contract_id=_short_contract_id(event.contract_id),
+                    network=network,
+                    reason="blacklisted",
                 ).inc()
                 continue
 
