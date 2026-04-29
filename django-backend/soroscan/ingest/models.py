@@ -655,6 +655,12 @@ class ContractEvent(models.Model):
         db_index=True,
         help_text="Result of event signature verification",
     )
+    contract_address = models.CharField(
+        max_length=56,
+        db_index=True,
+        default="",
+        help_text="Denormalized contract address for fast address-based queries",
+    )
 
     class Meta:
         ordering = ["-timestamp"]
@@ -678,7 +684,8 @@ class ContractEvent(models.Model):
         return f"{self.event_type}@{self.ledger} ({self.contract.name})"
 
     def save(self, *args, **kwargs):
-        # Auto-compute payload hash if not set
+        if not self.contract_address and self.contract_id:
+            self.contract_address = self.contract.contract_id
         if not self.payload_hash and self.payload:
             payload_bytes = str(self.payload).encode("utf-8")
             self.payload_hash = hashlib.sha256(payload_bytes).hexdigest()
@@ -794,6 +801,12 @@ class WebhookSubscription(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["target_url", "contract"],
+                name="unique_webhook_url_contract",
+            )
+        ]
 
     def __str__(self):
         return f"Webhook -> {self.target_url} ({self.contract.name})"
