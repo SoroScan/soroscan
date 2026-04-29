@@ -15,6 +15,7 @@ from .views import (
     compliance_export_view,
     contract_event_explorer_view,
     contract_event_types_view,
+    contract_identity_view,
     organization_cost_breakdown_view,
     WebhookSubscriptionViewSet,
     contract_timeline_view,
@@ -74,5 +75,5 @@ urlpatterns = [
     path("deletion-requests/", deletion_requests_view, name="deletion-requests"),
     path("compliance-export/", compliance_export_view, name="compliance-export"),
     path("networks/", networks_view, name="networks"),
-    path("webhooks/failures/", webhook_failures_view, name="webhook-failures"),
+    path("contract/identity/", contract_identity_view, name="contract-identity"),
 ]

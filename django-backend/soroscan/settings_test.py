@@ -36,7 +36,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
-    "soroscan.middleware.RequestBodySizeMiddleware", 
+    "soroscan.middleware.RequestBodySizeMiddleware",
+    "soroscan.middleware.MaintenanceModeMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -186,6 +187,13 @@ LOGGING = {
     "root": {
         "handlers": ["console"],
         "level": "WARNING",
+    },
+    "loggers": {
+        "soroscan.migrate": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": True,
+        },
     },
 }
 

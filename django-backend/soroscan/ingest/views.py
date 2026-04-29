@@ -130,6 +130,16 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
             response.data.setdefault("warnings", [])
         return response
 
+    def create(self, request, *args, **kwargs):
+        dry_run = request.query_params.get("dry_run", "").lower() == "true"
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if dry_run:
+            return Response({"detail": "Valid"}, status=status.HTTP_200_OK)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
 
@@ -591,6 +601,30 @@ class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
             )
 
         return Response({"status": "test_webhook_queued"})
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: inline_serializer(
+                name="PingWebhookResponse",
+                fields={
+                    "status": serializers.CharField(),
+                    "webhook_id": serializers.IntegerField(),
+                },
+            )
+        },
+    )
+    @action(detail=True, methods=["post"])
+    def ping(self, request, pk=None):
+        """
+        Dispatch a background task that sends a test ping payload to the webhook
+        endpoint.  The task logs whether the target responded with HTTP 200.
+        """
+        from .tasks import ping_webhook
+
+        webhook = self.get_object()
+        ping_webhook.delay(webhook.id)
+        return Response({"status": "ping_queued", "webhook_id": webhook.id})
 
     @extend_schema(
         request=inline_serializer(
@@ -1504,4 +1538,33 @@ def deployment_timeline_view(request, contract_id):
         "deployments": ContractDeploymentSerializer(deployments, many=True).data,
         "abi_versions": ContractABIVersionSerializer(abi_versions, many=True).data,
         "compatibility_warnings": warnings,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Issue: Contract Identity Endpoint
+# ---------------------------------------------------------------------------
+
+@extend_schema(
+    responses=inline_serializer(
+        name="ContractIdentityResponse",
+        fields={
+            "contract_id": serializers.CharField(),
+            "network_passphrase": serializers.CharField(),
+            "rpc_url": serializers.CharField(),
+        },
+    )
+)
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def contract_identity_view(request):
+    """
+    GET /api/contract/identity/
+    Returns the SoroScan contract ID and network information.
+    Allows clients to verify where events are coming from.
+    """
+    return Response({
+        "contract_id": getattr(settings, "SOROSCAN_CONTRACT_ID", ""),
+        "network_passphrase": getattr(settings, "STELLAR_NETWORK_PASSPHRASE", ""),
+        "rpc_url": getattr(settings, "SOROBAN_RPC_URL", ""),
     })

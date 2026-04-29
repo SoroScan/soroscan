@@ -1159,6 +1159,57 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
     return False
 
 
+@shared_task(name="ingest.tasks.ping_webhook", bind=True)
+def ping_webhook(self, subscription_id: int) -> dict:
+    """
+    Send a minimal ping payload to a webhook endpoint to verify it is reachable.
+
+    Returns a dict with ``success`` (bool) and either ``status_code`` (int) on
+    a network response or ``error`` (str) on a connection failure.
+    """
+    try:
+        webhook = WebhookSubscription.objects.get(id=subscription_id)
+    except WebhookSubscription.DoesNotExist:
+        logger.warning(
+            "Webhook subscription %s not found for ping",
+            subscription_id,
+            extra={"webhook_id": subscription_id},
+        )
+        return {"success": False, "error": "Subscription not found"}
+
+    payload = {"type": "ping", "timestamp": timezone.now().isoformat()}
+    payload_bytes = json.dumps(payload, sort_keys=True).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "X-SoroScan-Event": "ping",
+    }
+
+    try:
+        response = requests.post(
+            webhook.target_url,
+            data=payload_bytes,
+            headers=headers,
+            timeout=webhook.timeout_seconds,
+        )
+        success = response.status_code == 200
+        logger.info(
+            "Ping webhook %s -> %s (HTTP %d)",
+            subscription_id,
+            "success" if success else "failure",
+            response.status_code,
+            extra={"webhook_id": subscription_id, "status_code": response.status_code},
+        )
+        return {"success": success, "status_code": response.status_code}
+    except requests.RequestException as exc:
+        logger.warning(
+            "Ping to webhook %s failed: %s",
+            subscription_id,
+            exc,
+            extra={"webhook_id": subscription_id},
+        )
+        return {"success": False, "error": str(exc)}
+
+
 # ---------------------------------------------------------------------------
 # Private helpers for dispatch_webhook
 # ---------------------------------------------------------------------------
@@ -2194,6 +2245,45 @@ def aggregate_event_statistics() -> dict[str, Any]:
         "total_events": total_events,
         "active_contracts": active_contracts,
         "timestamp": timezone.now().isoformat(),
+    }
+
+
+@shared_task(name="ingest.tasks.log_daily_platform_stats")
+def log_daily_platform_stats() -> dict[str, Any]:
+    """
+    Log platform usage stats for the last 24 hours.
+    """
+    window_end = timezone.now()
+    window_start = window_end - timedelta(hours=24)
+
+    total_events = ContractEvent.objects.filter(
+        timestamp__gte=window_start,
+        timestamp__lt=window_end,
+    ).count()
+    new_contracts = TrackedContract.objects.filter(
+        created_at__gte=window_start,
+        created_at__lt=window_end,
+    ).count()
+
+    logger.info(
+        "Daily platform stats for %s to %s: %d events ingested, %d contracts registered",
+        window_start.isoformat(),
+        window_end.isoformat(),
+        total_events,
+        new_contracts,
+        extra={
+            "window_start": window_start.isoformat(),
+            "window_end": window_end.isoformat(),
+            "total_events_ingested": total_events,
+            "new_contracts_registered": new_contracts,
+        },
+    )
+
+    return {
+        "window_start": window_start.isoformat(),
+        "window_end": window_end.isoformat(),
+        "total_events_ingested": total_events,
+        "new_contracts_registered": new_contracts,
     }
 
 

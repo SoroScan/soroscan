@@ -329,3 +329,9 @@ kubectl scale deployment/soroscan-worker --replicas=3 -n soroscan
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
+
+---
+
+## 📚 Additional Documentation
+
+- [CELERY.md](CELERY.md) — Celery worker queues, concurrency settings, and deployment examples

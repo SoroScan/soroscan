@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 import responses
 from django.contrib.auth import get_user_model
@@ -401,6 +403,34 @@ class TestRecordEventView:
 
 
 @pytest.mark.django_db
+class TestWebhookPingEndpoint:
+    def test_ping_queues_task_and_returns_200(self, authenticated_client, contract):
+        webhook = WebhookSubscriptionFactory(contract=contract)
+
+        with patch("soroscan.ingest.tasks.ping_webhook.delay") as mock_delay:
+            url = reverse("webhook-ping", args=[webhook.id])
+            response = authenticated_client.post(url)
+            mock_delay.assert_called_once_with(webhook.id)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["status"] == "ping_queued"
+        assert response.data["webhook_id"] == webhook.id
+
+    def test_ping_returns_404_for_missing_webhook(self, authenticated_client):
+        url = reverse("webhook-ping", args=[999999])
+        response = authenticated_client.post(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_ping_requires_authentication(self, api_client, contract):
+        webhook = WebhookSubscriptionFactory(contract=contract)
+        url = reverse("webhook-ping", args=[webhook.id])
+        response = api_client.post(url)
+
+        assert response.status_code in [
+            status.HTTP_401_UNAUTHORIZED,
+            status.HTTP_403_FORBIDDEN,
+        ]
 class TestNetworksEndpoint:
     def test_networks_returns_list(self, api_client, settings):
         settings.SOROBAN_NETWORKS = [
