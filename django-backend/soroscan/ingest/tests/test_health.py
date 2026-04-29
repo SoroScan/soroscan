@@ -62,3 +62,59 @@ class TestReadinessView:
         assert response.data["status"] == "not_ready"
         assert any("redis" in e for e in response.data["errors"])
         assert response["X-SoroScan-Version"] == settings.SOFTWARE_VERSION
+
+
+@pytest.mark.django_db
+class TestWorkersHealthView:
+    def test_workers_ok_when_ping_returns_results(self, api_client, monkeypatch):
+        fake_ping = {"celery@worker1": {"ok": "pong"}}
+
+        class FakeInspector:
+            def ping(self):
+                return fake_ping
+
+        class FakeControl:
+            def inspect(self, timeout=None):
+                return FakeInspector()
+
+        import soroscan.celery as celery_module
+        monkeypatch.setattr(celery_module.app, "control", FakeControl())
+
+        url = reverse("workers-health")
+        response = api_client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["status"] == "ok"
+        assert "celery@worker1" in response.data["workers"]
+
+    def test_workers_503_when_no_workers_respond(self, api_client, monkeypatch):
+        class FakeInspector:
+            def ping(self):
+                return {}
+
+        class FakeControl:
+            def inspect(self, timeout=None):
+                return FakeInspector()
+
+        import soroscan.celery as celery_module
+        monkeypatch.setattr(celery_module.app, "control", FakeControl())
+
+        url = reverse("workers-health")
+        response = api_client.get(url)
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.data["status"] == "no_workers"
+
+    def test_workers_503_when_inspect_raises(self, api_client, monkeypatch):
+        class FakeControl:
+            def inspect(self, timeout=None):
+                raise Exception("Broker unreachable")
+
+        import soroscan.celery as celery_module
+        monkeypatch.setattr(celery_module.app, "control", FakeControl())
+
+        url = reverse("workers-health")
+        response = api_client.get(url)
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.data["status"] == "error"
