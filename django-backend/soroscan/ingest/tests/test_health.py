@@ -1,4 +1,5 @@
 import pytest
+from django.conf import settings
 from django.core.cache import cache
 from django.urls import reverse
 from rest_framework import status
@@ -19,6 +20,7 @@ class TestHealthView:
 
         assert response.status_code == status.HTTP_200_OK
         assert response.data == {"status": "ok"}
+        assert response["X-SoroScan-Version"] == settings.SOFTWARE_VERSION
 
 
 @pytest.mark.django_db
@@ -29,6 +31,7 @@ class TestReadinessView:
 
         assert response.status_code == status.HTTP_200_OK
         assert response.data == {"status": "ready"}
+        assert response["X-SoroScan-Version"] == settings.SOFTWARE_VERSION
 
     def test_not_ready_when_db_fails(self, api_client, monkeypatch):
         from django.db import connection
@@ -44,6 +47,7 @@ class TestReadinessView:
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert response.data["status"] == "not_ready"
         assert any("db" in e for e in response.data["errors"])
+        assert response["X-SoroScan-Version"] == settings.SOFTWARE_VERSION
 
     def test_not_ready_when_cache_fails(self, api_client, monkeypatch):
         def mocked_get(*args, **kwargs):
@@ -57,3 +61,4 @@ class TestReadinessView:
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert response.data["status"] == "not_ready"
         assert any("redis" in e for e in response.data["errors"])
+        assert response["X-SoroScan-Version"] == settings.SOFTWARE_VERSION

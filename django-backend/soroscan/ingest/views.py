@@ -597,6 +597,30 @@ class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
         return Response({"status": "test_webhook_queued"})
 
     @extend_schema(
+        request=None,
+        responses={
+            200: inline_serializer(
+                name="PingWebhookResponse",
+                fields={
+                    "status": serializers.CharField(),
+                    "webhook_id": serializers.IntegerField(),
+                },
+            )
+        },
+    )
+    @action(detail=True, methods=["post"])
+    def ping(self, request, pk=None):
+        """
+        Dispatch a background task that sends a test ping payload to the webhook
+        endpoint.  The task logs whether the target responded with HTTP 200.
+        """
+        from .tasks import ping_webhook
+
+        webhook = self.get_object()
+        ping_webhook.delay(webhook.id)
+        return Response({"status": "ping_queued", "webhook_id": webhook.id})
+
+    @extend_schema(
         request=inline_serializer(
             name="WebhookConditionDryRunRequest",
             fields={
@@ -840,6 +864,32 @@ def record_event_view(request):
 def health_check(request):
     """Health check endpoint."""
     return Response({"status": "healthy", "service": "soroscan"})
+
+
+@extend_schema(
+    responses=inline_serializer(
+        name="NetworkListResponse",
+        fields={
+            "networks": serializers.ListField(
+                child=inline_serializer(
+                    name="NetworkEntry",
+                    fields={
+                        "id": serializers.CharField(),
+                        "name": serializers.CharField(),
+                        "rpc_url": serializers.CharField(),
+                        "network_passphrase": serializers.CharField(),
+                    },
+                )
+            )
+        },
+    )
+)
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def networks_view(request):
+    """Return the list of Soroban networks supported by this indexer."""
+    networks = getattr(settings, "SOROBAN_NETWORKS", [])
+    return Response({"networks": networks})
 
 
 @extend_schema(
@@ -1372,7 +1422,7 @@ def deletion_requests_view(request):
 @permission_classes([IsAuthenticated])
 def compliance_export_view(request):
     """
-    GET /api/compliance-export/?from=<iso>&to=<iso>
+    GET /api/compliance-export/?from={iso}&to={iso}
     Returns a CSV audit trail of AuditLog entries for compliance auditors.
     Staff only.
     """

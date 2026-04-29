@@ -21,6 +21,7 @@ from .views import (
     deletion_requests_view,
     deployment_timeline_view,
     health_check,
+    networks_view,
     platform_stats,
     record_event_view,
     restore_archived_events,
@@ -73,4 +74,5 @@ urlpatterns = [
     ),
     path("deletion-requests/", deletion_requests_view, name="deletion-requests"),
     path("compliance-export/", compliance_export_view, name="compliance-export"),
+    path("networks/", networks_view, name="networks"),
 ]

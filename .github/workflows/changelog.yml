@@ -1,0 +1,40 @@
+name: Generate Changelog
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  changelog:
+    name: Generate changelog
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate a changelog
+        uses: orhun/git-cliff-action@v3
+        with:
+          config: cliff.toml
+          args: --verbose
+        env:
+          OUTPUT: docs/changelog.md
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore(changelog): update changelog"
+          title: "chore(changelog): Update Changelog"
+          body: |
+            Automated changelog generation using git-cliff.
+            
+            **Maintainer Action Required:**
+            Please review the generated `docs/changelog.md` and inject any necessary migration guides or editorial notes before merging this PR.
+          branch: update-changelog
+          base: main

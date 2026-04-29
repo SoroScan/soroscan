@@ -6,7 +6,7 @@ import secrets
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator, MaxValueValidator
+from django.core.validators import MinValueValidator, MaxValueValidator, RegexValidator
 from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
@@ -260,9 +260,15 @@ class TrackedContract(models.Model):
         max_length=56,
         unique=True,
         db_index=True,
+        validators=[
+            RegexValidator(
+                regex=r"^C[A-Z2-7]{55}$",
+                message="Contract address must start with 'C' and be exactly 56 characters using valid Base32 characters (A-Z, 2-7).",
+            )
+        ],
         help_text="Stellar contract address (C...)",
     )
-    name = models.CharField(max_length=100, help_text="Human-readable contract name")
+    name = models.CharField(max_length=100, db_index=True, help_text="Human-readable contract name")
     alias = models.CharField(
         max_length=256,
         blank=True,
@@ -372,7 +378,7 @@ class TrackedContract(models.Model):
         help_text="Custom attributes for storing contract metadata (team, owner, cost center, etc.)",
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

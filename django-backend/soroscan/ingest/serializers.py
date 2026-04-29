@@ -362,6 +362,20 @@ class WebhookSubscriptionSerializer(serializers.ModelSerializer):
                 )
         return value
 
+    def validate(self, attrs):
+        contract = attrs.get("contract")
+        if not contract and self.instance:
+            contract = self.instance.contract
+            
+        if contract:
+            estimated_size = contract.metadata.get("estimated_payload_size", 0)
+            if estimated_size > 1048576:  # 1MB
+                raise serializers.ValidationError({"contract": "Estimated payload exceeds 1MB limit."})
+                
+            if contract.metadata.get("is_massive", False):
+                raise serializers.ValidationError({"contract": "Contract events are known to be massive."})
+                
+        return attrs
 
 class RecordEventRequestSerializer(serializers.Serializer):
     """

@@ -5,10 +5,12 @@ from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin.helpers import ActionForm, ACTION_CHECKBOX_NAME
 from django.db.models import Count
-from django.http import HttpResponse
+from django.http import HttpResponse, StreamingHttpResponse
 from django.urls import path
 from django.utils.html import format_html
 import json
+import csv
+from datetime import datetime
 
 from .models import (
     AlertExecution,
@@ -192,7 +194,7 @@ class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
     readonly_fields = ["created_at", "updated_at"]
     ordering = ["-created_at", "name"]
     action_form = BackfillActionForm
-    actions = ["backfill_events"]
+    actions = ["backfill_events", "clear_cache"]
     fieldsets = (
         (None, {
             "fields": (
@@ -283,6 +285,22 @@ class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
                 level=messages.SUCCESS,
             )
 
+    @admin.action(description="Clear Redis cache for selected contracts")
+    def clear_cache(self, request, queryset):
+        from .cache_utils import invalidate_contract_query_cache, invalidate_event_count_cache
+
+        cleared = 0
+        for contract in queryset:
+            invalidate_contract_query_cache(contract.contract_id)
+            invalidate_event_count_cache(contract.contract_id)
+            cleared += 1
+
+        self.message_user(
+            request,
+            f"Cache cleared for {cleared} contract(s).",
+            level=messages.SUCCESS,
+        )
+
 
 @admin.register(EventSchema)
 class EventSchemaAdmin(AdminAuditMixin, admin.ModelAdmin):
@@ -365,7 +383,7 @@ class ContractEventAdmin(AdminAuditMixin, admin.ModelAdmin):
     ]
     ordering = ["timestamp"]
     date_hierarchy = "timestamp"
-    actions = ["trigger_reindex"]
+    actions = ["trigger_reindex", "export_events_csv"]
 
     def get_queryset(self, request):
         """Optimize queries with select_related to prevent N+1 issues."""
@@ -443,6 +461,38 @@ class ContractEventAdmin(AdminAuditMixin, admin.ModelAdmin):
                 f"Re-index started for {len(task_ids)} contract(s). Task IDs: {', '.join(task_ids)}",
                 level=messages.SUCCESS,
             )
+
+    @admin.action(description="Export selected events to CSV")
+    def export_events_csv(self, request, queryset):
+        """
+        Export selected ContractEvent records to CSV using a streaming response.
+        Streams the file to handle large selections efficiently.
+        """
+        class Echo:
+            """An object that implements just the write method of the file-like interface."""
+            def write(self, value):
+                return value
+
+        def stream_csv():
+            pseudo_buffer = Echo()
+            writer = csv.writer(pseudo_buffer)
+            # Yield header
+            yield writer.writerow(["ID", "Contract Address", "Event Type", "Timestamp"])
+            
+            # Fetch events efficiently
+            events = queryset.select_related("contract").iterator(chunk_size=2000)
+            for event in events:
+                yield writer.writerow([
+                    event.id,
+                    event.contract.contract_id,
+                    event.event_type,
+                    event.timestamp.isoformat() if event.timestamp else "",
+                ])
+
+        filename = f"contract_events_{datetime.now().strftime('%Y%m%d')}.csv"
+        response = StreamingHttpResponse(stream_csv(), content_type="text/csv")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
 
     # ------------------------------------------------------------------
     # Slow query report — accessible at /admin/ingest/contractevent/slow-query-report/

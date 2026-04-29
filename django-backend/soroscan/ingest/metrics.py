@@ -23,6 +23,7 @@ __all__ = [
     "webhook_ack_total",
     "webhook_sla_total",
     "webhook_escalations_total",
+    "webhook_deduplicated_total",
     "alert_rules_evaluated_total",
     "alert_deduplicated_total",
     "remediation_rules_evaluated_total",
@@ -37,6 +38,7 @@ __all__ = [
     "event_streaming_total",
     "ledger_gaps_total",
     "missing_events_total",
+    "event_ingestion_rate_gauge",
 ]
 
 
@@ -165,6 +167,12 @@ webhook_escalations_total = _get_or_create(
     ["channel", "status"],
 )
 
+webhook_deduplicated_total = _get_or_create(
+    Counter,
+    "soroscan_webhook_deduplicated_total",
+    "Number of webhook deliveries skipped due to deduplication",
+)
+
 alert_rules_evaluated_total = _get_or_create(
     Counter,
     "soroscan_alert_rules_evaluated_total",
@@ -263,4 +271,10 @@ missing_events_total = _get_or_create(
     "soroscan_missing_events_total",
     "Total number of missing ledgers/events detected by reconciliation",
     ["contract_id"],
+)
+
+event_ingestion_rate_gauge = _get_or_create(
+    Gauge,
+    "soroscan_event_ingestion_rate",
+    "Current event ingestion rate in events per second",
 )
