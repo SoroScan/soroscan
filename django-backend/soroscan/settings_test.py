@@ -185,6 +185,13 @@ LOGGING = {
         "handlers": ["console"],
         "level": "WARNING",
     },
+    "loggers": {
+        "soroscan.migrate": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": True,
+        },
+    },
 }
 
 MAX_REQUEST_BODY_SIZE = 10485760

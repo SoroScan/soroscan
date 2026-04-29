@@ -391,6 +391,11 @@ LOGGING["loggers"]["soroscan.slow_queries"] = {
     "level": "WARNING",
     "propagate": False,
 }
+LOGGING["loggers"]["soroscan.migrate"] = {
+    "handlers": ["console"],
+    "level": "INFO",
+    "propagate": False,
+}
 
 # ---------------------------------------------------------------------------
 # Django Silk profiler (Issue: perf monitoring) — enabled via ENABLE_SILK=true
