@@ -78,13 +78,10 @@ Get SoroScan running locally in under 5 minutes with Docker Compose.
 git clone https://github.com/SoroScan/soroscan.git
 cd soroscan
 
-# 2. Copy environment file and configure if needed
-cp django-backend/.env.example django-backend/.env
+# 2. Bootstrap the local development environment
+./setup.sh
 
-# 3. Start all services (PostgreSQL, Redis, Django, Celery)
-docker-compose up --build
-
-# The backend will be available at:
+# 3. The backend will be available at:
 # - REST API: http://localhost:8000/api/events/
 # - GraphQL Playground: http://localhost:8000/graphql/
 # - Django Admin: http://localhost:8000/admin/

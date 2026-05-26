@@ -9,19 +9,18 @@ Running SoroScan locally or in a simple production environment is easiest with *
 
 ## Quick Start
 
-### 1. Configure Environment
+### 1. Bootstrap the environment
 
-Copy the example environment file:
+Run the supplied setup script from the repository root:
 ```bash
-cp django-backend/.env.example django-backend/.env
+./setup.sh
 ```
-Edit `.env` to include your specific configurations (Database URLs, API keys, etc.).
 
-### 2. Launch Services
+This command will create `django-backend/.env` from `django-backend/.env.example`, generate a secure `SECRET_KEY` if needed, and launch the Docker Compose services.
 
-Run the following command in the root directory:
+If you prefer not to start services immediately, use:
 ```bash
-docker-compose up -d --build
+./setup.sh --no-start
 ```
 
 This will start:
