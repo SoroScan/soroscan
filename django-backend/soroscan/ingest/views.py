@@ -44,6 +44,7 @@ from .models import (
     TrackedContract,
     WebhookSubscription,
 )
+from .cache_utils import get_cached_contract
 from .serializers import (
     APIKeySerializer,
     ContractEventSerializer,
@@ -1016,7 +1017,10 @@ def organization_cost_breakdown_view(request):
 
 def contract_timeline_view(request, contract_id: str):
     """Redirect timeline requests to the frontend contract timeline page."""
-    contract = get_object_or_404(TrackedContract, contract_id=contract_id)
+    contract = get_cached_contract(contract_id)
+    if not contract:
+        from django.http import Http404
+        raise Http404
     frontend_base = _frontend_base_url()
     return redirect(f"{frontend_base}/contracts/{contract.contract_id}/timeline")
 
@@ -1042,7 +1046,10 @@ def transaction_events_view(request, tx_id: str):
 
 def contract_event_explorer_view(request, contract_id: str):
     """Redirect explorer requests to the frontend event explorer page."""
-    contract = get_object_or_404(TrackedContract, contract_id=contract_id)
+    contract = get_cached_contract(contract_id)
+    if not contract:
+        from django.http import Http404
+        raise Http404
     frontend_base = _frontend_base_url()
     return redirect(f"{frontend_base}/contracts/{contract.contract_id}/events/explorer")
 
@@ -1051,7 +1058,10 @@ def contract_event_explorer_view(request, contract_id: str):
 @permission_classes([AllowAny])
 def contract_event_types_view(request, contract_id: str):
     """Get event types and their counts for a specific contract."""
-    contract = get_object_or_404(TrackedContract, contract_id=contract_id)
+    contract = get_cached_contract(contract_id)
+    if not contract:
+        from django.http import Http404
+        raise Http404
     
     cache_key = stable_cache_key("contract_event_types", {"contract_id": contract_id})
     
@@ -1146,7 +1156,9 @@ def restore_archived_events(request):
     restored_count = 0
     for row in rows:
         try:
-            contract = TrackedContract.objects.get(contract_id=row["contract__contract_id"])
+            contract = get_cached_contract(row["contract__contract_id"])
+            if not contract:
+                raise TrackedContract.DoesNotExist(f"Contract {row['contract__contract_id']} not found")
             ContractEvent.objects.get_or_create(
                 contract=contract,
                 ledger=row["ledger"],
@@ -1463,7 +1475,10 @@ def deployment_timeline_view(request, contract_id):
     """
     from .models import ContractDeployment, ContractABIVersion
 
-    contract = get_object_or_404(TrackedContract, contract_id=contract_id)
+    contract = get_cached_contract(contract_id)
+    if not contract:
+        from django.http import Http404
+        raise Http404
     deployments = ContractDeployment.objects.filter(contract=contract).order_by("ledger_deployed")
     abi_versions = ContractABIVersion.objects.filter(contract=contract).order_by("version_number")
 

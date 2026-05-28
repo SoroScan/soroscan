@@ -39,3 +39,16 @@ def on_user_login_failed(sender, credentials, request, **kwargs):
         username,
         ip,
     )
+
+
+from django.db.models.signals import post_save, post_delete
+from .models import TrackedContract
+from .cache_utils import invalidate_cached_contract
+
+
+@receiver([post_save, post_delete], sender=TrackedContract)
+def invalidate_contract_on_update(sender, instance, **kwargs):
+    """Invalidate the Redis cache for a TrackedContract when it is modified or deleted."""
+    if instance.contract_id:
+        invalidate_cached_contract(instance.contract_id)
+

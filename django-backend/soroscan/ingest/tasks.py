@@ -35,6 +35,7 @@ from .cache_utils import (
     get_cached_decoded_payload,
     set_cached_decoded_payload,
     invalidate_decoded_payload_cache,
+    get_cached_contract,
     _SENTINEL,
 )
 from .models import (
@@ -1690,9 +1691,9 @@ def analyze_contract_dependencies() -> dict[str, int]:
 
     for invocation in invocations:
         # Check if caller is a tracked contract
-        try:
-            caller_contract = TrackedContract.objects.get(contract_id=invocation.caller)
-        except TrackedContract.DoesNotExist:
+        caller_contract = get_cached_contract(invocation.caller)
+        if not caller_contract:
+            raise TrackedContract.DoesNotExist()
             # Caller is a contract but not tracked by us — skip
             continue
 
@@ -1807,7 +1808,7 @@ def recompute_call_graph(contract_id: str | None = None) -> bool:
     # Update cache
     root_contract = None
     if contract_id:
-        root_contract = TrackedContract.objects.filter(contract_id=contract_id).first()
+        root_contract = get_cached_contract(contract_id)
 
     CallGraph.objects.update_or_create(
         contract=root_contract,
@@ -1846,7 +1847,9 @@ def assess_vulnerability_impact(contract_id: str) -> dict[str, Any]:
     Returns downstream impacted contracts, cycle participation, and risk score.
     """
     try:
-        root_contract = TrackedContract.objects.get(contract_id=contract_id)
+        root_contract = get_cached_contract(contract_id)
+        if not root_contract:
+            raise TrackedContract.DoesNotExist()
     except TrackedContract.DoesNotExist:
         return {
             "contract_id": contract_id,
@@ -1926,7 +1929,7 @@ def alert_downstream_contract_change(contract_id: str, change_type: str = "modif
     """
     from .services.notifications import create_and_push
 
-    changed_contract = TrackedContract.objects.filter(contract_id=contract_id).first()
+    changed_contract = get_cached_contract(contract_id)
     if not changed_contract:
         return 0
 
@@ -2006,7 +2009,9 @@ def ingest_latest_events() -> int:
         for fallback_event_index, event in enumerate(events_response.events):
             scanned_ledgers.add(getattr(event, "ledger", 0))
             try:
-                contract = TrackedContract.objects.get(contract_id=event.contract_id)
+                contract = get_cached_contract(event.contract_id)
+                if not contract:
+                    raise TrackedContract.DoesNotExist()
             except TrackedContract.DoesNotExist:
                 m.events_skipped_total.labels(
                     contract_id=_short_contract_id(
@@ -2356,7 +2361,9 @@ def backfill_contract_events(
         raise ValueError("Invalid ledger range provided")
 
     try:
-        contract = TrackedContract.objects.get(contract_id=contract_id)
+        contract = get_cached_contract(contract_id)
+        if not contract:
+            raise TrackedContract.DoesNotExist()
     except TrackedContract.DoesNotExist as exc:
         raise ValueError(f"Tracked contract not found: {contract_id}") from exc
 
@@ -3107,7 +3114,7 @@ def _resolve_contract_for_rule(rule: RemediationRule) -> TrackedContract | None:
     contract_id = (rule.condition or {}).get("contract_id")
     if not contract_id:
         return None
-    return TrackedContract.objects.filter(contract_id=contract_id).first()
+    return get_cached_contract(contract_id)
 
 
 def _detect_anomaly(
