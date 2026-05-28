@@ -5,7 +5,11 @@ Hooks into Django's user_logged_in and user_login_failed signals.
 import logging
 
 from django.contrib.auth.signals import user_logged_in, user_login_failed
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
+
+from .cache_utils import invalidate_cached_contract
+from .models import TrackedContract
 
 logger = logging.getLogger("soroscan.security_audit")
 
@@ -41,14 +45,8 @@ def on_user_login_failed(sender, credentials, request, **kwargs):
     )
 
 
-from django.db.models.signals import post_save, post_delete
-from .models import TrackedContract
-from .cache_utils import invalidate_cached_contract
-
-
 @receiver([post_save, post_delete], sender=TrackedContract)
 def invalidate_contract_on_update(sender, instance, **kwargs):
     """Invalidate the Redis cache for a TrackedContract when it is modified or deleted."""
     if instance.contract_id:
         invalidate_cached_contract(instance.contract_id)
-

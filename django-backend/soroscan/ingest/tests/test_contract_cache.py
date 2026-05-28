@@ -1,7 +1,6 @@
 import pytest
 from unittest.mock import patch
 from django.core.cache import cache
-from soroscan.ingest.models import TrackedContract
 from soroscan.ingest.cache_utils import get_cached_contract, contract_cache_key
 from soroscan.ingest.tests.factories import TrackedContractFactory
 
