@@ -39,6 +39,36 @@ pub enum ContractError {
     NotInitialized = 4,
 }
 
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/// Verify `caller` is the stored admin. Returns `Unauthorized` or
+/// `NotInitialized` on failure.
+fn require_admin(env: &Env, caller: &Address) -> Result<(), ContractError> {
+    let stored: Address = env
+        .storage()
+        .instance()
+        .get(&ADMIN_KEY)
+        .ok_or(ContractError::NotInitialized)?;
+    if caller != &stored {
+        return Err(ContractError::Unauthorized);
+    }
+    Ok(())
+}
+
+/// Load the indexer map from storage.
+fn get_indexers(env: &Env) -> Result<Map<Address, bool>, ContractError> {
+    env.storage()
+        .instance()
+        .get(&INDEXERS_KEY)
+        .ok_or(ContractError::NotInitialized)
+}
+
+// ---------------------------------------------------------------------------
+// Contract
+// ---------------------------------------------------------------------------
+
 #[contract]
 pub struct SoroScanCore;
 
@@ -46,10 +76,6 @@ pub struct SoroScanCore;
 impl SoroScanCore {
     /// Initialize the contract with an admin address.
     /// Can only be called once.
-    ///
-    /// # Arguments
-    /// * `env` - The contract environment
-    /// * `admin` - The admin address that can manage indexers
     pub fn init(env: Env, admin: Address) -> Result<(), ContractError> {
         if env.storage().instance().has(&ADMIN_KEY) {
             return Err(ContractError::AlreadyInitialized);
@@ -65,34 +91,14 @@ impl SoroScanCore {
     }
 
     /// Add an authorized indexer address.
-    ///
-    /// # Arguments
-    /// * `env` - The contract environment
-    /// * `admin` - The admin address (must match stored admin)
-    /// * `indexer` - The indexer address to authorize
     pub fn add_indexer(env: Env, admin: Address, indexer: Address) -> Result<(), ContractError> {
         admin.require_auth();
+        require_admin(&env, &admin)?;
 
-        let stored_admin: Address = env
-            .storage()
-            .instance()
-            .get(&ADMIN_KEY)
-            .ok_or(ContractError::NotInitialized)?;
-
-        if admin != stored_admin {
-            return Err(ContractError::Unauthorized);
-        }
-
-        let mut indexers: Map<Address, bool> = env
-            .storage()
-            .instance()
-            .get(&INDEXERS_KEY)
-            .ok_or(ContractError::NotInitialized)?;
-
+        let mut indexers = get_indexers(&env)?;
         indexers.set(indexer.clone(), true);
         env.storage().instance().set(&INDEXERS_KEY, &indexers);
 
-        // Emit event for indexer addition
         env.events()
             .publish((symbol_short!("indexer"), symbol_short!("add")), indexer);
 
@@ -100,34 +106,14 @@ impl SoroScanCore {
     }
 
     /// Remove an authorized indexer address.
-    ///
-    /// # Arguments
-    /// * `env` - The contract environment
-    /// * `admin` - The admin address (must match stored admin)
-    /// * `indexer` - The indexer address to remove
     pub fn remove_indexer(env: Env, admin: Address, indexer: Address) -> Result<(), ContractError> {
         admin.require_auth();
+        require_admin(&env, &admin)?;
 
-        let stored_admin: Address = env
-            .storage()
-            .instance()
-            .get(&ADMIN_KEY)
-            .ok_or(ContractError::NotInitialized)?;
-
-        if admin != stored_admin {
-            return Err(ContractError::Unauthorized);
-        }
-
-        let mut indexers: Map<Address, bool> = env
-            .storage()
-            .instance()
-            .get(&INDEXERS_KEY)
-            .ok_or(ContractError::NotInitialized)?;
-
+        let mut indexers = get_indexers(&env)?;
         indexers.remove(indexer.clone());
         env.storage().instance().set(&INDEXERS_KEY, &indexers);
 
-        // Emit event for indexer removal
         env.events()
             .publish((symbol_short!("indexer"), symbol_short!("rem")), indexer);
 
@@ -137,15 +123,7 @@ impl SoroScanCore {
     /// Record an event from an indexed contract.
     /// Only authorized indexers can call this function.
     ///
-    /// # Arguments
-    /// * `env` - The contract environment
-    /// * `indexer` - The indexer address (must be authorized)
-    /// * `contract_id` - The contract that emitted the original event
-    /// * `event_type` - The type/category of the event
-    /// * `payload_hash` - SHA-256 hash of the event payload
-    ///
-    /// # Returns
-    /// The new total event count
+    /// Returns the new total event count.
     pub fn record_event(
         env: Env,
         indexer: Address,
@@ -155,37 +133,28 @@ impl SoroScanCore {
     ) -> Result<u64, ContractError> {
         indexer.require_auth();
 
-        let indexers: Map<Address, bool> = env
-            .storage()
-            .instance()
-            .get(&INDEXERS_KEY)
-            .ok_or(ContractError::NotInitialized)?;
-
-        let is_allowed = indexers.get(indexer).unwrap_or(false);
-        if !is_allowed {
+        let indexers = get_indexers(&env)?;
+        if !indexers.get(indexer).unwrap_or(false) {
             return Err(ContractError::IndexerNotFound);
         }
-
-        let ledger = env.ledger().sequence();
-        let timestamp = env.ledger().timestamp();
 
         let record = EventRecord {
             contract_id,
             event_type: event_type.clone(),
             payload_hash,
-            ledger,
-            timestamp,
+            ledger: env.ledger().sequence(),
+            timestamp: env.ledger().timestamp(),
         };
 
-        // Increment counter with overflow protection
-        let mut count: u64 = env.storage().instance().get(&COUNTER_KEY).unwrap_or(0);
-        count = count.saturating_add(1);
+        let count: u64 = env
+            .storage()
+            .instance()
+            .get(&COUNTER_KEY)
+            .unwrap_or(0u64)
+            .saturating_add(1);
         env.storage().instance().set(&COUNTER_KEY, &count);
 
-        // Store latest event by type
         env.storage().instance().set(&event_type, &record);
-
-        // Publish the event for off-chain indexers
         env.events()
             .publish((symbol_short!("soroscan"), event_type), record);
 
@@ -193,51 +162,24 @@ impl SoroScanCore {
     }
 
     /// Get the latest event record for a specific event type.
-    ///
-    /// # Arguments
-    /// * `env` - The contract environment
-    /// * `event_type` - The event type to query
-    ///
-    /// # Returns
-    /// The latest EventRecord for the type, or None if not found
     pub fn latest_by_type(env: Env, event_type: Symbol) -> Option<EventRecord> {
         env.storage().instance().get(&event_type)
     }
 
     /// Get the total number of events recorded.
-    ///
-    /// # Arguments
-    /// * `env` - The contract environment
-    ///
-    /// # Returns
-    /// The total event count
     pub fn total_events(env: Env) -> u64 {
         env.storage().instance().get(&COUNTER_KEY).unwrap_or(0)
     }
 
     /// Check if an address is an authorized indexer.
-    ///
-    /// # Arguments
-    /// * `env` - The contract environment
-    /// * `indexer` - The address to check
-    ///
-    /// # Returns
-    /// true if the address is authorized, false otherwise
     pub fn is_indexer(env: Env, indexer: Address) -> bool {
-        let indexers: Option<Map<Address, bool>> = env.storage().instance().get(&INDEXERS_KEY);
-        match indexers {
-            Some(map) => map.get(indexer).unwrap_or(false),
-            None => false,
-        }
+        env.storage()
+            .instance()
+            .get::<_, Map<Address, bool>>(&INDEXERS_KEY)
+            .map_or(false, |m| m.get(indexer).unwrap_or(false))
     }
 
-    /// Get the admin address.
-    ///
-    /// # Arguments
-    /// * `env` - The contract environment
-    ///
-    /// # Returns
-    /// The admin address, or None if not initialized
+    /// Get the admin address, or `None` if not initialized.
     pub fn get_admin(env: Env) -> Option<Address> {
         env.storage().instance().get(&ADMIN_KEY)
     }
