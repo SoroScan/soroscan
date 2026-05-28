@@ -2149,6 +2149,15 @@ def ingest_latest_events() -> int:
                     network=network,
                     event_type=event_record.event_type,
                 ).inc()
+                
+                # Record ingestion latency (time from event emission to indexing)
+                if hasattr(event, "created_at") and event.created_at:
+                    latency = (timezone.now() - event.created_at).total_seconds()
+                    m.event_ingestion_latency_seconds.labels(
+                        contract_id=_short_contract_id(contract.contract_id),
+                        network=network,
+                    ).observe(latency)
+                
                 process_new_event.delay(
                     {
                         "contract_id": contract.contract_id,

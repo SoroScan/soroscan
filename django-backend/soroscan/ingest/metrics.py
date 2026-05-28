@@ -39,10 +39,11 @@ __all__ = [
     "ledger_gaps_total",
     "missing_events_total",
     "event_ingestion_rate_gauge",
+    "event_ingestion_latency_seconds",
 ]
 
 
-def _get_or_create(metric_cls, name, documentation, labelnames=()):
+def _get_or_create(metric_cls, name, documentation, labelnames=(), buckets=None):
     """
     Return an existing collector from REGISTRY if one with *name* is already
     registered, otherwise create and register a new one.
@@ -65,6 +66,10 @@ def _get_or_create(metric_cls, name, documentation, labelnames=()):
             return collector
 
     # Not found — safe to create (which auto-registers).
+    if metric_cls == Histogram and buckets:
+        if labelnames:
+            return metric_cls(name, documentation, labelnames, buckets=buckets)
+        return metric_cls(name, documentation, buckets=buckets)
     if labelnames:
         return metric_cls(name, documentation, labelnames)
     return metric_cls(name, documentation)
@@ -277,4 +282,12 @@ event_ingestion_rate_gauge = _get_or_create(
     Gauge,
     "soroscan_event_ingestion_rate",
     "Current event ingestion rate in events per second",
+)
+
+event_ingestion_latency_seconds = _get_or_create(
+    Histogram,
+    "soroscan_event_ingestion_latency_seconds",
+    "Time from event emission to indexing in seconds (latency percentiles: p50, p95, p99)",
+    ["contract_id", "network"],
+    buckets=(0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 300.0, float("inf")),
 )
