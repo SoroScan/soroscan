@@ -335,3 +335,5 @@ This project is licensed under the [MIT License](LICENSE).
 ## 📚 Additional Documentation
 
 - [CELERY.md](CELERY.md) — Celery worker queues, concurrency settings, and deployment examples
+- [Architecture Overview](docs/architecture/README.md) — end-to-end system design, data flows, component interaction, and deployment architecture
+- [Architecture Decision Records](docs/architecture/adr.md) — rationale for core technology and design choices
