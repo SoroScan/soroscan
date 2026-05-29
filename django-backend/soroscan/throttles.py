@@ -5,7 +5,7 @@ import logging
 import time
 
 from django.core.cache import cache
-from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
+from rest_framework.throttling import BaseThrottle, SimpleRateThrottle, ScopedRateThrottle
 
 logger = logging.getLogger(__name__)
 
@@ -171,3 +171,27 @@ class GraphQLRateThrottle(SimpleRateThrottle):
         else:
             ident = self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class DynamicEndpointThrottle(ScopedRateThrottle):
+    """
+    Dynamically applies a throttle scope to a ViewSet action or APIView.
+    Checks for `action_throttle_scopes` dictionary on the view to map an action to a scope.
+    Falls back to `throttle_scope` if defined.
+    """
+    def allow_request(self, request, view):
+        # Determine scope dynamically for ViewSets
+        if hasattr(view, 'action') and hasattr(view, 'action_throttle_scopes'):
+            self.scope = view.action_throttle_scopes.get(view.action)
+        
+        # Fallback to standard throttle_scope
+        if getattr(self, 'scope', None) is None:
+            self.scope = getattr(view, self.scope_attr, None)
+
+        if not self.scope:
+            return True
+
+        self.rate = self.get_rate()
+        self.num_requests, self.duration = self.parse_rate(self.rate)
+
+        return super().allow_request(request, view)

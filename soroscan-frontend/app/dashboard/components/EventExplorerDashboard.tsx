@@ -118,6 +118,21 @@ export function EventExplorerDashboard() {
     setCurrentPage(1);
   }, []);
 
+  const handleClearFilters = useCallback(() => {
+    setFilters((prev) => ({
+      ...prev,
+      eventType: "",
+      since: "",
+      until: "",
+      searchQuery: "",
+    }));
+    setCurrentPage(1);
+  }, []);
+
+  const hasActiveFilters = Boolean(
+    filters.eventType || filters.since || filters.until || filters.searchQuery
+  );
+
   const handleExport = useCallback(
     (format: "csv" | "json") => {
       const dataToExport = filteredEvents;
@@ -221,6 +236,8 @@ export function EventExplorerDashboard() {
             events={filteredEvents}
             loading={loading}
             onEventClick={setSelectedEvent}
+            hasActiveFilters={hasActiveFilters}
+            onClearFilters={handleClearFilters}
           />
 
           <PaginationControls

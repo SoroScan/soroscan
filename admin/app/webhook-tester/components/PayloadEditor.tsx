@@ -32,6 +32,7 @@ export function PayloadEditor() {
     payloadError,
     isSending,
     sendTest,
+    retryLastRequest,
   } = useWebhookTester();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -117,6 +118,15 @@ export function PayloadEditor() {
             <span className="text-xs font-mono text-zinc-300 truncate">{selectedWebhook.target_url}</span>
           </div>
         )}
+        <button
+          onClick={retryLastRequest}
+          disabled={isSending}
+          className="px-3 py-2 rounded bg-zinc-700 text-zinc-200 text-xs font-medium
+            hover:bg-zinc-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+          title="Retry last request with same payload"
+        >
+          ↻ Retry
+        </button>
         <button
           onClick={sendTest}
           disabled={!selectedWebhook || isSending || !!payloadError}

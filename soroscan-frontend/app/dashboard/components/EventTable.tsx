@@ -9,9 +9,11 @@ interface EventTableProps {
   events: EventRecord[];
   loading: boolean;
   onEventClick: (event: EventRecord) => void;
+  hasActiveFilters?: boolean;
+  onClearFilters?: () => void;
 }
 
-export function EventTable({ events, loading, onEventClick }: EventTableProps) {
+export function EventTable({ events, loading, onEventClick, hasActiveFilters, onClearFilters }: EventTableProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const copyToClipboard = async (text: string, id: string) => {
@@ -38,7 +40,42 @@ export function EventTable({ events, loading, onEventClick }: EventTableProps) {
   if (loading) {
     return (
       <div className={styles.tableWrap}>
-        <div className={styles.status}>Loading events...</div>
+        <table className={styles.eventTable}>
+          <thead>
+            <tr>
+              <th>Contract</th>
+              <th>Type</th>
+              <th>Ledger</th>
+              <th>Time</th>
+              <th>Transaction</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...Array(5)].map((_, index) => (
+              <tr key={`skeleton-${index}`}>
+                <td data-label="Contract">
+                  <div className={styles.skeleton} style={{ width: "120px", height: "20px" }} />
+                </td>
+                <td data-label="Type">
+                  <div className={styles.skeleton} style={{ width: "80px", height: "24px", borderRadius: "12px" }} />
+                </td>
+                <td data-label="Ledger">
+                  <div className={styles.skeleton} style={{ width: "60px", height: "24px" }} />
+                </td>
+                <td data-label="Time">
+                  <div className={styles.skeleton} style={{ width: "140px", height: "20px" }} />
+                </td>
+                <td data-label="Tx">
+                  <div className={styles.skeleton} style={{ width: "100px", height: "20px" }} />
+                </td>
+                <td data-label="Actions">
+                  <div className={styles.skeleton} style={{ width: "50px", height: "28px" }} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     );
   }
@@ -60,9 +97,34 @@ export function EventTable({ events, loading, onEventClick }: EventTableProps) {
           {!events.length ? (
             <tr>
               <td colSpan={6} className={styles.emptyTable}>
-                {loading
-                  ? "Loading events..."
-                  : "No events found. Select a contract and adjust filters to view events."}
+                {loading ? (
+                  "Loading events..."
+                ) : hasActiveFilters ? (
+                  <div style={{ padding: "3rem 1rem", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "1rem" }}>
+                    <div style={{ color: "var(--text-secondary)", marginBottom: "0.5rem" }}>
+                      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                      </svg>
+                    </div>
+                    <h3 style={{ margin: 0, fontSize: "1.25rem", color: "var(--text-primary)" }}>
+                      No events match your criteria
+                    </h3>
+                    <p style={{ margin: 0, color: "var(--text-secondary)", maxWidth: "400px", lineHeight: 1.5 }}>
+                      We couldn&apos;t find any events matching your current search and filter settings. Try adjusting them or clear all filters to see more results.
+                    </p>
+                    <button
+                      type="button"
+                      className={styles.btn}
+                      style={{ marginTop: "1rem" }}
+                      onClick={onClearFilters}
+                    >
+                      Clear Filters
+                    </button>
+                  </div>
+                ) : (
+                  "No events found. Select a contract and adjust filters to view events."
+                )}
               </td>
             </tr>
           ) : (
