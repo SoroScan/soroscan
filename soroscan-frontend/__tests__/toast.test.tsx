@@ -13,6 +13,25 @@ const ToastTrigger = () => {
 };
 
 describe("Toast System", () => {
+  // Suppress React act() warnings for timer-based state updates
+  // These are expected in this test suite and don't indicate actual problems
+  const originalError = console.error;
+  beforeAll(() => {
+    console.error = (...args: any[]) => {
+      if (
+        typeof args[0] === 'string' &&
+        args[0].includes('An update to ToastProvider inside a test was not wrapped in act')
+      ) {
+        return;
+      }
+      originalError.call(console, ...args);
+    };
+  });
+
+  afterAll(() => {
+    console.error = originalError;
+  });
+
   beforeEach(() => {
     jest.useFakeTimers();
   });
@@ -36,17 +55,20 @@ describe("Toast System", () => {
     expect(screen.getByRole("status")).toBeInTheDocument();
   });
 
-  it("auto-dismisses after 4 seconds", () => {
+  it("auto-dismisses after 4 seconds", async () => {
     render(
       <ToastProvider duration={4000}>
         <ToastTrigger />
       </ToastProvider>
     );
 
-    fireEvent.click(screen.getByText("Show Toast"));
+    act(() => {
+      fireEvent.click(screen.getByText("Show Toast"));
+    });
+    
     expect(screen.getByText("Test Title")).toBeInTheDocument();
 
-    // Fast-forward 4 seconds
+    // Fast-forward 4 seconds - wrap in act to handle state updates from timer
     act(() => {
       jest.advanceTimersByTime(4000);
     });
@@ -97,6 +119,29 @@ describe("Toast System", () => {
     const toasts = screen.getAllByRole("status");
     expect(toasts.length).toBe(2);
   });
+
+  it.each([
+    ["success", "status"],
+    ["error", "alert"],
+    ["info", "status"],
+    ["warning", "status"],
+  ] as const)(
+    "renders %s toast with correct accessibility role",
+    (type, role) => {
+      render(
+        <ToastProvider>
+          <div />
+        </ToastProvider>,
+      );
+
+      act(() => {
+        showToast(`${type} message`, type, `${type} title`);
+      });
+
+      expect(screen.getByText(`${type} title`)).toBeInTheDocument();
+      expect(screen.getByRole(role)).toBeInTheDocument();
+    },
+  );
 
   it("works with global showToast helper", () => {
     render(

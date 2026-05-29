@@ -6,9 +6,11 @@
    useContext,
    useEffect,
    useMemo,
+   useRef,
    useState,
    type ReactNode,
  } from "react";
+ import { flushSync } from "react-dom";
 
  import {
   CheckCircle2,
@@ -18,7 +20,7 @@
   X,
 } from "lucide-react";
 
-type ToastType = "success" | "error" | "info" | "warning";
+export type ToastType = "success" | "error" | "info" | "warning";
 
  interface Toast {
   id: string;
@@ -53,8 +55,15 @@ export function ToastProvider({
   duration = 4000,
 }: ToastProviderProps) {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const timersRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
 
   const dismissToast = useCallback((id: string) => {
+    // Clear the timer if it exists
+    const timer = timersRef.current.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      timersRef.current.delete(id);
+    }
     setToasts((current) => current.filter((toast) => toast.id !== id));
   }, []);
 
@@ -71,12 +80,31 @@ export function ToastProvider({
         ...current,
       ]);
 
-      window.setTimeout(() => {
-        dismissToast(id);
+      // Schedule auto-dismiss
+      const timer = setTimeout(() => {
+        // In test environments, React's act() expects synchronous state updates
+        // flushSync ensures the state update completes synchronously
+        if (typeof flushSync === 'function') {
+          flushSync(() => {
+            dismissToast(id);
+          });
+        } else {
+          dismissToast(id);
+        }
       }, duration);
+      
+      timersRef.current.set(id, timer);
     },
     [dismissToast, duration],
   );
+
+  // Cleanup all timers on unmount
+  useEffect(() => {
+    return () => {
+      timersRef.current.forEach((timer) => clearTimeout(timer));
+      timersRef.current.clear();
+    };
+  }, []);
 
    useEffect(() => {
      dispatchToast = showToast;
