@@ -3,19 +3,22 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 
-import {
-  fetchEventsForExport,
-} from "@/components/ingest/graphql";
+import { fetchEventsForExport } from "@/components/ingest/graphql";
 import {
   toDateTimeInputValue,
   validateDateRange,
 } from "@/components/ingest/formatters";
 import styles from "@/components/ingest/ingest-terminal.module.css";
-import type { EventRecord, ExportFilters, ExportFormat } from "@/components/ingest/types";
+import type {
+  EventRecord,
+  ExportFilters,
+  ExportFormat,
+} from "@/components/ingest/types";
 
 const EVENTS_PAGE_SIZE = 1000;
 const EXPORT_CHUNK_SIZE = 5000;
 const PARQUET_FORMAT: ExportFormat = "parquet";
+const EXPORT_FORMAT_STORAGE_KEY = "soroscan-export-format";
 
 interface ColumnDef {
   key: string;
@@ -25,19 +28,35 @@ interface ColumnDef {
 
 const COLUMN_DEFS: ColumnDef[] = [
   { key: "contractId", label: "Contract", value: (event) => event.contractId },
-  { key: "contractName", label: "Contract Name", value: (event) => event.contractName },
+  {
+    key: "contractName",
+    label: "Contract Name",
+    value: (event) => event.contractName,
+  },
   { key: "eventType", label: "Type", value: (event) => event.eventType },
   { key: "ledger", label: "Ledger", value: (event) => event.ledger },
-  { key: "eventIndex", label: "Event Index", value: (event) => event.eventIndex },
+  {
+    key: "eventIndex",
+    label: "Event Index",
+    value: (event) => event.eventIndex,
+  },
   { key: "timestamp", label: "Timestamp", value: (event) => event.timestamp },
   { key: "txHash", label: "Tx Hash", value: (event) => event.txHash },
-  { key: "payloadHash", label: "Payload Hash", value: (event) => event.payloadHash ?? "" },
+  {
+    key: "payloadHash",
+    label: "Payload Hash",
+    value: (event) => event.payloadHash ?? "",
+  },
   {
     key: "validationStatus",
     label: "Validation",
     value: (event) => event.validationStatus ?? "",
   },
-  { key: "schemaVersion", label: "Schema", value: (event) => event.schemaVersion ?? "" },
+  {
+    key: "schemaVersion",
+    label: "Schema",
+    value: (event) => event.schemaVersion ?? "",
+  },
   { key: "payload", label: "Data", value: (event) => event.payload },
 ];
 
@@ -48,6 +67,12 @@ const DEFAULT_COLUMNS = [
   "eventIndex",
   "timestamp",
   "payload",
+];
+
+const EXPORT_FORMAT_OPTIONS: Array<{ value: ExportFormat; label: string }> = [
+  { value: "csv", label: "CSV" },
+  { value: "json", label: "JSON" },
+  { value: "parquet", label: "Parquet" },
 ];
 
 interface ProgressState {
@@ -64,7 +89,10 @@ interface ExportEventsModalProps {
 }
 
 interface PapaLike {
-  unparse: (rows: Record<string, unknown>[], options: { columns: string[] }) => string;
+  unparse: (
+    rows: Record<string, unknown>[],
+    options: { columns: string[] },
+  ) => string;
 }
 
 interface JsZipLike {
@@ -134,7 +162,9 @@ export function ExportEventsModal({
       return;
     }
 
-    setFormat("csv");
+    const persistedFormat = getPersistedExportFormat();
+
+    setFormat(persistedFormat);
     setSelectedColumns(new Set(DEFAULT_COLUMNS));
     setSince(toDateTimeInputValue(initialFilters.since));
     setUntil(toDateTimeInputValue(initialFilters.until));
@@ -162,8 +192,8 @@ export function ExportEventsModal({
     const typeLabel = initialFilters.eventTypes.length
       ? `${initialFilters.eventTypes.length} selected event type(s)`
       : "all event types";
-    return `Exporting ${typeLabel} with ${selectedColumns.size} column(s).`;
-  }, [initialFilters.eventTypes.length, selectedColumns.size]);
+    return `Exporting ${typeLabel} with ${selectedColumns.size} column(s) as ${format.toUpperCase()}.`;
+  }, [format, initialFilters.eventTypes.length, selectedColumns.size]);
 
   if (!isOpen) {
     return null;
@@ -179,6 +209,11 @@ export function ExportEventsModal({
       }
       return next;
     });
+  };
+
+  const handleFormatChange = (nextFormat: ExportFormat) => {
+    setFormat(nextFormat);
+    persistExportFormat(nextFormat);
   };
 
   const handleSubmit = async () => {
@@ -204,14 +239,19 @@ export function ExportEventsModal({
         eventTypes: initialFilters.eventTypes,
         since: since ? new Date(since).toISOString() : null,
         until: until ? new Date(until).toISOString() : null,
-        onProgress: (message, percent) => updateProgress(setProgress, message, percent),
+        onProgress: (message, percent) =>
+          updateProgress(setProgress, message, percent),
       });
 
       if (!rows.length) {
         throw new Error("No events matched the selected filters.");
       }
 
-      updateProgress(setProgress, `Preparing ${format.toUpperCase()} file...`, 70);
+      updateProgress(
+        setProgress,
+        `Preparing ${format.toUpperCase()} file...`,
+        70,
+      );
 
       const timestamp = buildTimestamp();
       const baseName = buildBaseFileName(contractId, timestamp);
@@ -220,7 +260,8 @@ export function ExportEventsModal({
         format,
         selectedColumns: Array.from(selectedColumns),
         baseName,
-        onProgress: (message, percent) => updateProgress(setProgress, message, percent),
+        onProgress: (message, percent) =>
+          updateProgress(setProgress, message, percent),
       });
 
       downloadBlob(payload.filename, payload.mimeType, payload.content);
@@ -251,9 +292,16 @@ export function ExportEventsModal({
         }
       }}
     >
-      <section className={styles.exportModal} role="dialog" aria-modal="true" aria-labelledby="export-modal-title">
+      <section
+        className={styles.exportModal}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="export-modal-title"
+      >
         <header className={styles.exportModalHead}>
-          <h3 id="export-modal-title" className={styles.exportModalTitle}>Export Events</h3>
+          <h3 id="export-modal-title" className={styles.exportModalTitle}>
+            Export Events
+          </h3>
           <button
             type="button"
             className={styles.modalIconBtn}
@@ -266,21 +314,32 @@ export function ExportEventsModal({
         </header>
 
         <div className={styles.exportModalBody}>
-          <label className={styles.fieldLabel} htmlFor="export-format">Format</label>
-          <select
-            id="export-format"
-            className={styles.fieldInput}
-            value={format}
-            onChange={(event) => setFormat(event.target.value as ExportFormat)}
-            disabled={isSubmitting}
+          <fieldset
+            className={styles.columnGrid}
+            aria-label="Choose export format"
           >
-            <option value="csv">CSV</option>
-            <option value="json">JSON</option>
-            <option value="parquet">Parquet</option>
-          </select>
+            <legend className={styles.fieldLabel}>Format</legend>
+            {EXPORT_FORMAT_OPTIONS.map((option) => (
+              <label key={option.value} className={styles.columnOption}>
+                <input
+                  type="radio"
+                  name="export-format"
+                  value={option.value}
+                  checked={format === option.value}
+                  onChange={() => handleFormatChange(option.value)}
+                  disabled={isSubmitting}
+                />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </fieldset>
 
           <p className={styles.fieldLabel}>Columns</p>
-          <div className={styles.columnGrid} role="group" aria-label="Choose export columns">
+          <div
+            className={styles.columnGrid}
+            role="group"
+            aria-label="Choose export columns"
+          >
             {COLUMN_DEFS.map((column) => (
               <label key={column.key} className={styles.columnOption}>
                 <input
@@ -296,7 +355,9 @@ export function ExportEventsModal({
 
           <div className={styles.exportDateGrid}>
             <div>
-              <label className={styles.fieldLabel} htmlFor="export-since">Date Range From</label>
+              <label className={styles.fieldLabel} htmlFor="export-since">
+                Date Range From
+              </label>
               <input
                 id="export-since"
                 type="datetime-local"
@@ -307,7 +368,9 @@ export function ExportEventsModal({
               />
             </div>
             <div>
-              <label className={styles.fieldLabel} htmlFor="export-until">Date Range To</label>
+              <label className={styles.fieldLabel} htmlFor="export-until">
+                Date Range To
+              </label>
               <input
                 id="export-until"
                 type="datetime-local"
@@ -328,7 +391,10 @@ export function ExportEventsModal({
 
           <div className={styles.progressBox}>
             <div className={styles.progressTrack}>
-              <div className={styles.progressFill} style={{ width: `${progress.percent}%` }} />
+              <div
+                className={styles.progressFill}
+                style={{ width: `${progress.percent}%` }}
+              />
             </div>
             <p className={styles.summary}>{progress.message}</p>
           </div>
@@ -357,6 +423,32 @@ export function ExportEventsModal({
       </section>
     </div>
   );
+}
+
+function getPersistedExportFormat(): ExportFormat {
+  if (typeof window === "undefined") {
+    return "csv";
+  }
+
+  const savedFormat = window.localStorage.getItem(EXPORT_FORMAT_STORAGE_KEY);
+
+  if (isExportFormat(savedFormat)) {
+    return savedFormat;
+  }
+
+  return "csv";
+}
+
+function persistExportFormat(format: ExportFormat): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(EXPORT_FORMAT_STORAGE_KEY, format);
+}
+
+function isExportFormat(value: string | null): value is ExportFormat {
+  return value === "csv" || value === "json" || value === "parquet";
 }
 
 function updateProgress(
@@ -454,7 +546,11 @@ async function buildExportPayload({
     const partNumber = String(index + 1).padStart(3, "0");
     const partName = `${baseName}_part${partNumber}.${format}`;
 
-    const serialized = await serializeChunk({ rows: chunk, selectedColumns, format });
+    const serialized = await serializeChunk({
+      rows: chunk,
+      selectedColumns,
+      format,
+    });
     zip.file(partName, serialized.content);
 
     const completion = 70 + Math.floor(((index + 1) / chunks.length) * 25);
@@ -524,12 +620,16 @@ async function buildParquetChunk(
   rows: EventRecord[],
   selectedColumns: string[],
 ): Promise<{ content: Blob; mimeType: string }> {
-  const [arrowModule, parquetModuleRaw] = await Promise.all([getArrowModule(), getParquetModule()]);
+  const [arrowModule, parquetModuleRaw] = await Promise.all([
+    getArrowModule(),
+    getParquetModule(),
+  ]);
 
   const parquetModule: ParquetLike =
     parquetModuleRaw.writeParquet !== undefined
       ? parquetModuleRaw
-      : ((parquetModuleRaw.default as ParquetLike | undefined) ?? parquetModuleRaw);
+      : ((parquetModuleRaw.default as ParquetLike | undefined) ??
+        parquetModuleRaw);
 
   const parquetInit =
     typeof parquetModuleRaw.default === "function"
@@ -541,7 +641,9 @@ async function buildParquetChunk(
     parquetReady = true;
   }
 
-  const projected = rows.map((row) => projectRow(row, selectedColumns, "parquet"));
+  const projected = rows.map((row) =>
+    projectRow(row, selectedColumns, "parquet"),
+  );
   const arrowTable = arrowModule.tableFromJSON(projected);
 
   let parquetBytes: Uint8Array | Blob | undefined;
@@ -566,7 +668,9 @@ async function buildParquetChunk(
     content:
       parquetBytes instanceof Blob
         ? parquetBytes
-        : new Blob([Uint8Array.from(parquetBytes)], { type: "application/octet-stream" }),
+        : new Blob([Uint8Array.from(parquetBytes)], {
+            type: "application/octet-stream",
+          }),
     mimeType: "application/octet-stream",
   };
 }
@@ -624,8 +728,13 @@ function buildTimestamp(): string {
   return `${year}${month}${day}_${hour}${minute}${second}`;
 }
 
-function downloadBlob(filename: string, mimeType: string, content: Blob | string): void {
-  const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType });
+function downloadBlob(
+  filename: string,
+  mimeType: string,
+  content: Blob | string,
+): void {
+  const blob =
+    content instanceof Blob ? content : new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -639,20 +748,21 @@ function downloadBlob(filename: string, mimeType: string, content: Blob | string
 async function getPapaModule(): Promise<PapaLike> {
   if (!importCache.papa) {
     const url = "https://cdn.jsdelivr.net/npm/papaparse@5.4.1/+esm";
-    importCache.papa = importFromUrl<{ unparse?: PapaLike["unparse"]; default?: PapaLike }>(url).then(
-      (module) => {
-        const candidate =
-          module.unparse !== undefined
-            ? ({ unparse: module.unparse } as PapaLike)
-            : module.default;
+    importCache.papa = importFromUrl<{
+      unparse?: PapaLike["unparse"];
+      default?: PapaLike;
+    }>(url).then((module) => {
+      const candidate =
+        module.unparse !== undefined
+          ? ({ unparse: module.unparse } as PapaLike)
+          : module.default;
 
-        if (!candidate || typeof candidate.unparse !== "function") {
-          throw new Error("CSV export library did not load correctly.");
-        }
+      if (!candidate || typeof candidate.unparse !== "function") {
+        throw new Error("CSV export library did not load correctly.");
+      }
 
-        return candidate;
-      },
-    );
+      return candidate;
+    });
   }
 
   return importCache.papa;
@@ -661,7 +771,9 @@ async function getPapaModule(): Promise<PapaLike> {
 async function getZipModule(): Promise<new () => JsZipLike> {
   if (!importCache.zip) {
     const url = "https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm";
-    importCache.zip = importFromUrl<{ default?: new () => JsZipLike }>(url).then((module) => {
+    importCache.zip = importFromUrl<{ default?: new () => JsZipLike }>(
+      url,
+    ).then((module) => {
       const candidate = module.default;
       if (!candidate || typeof candidate !== "function") {
         throw new Error("ZIP export library did not load correctly.");
@@ -676,7 +788,9 @@ async function getZipModule(): Promise<new () => JsZipLike> {
 async function getArrowModule(): Promise<ArrowLike> {
   if (!importCache.arrow) {
     const url = "https://cdn.jsdelivr.net/npm/apache-arrow@15.0.2/+esm";
-    importCache.arrow = importFromUrl<ArrowLike & { default?: ArrowLike }>(url).then((module) => {
+    importCache.arrow = importFromUrl<ArrowLike & { default?: ArrowLike }>(
+      url,
+    ).then((module) => {
       const candidate =
         typeof module.tableFromJSON === "function" ? module : module.default;
 
@@ -693,7 +807,8 @@ async function getArrowModule(): Promise<ArrowLike> {
 
 async function getParquetModule(): Promise<ParquetModuleLike> {
   if (!importCache.parquet) {
-    const url = "https://cdn.jsdelivr.net/npm/parquet-wasm@0.7.1/esm/parquet_wasm.js";
+    const url =
+      "https://cdn.jsdelivr.net/npm/parquet-wasm@0.7.1/esm/parquet_wasm.js";
     importCache.parquet = importFromUrl<ParquetModuleLike>(url);
   }
 
