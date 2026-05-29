@@ -335,3 +335,4 @@ This project is licensed under the [MIT License](LICENSE).
 ## 📚 Additional Documentation
 
 - [CELERY.md](CELERY.md) — Celery worker queues, concurrency settings, and deployment examples
+- [DATABASE_TUNING.md](DATABASE_TUNING.md) — Recommended configuration settings for high-volume write workloads and indexing optimizations.
