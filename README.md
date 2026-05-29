@@ -239,6 +239,16 @@ Edit `k8s/ingress.yaml`:
 # Apply all manifests
 kubectl apply -f k8s/
 
+## Deployment Docs
+
+For complete production deployment and operations guidance, see the `docs/deployment` section:
+
+- Local Docker Compose: [docs/deployment/docker-compose](docs/deployment/docker-compose)
+- Kubernetes (Helm + Terraform): [docs/deployment/kubernetes](docs/deployment/kubernetes)
+- AWS EKS example: [docs/deployment/aws](docs/deployment/aws)
+- Monitoring, backups, runbooks and troubleshooting: [docs/deployment/monitoring](docs/deployment/monitoring)
+
+
 # Verify deployment
 kubectl get pods -n soroscan
 kubectl get svc -n soroscan
