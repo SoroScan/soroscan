@@ -581,6 +581,7 @@ class ContractEvent(models.Model):
         TrackedContract,
         on_delete=models.CASCADE,
         related_name="events",
+        db_index=True,
         help_text="The contract that emitted this event",
     )
     event_type = models.CharField(
