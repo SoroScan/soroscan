@@ -6,6 +6,9 @@ SoroScan is an open-source indexing layer designed to make Soroban smart contrac
 
 The following is a set of guidelines for contributing to SoroScan and its packages.
 
+## 🔰 New Developer Onboarding
+- Start here: [Developer Onboarding Guide](docs/contributing/developer-onboarding.md)
+
 <!-- ## ⚡ Quick Links
 
 - **[View Open Issues](../../issues)** - Find a task to work on.
