@@ -42,7 +42,7 @@ def test_admin_test_endpoint_computes_hash_and_handles_missing_payload(client):
     assert data.get("dedup_enabled") is False
 
     # Create config and test proper hashing
-    cfg = EventDeduplicationConfig.objects.create(
+    EventDeduplicationConfig.objects.create(
         contract=contract, enabled=True, fields=["event_type", "ledger", "payload_field"]
     )
 
