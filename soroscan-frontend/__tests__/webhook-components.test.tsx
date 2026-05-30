@@ -44,7 +44,6 @@ describe("WebhookTable", () => {
         onTest={mockTest}
       />
     )
-    // Each row has a URL link — text partially matches first webhook URL
     expect(screen.getAllByRole("link").length).toBeGreaterThanOrEqual(MOCK_WEBHOOKS.length)
   })
 
@@ -59,7 +58,7 @@ describe("WebhookTable", () => {
     render(
       <WebhookTable webhooks={MOCK_WEBHOOKS} onDelete={mockDelete} onTest={mockTest} />
     )
-    expect(screen.getByText("FAILED")).toBeInTheDocument()
+    expect(screen.getAllByText("FAILED").length).toBeGreaterThanOrEqual(1)
   })
 
   it("shows empty state when no webhooks", () => {
@@ -77,7 +76,7 @@ describe("WebhookTable", () => {
         onTest={mockTest}
       />
     )
-    fireEvent.click(screen.getByTitle("Delete webhook"))
+    fireEvent.click(screen.getAllByTitle("Delete webhook")[0])
     expect(mockDelete).toHaveBeenCalledWith(MOCK_WEBHOOKS[0].id)
   })
 
@@ -89,7 +88,7 @@ describe("WebhookTable", () => {
         onTest={mockTest}
       />
     )
-    fireEvent.click(screen.getByTitle("Test webhook"))
+    fireEvent.click(screen.getAllByTitle("Test webhook")[0])
     expect(mockTest).toHaveBeenCalledWith(MOCK_WEBHOOKS[0].id)
   })
 
@@ -102,7 +101,69 @@ describe("WebhookTable", () => {
         testResult={{ id: MOCK_WEBHOOKS[0].id, ok: true, code: 200 }}
       />
     )
-    expect(screen.getByText(/TEST_OK/)).toBeInTheDocument()
+    expect(screen.getAllByText(/TEST_OK/).length).toBeGreaterThanOrEqual(1)
+  })
+
+  // ── Responsive / mobile ──────────────────────────────────────────────────
+
+  it("renders mobile card list container", () => {
+    render(
+      <WebhookTable webhooks={MOCK_WEBHOOKS} onDelete={mockDelete} onTest={mockTest} />
+    )
+    expect(screen.getByTestId("webhook-mobile-list")).toBeInTheDocument()
+  })
+
+  it("renders desktop table container", () => {
+    render(
+      <WebhookTable webhooks={MOCK_WEBHOOKS} onDelete={mockDelete} onTest={mockTest} />
+    )
+    expect(screen.getByTestId("webhook-desktop-table")).toBeInTheDocument()
+  })
+
+  it("renders one mobile card per webhook", () => {
+    render(
+      <WebhookTable webhooks={MOCK_WEBHOOKS} onDelete={mockDelete} onTest={mockTest} />
+    )
+    expect(screen.getAllByTestId("webhook-card")).toHaveLength(MOCK_WEBHOOKS.length)
+  })
+
+  it("mobile card shows expand/collapse button", () => {
+    render(
+      <WebhookTable
+        webhooks={[MOCK_WEBHOOKS[0]]}
+        onDelete={mockDelete}
+        onTest={mockTest}
+      />
+    )
+    expect(screen.getByLabelText("Expand details")).toBeInTheDocument()
+  })
+
+  it("mobile card expands to show details on toggle", () => {
+    render(
+      <WebhookTable
+        webhooks={[MOCK_WEBHOOKS[0]]}
+        onDelete={mockDelete}
+        onTest={mockTest}
+      />
+    )
+    const expandBtn = screen.getByLabelText("Expand details")
+    fireEvent.click(expandBtn)
+    expect(screen.getByLabelText("Collapse details")).toBeInTheDocument()
+    // After expand, action buttons appear in the card
+    expect(screen.getAllByTitle("Delete webhook").length).toBeGreaterThanOrEqual(1)
+  })
+
+  it("mobile action buttons have touch-friendly size (min-h-[44px])", () => {
+    render(
+      <WebhookTable
+        webhooks={[MOCK_WEBHOOKS[0]]}
+        onDelete={mockDelete}
+        onTest={mockTest}
+      />
+    )
+    fireEvent.click(screen.getByLabelText("Expand details"))
+    const deleteBtn = screen.getAllByTitle("Delete webhook")[0]
+    expect(deleteBtn.className).toMatch(/min-h-\[44px\]/)
   })
 })
 
@@ -184,7 +245,6 @@ describe("DeliveryLog", () => {
     render(<DeliveryLog logs={logs} />)
     const btn = screen.getByRole("button", { name: "2xx" })
     fireEvent.click(btn)
-    // All visible "OK" texts should be present, no ERROR texts visible
     const statusCells = screen.queryAllByText(/^[45]\d\d$/)
     expect(statusCells).toHaveLength(0)
   })
