@@ -57,36 +57,100 @@ BATCH_LEDGER_SIZE = 200
 _SLOW_TASK_THRESHOLD_S = 5.0  # log profiling stats when task exceeds this
 
 # ---------------------------------------------------------------------------
-# Celery task profiling via signals — instruments all tasks automatically
+# Celery task profiling and structured logging via signals
 # ---------------------------------------------------------------------------
 _task_profilers: dict[str, tuple] = {}
+_task_start_times: dict[str, float] = {}
+
+
+def _sanitize_for_log(value: Any, max_length: int = 200) -> Any:
+    """Remove sensitive data from values for logging."""
+    sensitive_keys = {'password', 'secret', 'token', 'api_key', 'private_key', 'signature'}
+    
+    if isinstance(value, str) and len(value) > max_length:
+        return f'{value[:max_length]}...[truncated]'
+    if isinstance(value, dict):
+        return {k: '[REDACTED]' if any(s in k.lower() for s in sensitive_keys) else _sanitize_for_log(v, max_length) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_for_log(v, max_length) for v in value]
+    return value
 
 
 @task_prerun.connect
 def _start_task_profiling(task_id: str, task, **kwargs) -> None:
+    # Start profiling
     profiler = cProfile.Profile()
     profiler.enable()
     _task_profilers[task_id] = (profiler, time.monotonic())
+    
+    # Record start time for structured logging
+    _task_start_times[task_id] = time.time()
+    
+    # Log task start with arguments
+    args = kwargs.get('args', ())
+    kwargs_dict = kwargs.get('kwargs', {})
+    
+    logger.info(
+        "Task started",
+        extra={
+            'task_name': task.name,
+            'task_id': task_id,
+            'args': _sanitize_for_log(args),
+            'kwargs': _sanitize_for_log(kwargs_dict),
+        }
+    )
 
 
 @task_postrun.connect
 def _stop_task_profiling(task_id: str, task, **kwargs) -> None:
+    # Handle profiling
     entry = _task_profilers.pop(task_id, None)
-    if entry is None:
-        return
-    profiler, start = entry
-    profiler.disable()
-    elapsed = time.monotonic() - start
-    if elapsed > _SLOW_TASK_THRESHOLD_S:
-        stream = io.StringIO()
-        pstats.Stats(profiler, stream=stream).sort_stats(pstats.SortKey.CUMULATIVE).print_stats(20)
-        logger.warning(
-            "Slow task %s took %.2fs\n%s",
-            task.name,
-            elapsed,
-            stream.getvalue(),
-            extra={"task_name": task.name, "total_time_s": round(elapsed, 3)},
-        )
+    if entry is not None:
+        profiler, start = entry
+        profiler.disable()
+        elapsed = time.monotonic() - start
+        if elapsed > _SLOW_TASK_THRESHOLD_S:
+            stream = io.StringIO()
+            pstats.Stats(profiler, stream=stream).sort_stats(pstats.SortKey.CUMULATIVE).print_stats(20)
+            logger.warning(
+                "Slow task %s took %.2fs\n%s",
+                task.name,
+                elapsed,
+                stream.getvalue(),
+                extra={"task_name": task.name, "total_time_s": round(elapsed, 3)},
+            )
+    
+    # Log task completion with duration
+    start_time = _task_start_times.pop(task_id, None)
+    if start_time is not None:
+        duration = time.time() - start_time
+        status = kwargs.get('status')
+        exception = kwargs.get('exception')
+        
+        if exception is not None:
+            # Task failed with exception
+            logger.error(
+                "Task failed",
+                extra={
+                    'task_name': task.name,
+                    'task_id': task_id,
+                    'duration_seconds': round(duration, 3),
+                    'error': str(exception),
+                    'error_type': type(exception).__name__,
+                },
+                exc_info=True
+            )
+        else:
+            # Task completed successfully
+            result = kwargs.get('result')
+            logger.info(
+                "Task completed",
+                extra={
+                    'task_name': task.name,
+                    'task_id': task_id,
+                    'duration_seconds': round(duration, 3),
+                }
+            )
 
 # ---------------------------------------------------------------------------
 # Backoff calculation for webhook retries
