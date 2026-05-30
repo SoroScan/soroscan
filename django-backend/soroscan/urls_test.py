@@ -15,6 +15,7 @@ from soroscan.ingest.views import (
     contract_status,
     rate_limit_analytics_view,
     webhook_batch_delivery_status_view,
+    webhook_delivery_metrics_view,
 )
 from soroscan.dev_summary_view import dev_summary_view
 
@@ -43,6 +44,11 @@ urlpatterns = [
         "api/webhooks/deliveries/batch-status/",
         webhook_batch_delivery_status_view,
         name="webhook-batch-delivery-status",
+    ),
+    path(
+        "api/webhooks/deliveries/metrics/",
+        webhook_delivery_metrics_view,
+        name="webhook-delivery-metrics",
     ),
     path("api/ingest/", include("soroscan.ingest.urls")),
 ]
