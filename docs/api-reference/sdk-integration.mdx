@@ -1,0 +1,62 @@
+---
+id: api-reference/sdk-integration
+title: SDK Integration
+description: Use the SoroScan Python and TypeScript SDKs with REST and GraphQL APIs.
+sidebar_label: SDK Integration
+hide_title: false
+---
+
+SoroScan provides official SDKs for Python and TypeScript to simplify API integration and reduce boilerplate.
+
+## Python SDK
+
+Install the SDK from the `sdk/python` package and initialize a client:
+
+```python
+from soroscan import SoroScanClient
+
+client = SoroScanClient(
+    base_url="https://api.soroscan.io",
+    api_key="<your-api-key>"
+)
+
+contracts = client.get_contracts(page=1, page_size=20)
+for contract in contracts.items:
+    print(contract.contract_id, contract.name)
+```
+
+The Python SDK handles request headers, pagination, and common response shapes.
+
+## TypeScript SDK
+
+The TypeScript SDK is available from `@soroscan/sdk`.
+
+```ts
+import { SoroScanClient } from "@soroscan/sdk";
+
+const client = new SoroScanClient({
+  baseUrl: "https://api.soroscan.io",
+  apiKey: process.env.SOROSCAN_API_KEY,
+});
+
+const result = await client.getEvents({
+  contractId: "CABC123...",
+  eventType: "transfer",
+  first: 20,
+});
+
+console.log(result.items);
+```
+
+## When to use the SDKs
+
+- Use SDKs for common resource operations like contracts, events, and webhooks.
+- Use REST directly for very specific custom payloads or tooling.
+- Use GraphQL for expressive queries, especially when you need nested event and contract data in a single request.
+
+## Link to SDK docs
+
+For full SDK reference and examples, see:
+
+- `docs/sdk-python`
+- `docs/sdk-typescript`

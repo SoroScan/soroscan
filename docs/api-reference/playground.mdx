@@ -1,0 +1,75 @@
+---
+id: api-reference/playground
+title: Interactive API Playground
+description: Use Swagger, ReDoc, GraphQL playground, and Postman for SoroScan API exploration.
+sidebar_label: API Playground
+hide_title: false
+---
+
+Explore and test SoroScan APIs using interactive tooling.
+
+## REST playgrounds
+
+SoroScan exposes auto-generated REST API documentation for quick exploration:
+
+- Swagger UI: `{{baseUrl}}/api/docs/`
+- ReDoc: `{{baseUrl}}/api/redoc/`
+
+These UIs let you inspect schemas, open request examples, and execute requests directly from the browser.
+
+## GraphQL playground
+
+Open the GraphQL endpoint in a browser:
+
+- `{{baseUrl}}/graphql/`
+
+If GraphQL introspection is enabled, this route provides an interactive query editor and schema explorer.
+
+## Recommended workflow
+
+1. Authenticate with `POST {{baseUrl}}/api/token/`.
+2. Copy the access token from the response.
+3. Use Swagger or ReDoc to inspect available REST endpoints.
+4. Open `{{baseUrl}}/graphql/` to build GraphQL queries and subscriptions.
+5. Import the Postman collection if you want saved requests and environment variables.
+
+## Working with authorization
+
+### REST headers
+
+```http
+Authorization: Bearer <access-token>
+Content-Type: application/json
+```
+
+### GraphQL headers
+
+```http
+Authorization: Bearer <access-token>
+Content-Type: application/json
+```
+
+## Example: call `/api/ingest/contracts/`
+
+```bash
+curl "{{baseUrl}}/api/ingest/contracts/" \
+  -H "Authorization: Bearer <access-token>"
+```
+
+## Example: query GraphQL
+
+```bash
+curl -X POST "{{baseUrl}}/graphql/" \
+  -H "Authorization: Bearer <access-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "query { contract(contractId: \"CABC123...\") { contractId name alias } }"
+  }'
+```
+
+## Tips for successful testing
+
+- Use `{{baseUrl}}` to avoid hard-coding the environment.
+- If a request returns `401`, refresh your access token using `POST /api/token/refresh/`.
+- If introspection is disabled for GraphQL, rely on documented schema fields or use the backend GraphQL schema export if available.
+- Watch for `429` rate limit responses and retry after a short delay.

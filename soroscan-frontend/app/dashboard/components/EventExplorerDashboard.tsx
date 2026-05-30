@@ -137,13 +137,7 @@ export function EventExplorerDashboard() {
 
   // Apply search filter client-side
   useEffect(() => {
-    if (!filters.searchQuery.trim()) {
-      setFilteredEvents(events);
-      return;
-    }
-
     const parsed = parseSearchQuery(filters.searchQuery);
-
     const filtered = events.filter((event) => {
       if (!matchesFilters(event, parsed)) {
         return false;
@@ -212,6 +206,21 @@ export function EventExplorerDashboard() {
     ]),
   ).sort();
 
+  const handleClearFilters = useCallback(() => {
+    setFilters((prev) => ({
+      ...prev,
+      eventType: "",
+      since: "",
+      until: "",
+      searchQuery: "",
+      tags: [],
+    }));
+    setCurrentPage(1);
+  }, []);
+
+  const hasActiveFilters = Boolean(
+    filters.eventType || filters.since || filters.until || filters.searchQuery || filters.tags.length
+  );
   const handleExport = useCallback(
     (format: "csv" | "json") => {
       const dataToExport = filteredEvents;
@@ -320,6 +329,9 @@ export function EventExplorerDashboard() {
             tagSuggestions={tagSuggestions}
             onAddTag={handleAddTag}
             onRemoveTag={handleRemoveTag}
+            showTags
+            hasActiveFilters={hasActiveFilters}
+            onClearFilters={handleClearFilters}
           />
 
           <PaginationControls

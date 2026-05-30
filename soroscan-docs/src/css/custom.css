@@ -1,0 +1,80 @@
+/**
+ * Any CSS included here will be global. The classic template
+ * bundles Infima by default. Infima is a CSS framework designed to
+ * work well for content-centric websites.
+ */
+
+/* You can override the default Infima variables here. */
+:root {
+  --ifm-color-primary: #00ff41;
+  --ifm-color-primary-dark: #00e63a;
+  --ifm-color-primary-darker: #00d937;
+  --ifm-color-primary-darkest: #00b32d;
+  --ifm-color-primary-light: #1aff54;
+  --ifm-color-primary-lighter: #26ff5d;
+  --ifm-color-primary-lightest: #4dff79;
+  --ifm-background-color: #0a0e27;
+  --ifm-navbar-background-color: #0a0e27;
+  --ifm-footer-background-color: #0a0e27;
+  --ifm-font-family-base: 'Inter', -apple-system, sans-serif;
+  --ifm-font-family-monospace: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+  --ifm-code-font-size: 90%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 255, 65, 0.1);
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #00ff41;
+  --ifm-background-color: #0a0e27;
+  --ifm-navbar-background-color: #0a0e27;
+  --ifm-footer-background-color: #0a0e27;
+  --ifm-color-content: #f8fafc;
+  --ifm-heading-color: #00ff41;
+  --ifm-menu-color: #e2e8f0;
+  --ifm-menu-color-active: #00ff41;
+}
+
+/* Retro-futuristic Terminal Effects */
+.navbar {
+  border-bottom: 1px solid #00ff41;
+  box-shadow: 0 0 15px rgba(0, 255, 65, 0.2);
+}
+
+.footer {
+  border-top: 1px solid #00ff41;
+}
+
+code {
+  background-color: rgba(0, 0, 0, 0.3);
+  border: 1px solid #2d3748;
+  color: #00d4ff;
+}
+
+pre {
+  border: 1px solid #2d3748;
+  box-shadow: 0 0 10px rgba(0, 255, 65, 0.05);
+}
+
+.markdown h1, .markdown h2, .markdown h3 {
+  font-family: var(--ifm-font-family-monospace);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.markdown h1::before {
+  content: "◆ ";
+  color: var(--ifm-color-primary);
+}
+
+.button--primary {
+  --ifm-button-background-color: #0a0e27;
+  --ifm-button-border-color: #00ff41;
+  --ifm-button-color: #00ff41;
+  font-family: var(--ifm-font-family-monospace);
+  border-width: 1px;
+}
+
+.button--primary:hover {
+  background-color: #00ff41;
+  color: #0a0e27;
+  box-shadow: 0 0 20px rgba(0, 255, 65, 0.5);
+}
