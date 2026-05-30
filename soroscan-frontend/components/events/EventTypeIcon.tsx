@@ -6,6 +6,7 @@
  *
  * Issue #571 — feat: add distinctive icons for each event type
  */
+import React from "react";
 import {
   ArrowLeftRight,
   Flame,
@@ -37,30 +38,23 @@ export interface EventTypeIconProps extends Omit<LucideProps, "ref"> {
 
 /**
  * Map of known event types → lucide icon components.
- * Each icon is chosen to be semantically meaningful at a glance.
+ * Defined at module level so components are never created during render.
  */
 const ICON_MAP: Record<KnownEventType, React.ComponentType<LucideProps>> = {
-  /** transfer — two arrows, money moving between accounts */
   transfer: ArrowLeftRight,
-  /** mint — coins being created */
   mint: Coins,
-  /** burn — flame, tokens destroyed */
   burn: Flame,
-  /** approve — shield with checkmark, permission granted */
   approve: ShieldCheck,
-  /** clawback — scissors, tokens reclaimed */
   clawback: Scissors,
-  /** set_admin — user with cog, admin role change */
   set_admin: UserCog,
-  /** set_authorized — user with checkmark, authorization change */
   set_authorized: UserCheck,
 };
 
 /**
- * Fallback icon used for any event type not in ICON_MAP.
- * Zap conveys "something happened" without implying a specific action.
+ * Fallback icon for any event type not in ICON_MAP.
+ * Defined at module level — never recreated during render.
  */
-const FallbackIcon = Zap;
+const FallbackIcon: React.ComponentType<LucideProps> = Zap;
 
 /**
  * Returns the icon component for a given event type.
@@ -85,14 +79,11 @@ export function EventTypeIcon({
   className,
   ...rest
 }: EventTypeIconProps) {
-  const Icon = getEventTypeIcon(eventType);
-  return (
-    <Icon
-      size={size}
-      className={className}
-      aria-label={`${eventType} event`}
-      role="img"
-      {...rest}
-    />
-  );
+  return React.createElement(getEventTypeIcon(eventType), {
+    size,
+    className,
+    "aria-label": `${eventType} event`,
+    role: "img",
+    ...rest,
+  });
 }
