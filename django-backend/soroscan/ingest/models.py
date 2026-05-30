@@ -1021,6 +1021,36 @@ class IndexerState(models.Model):
         return f"{self.key}: {self.value}"
 
 
+class EventDeduplicationConfig(models.Model):
+    """
+    Per-contract configuration that defines which event fields should be
+    considered when computing the deduplication fingerprint.
+
+    The `fields` JSONField is a list of strings naming top-level keys from
+    the event payload (or special tokens like 'event_type', 'tx_hash',
+    'ledger', 'event_index') that will be used to build the dedup material.
+    """
+
+    contract = models.OneToOneField(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name="dedup_config",
+        help_text="Contract this dedup config applies to",
+    )
+    enabled = models.BooleanField(default=True, help_text="Enable deduplication for this contract")
+    # list of field names to include when computing dedup fingerprint
+    fields = models.JSONField(default=list, blank=True, help_text="List of event fields (or special tokens) to include in dedup key")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Event Deduplication Config"
+        verbose_name_plural = "Event Deduplication Configs"
+
+    def __str__(self):
+        return f"Dedup config for {self.contract.name} (enabled={self.enabled})"
+
+
 # ---------------------------------------------------------------------------
 # Issue #X: Tiered rate limiting with per-API-key and per-contract quotas
 # ---------------------------------------------------------------------------
