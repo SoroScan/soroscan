@@ -12,6 +12,10 @@ from soroscan.exceptions import (
     SoroScanNotFoundError,
     SoroScanRateLimitError,
     SoroScanValidationError,
+    SoroScanServerError,
+    SoroScanNetworkError,
+    SoroScanTimeoutError,
+    SoroScanConnectionError,
 )
 from soroscan.models import (
     ContractEvent,
@@ -119,17 +123,43 @@ class SoroScanClient:
             error_data = {}
 
         error_message = error_data.get("detail") or error_data.get("error") or response.text
+        error_code = error_data.get("code") or "unknown_error"
 
         if response.status_code == 400:
-            raise SoroScanValidationError(error_message, response.status_code, error_data)
+            raise SoroScanValidationError(
+                error_message,
+                response.status_code,
+                error_code,
+                error_data,
+                field=error_data.get("field"),
+                value=error_data.get("value"),
+                errors=error_data.get("errors"),
+            )
         elif response.status_code == 401 or response.status_code == 403:
-            raise SoroScanAuthError(error_message, response.status_code, error_data)
+            raise SoroScanAuthError(error_message, response.status_code, error_code, error_data)
         elif response.status_code == 404:
-            raise SoroScanNotFoundError(error_message, response.status_code, error_data)
+            raise SoroScanNotFoundError(
+                error_message,
+                response.status_code,
+                error_code,
+                error_data,
+                resource_type=error_data.get("resource_type"),
+                resource_id=error_data.get("resource_id"),
+            )
         elif response.status_code == 429:
-            raise SoroScanRateLimitError(error_message, response.status_code, error_data)
+            raise SoroScanRateLimitError(
+                error_message,
+                response.status_code,
+                error_code,
+                error_data,
+                retry_after=error_data.get("retry_after"),
+                limit=error_data.get("limit"),
+                remaining=error_data.get("remaining"),
+            )
+        elif response.status_code >= 500:
+            raise SoroScanServerError(error_message, response.status_code, error_code, error_data)
         else:
-            raise SoroScanAPIError(error_message, response.status_code, error_data)
+            raise SoroScanAPIError(error_message, response.status_code, error_code, error_data)
 
     def get_contracts(
         self,
@@ -578,17 +608,43 @@ class AsyncSoroScanClient:
             error_data = {}
 
         error_message = error_data.get("detail") or error_data.get("error") or response.text
+        error_code = error_data.get("code") or "unknown_error"
 
         if response.status_code == 400:
-            raise SoroScanValidationError(error_message, response.status_code, error_data)
+            raise SoroScanValidationError(
+                error_message,
+                response.status_code,
+                error_code,
+                error_data,
+                field=error_data.get("field"),
+                value=error_data.get("value"),
+                errors=error_data.get("errors"),
+            )
         elif response.status_code == 401 or response.status_code == 403:
-            raise SoroScanAuthError(error_message, response.status_code, error_data)
+            raise SoroScanAuthError(error_message, response.status_code, error_code, error_data)
         elif response.status_code == 404:
-            raise SoroScanNotFoundError(error_message, response.status_code, error_data)
+            raise SoroScanNotFoundError(
+                error_message,
+                response.status_code,
+                error_code,
+                error_data,
+                resource_type=error_data.get("resource_type"),
+                resource_id=error_data.get("resource_id"),
+            )
         elif response.status_code == 429:
-            raise SoroScanRateLimitError(error_message, response.status_code, error_data)
+            raise SoroScanRateLimitError(
+                error_message,
+                response.status_code,
+                error_code,
+                error_data,
+                retry_after=error_data.get("retry_after"),
+                limit=error_data.get("limit"),
+                remaining=error_data.get("remaining"),
+            )
+        elif response.status_code >= 500:
+            raise SoroScanServerError(error_message, response.status_code, error_code, error_data)
         else:
-            raise SoroScanAPIError(error_message, response.status_code, error_data)
+            raise SoroScanAPIError(error_message, response.status_code, error_code, error_data)
 
     async def get_contracts(
         self,
