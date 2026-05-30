@@ -10,3 +10,5 @@ export { EventTypeMultiSelect } from './EventTypeMultiSelect';
 export type { EventType } from './EventTypeMultiSelect';
 export { OrgSwitcher } from './OrgSwitcher';
 export type { Organization } from './OrgSwitcher';
+export { ContractEventTimeline } from './ContractEventTimeline';
+export type { ContractEvent } from './ContractEventTimeline';
