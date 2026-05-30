@@ -11,6 +11,7 @@ from soroscan.builder import (
     ContractQueryBuilder,
     AsyncContractQueryBuilder,
 )
+from soroscan.pagination import AsyncPaginator, Paginator
 from soroscan.exceptions import (
     SoroScanAPIError,
     SoroScanAuthError,
@@ -35,6 +36,8 @@ __all__ = [
     "AsyncEventQueryBuilder",
     "ContractQueryBuilder",
     "AsyncContractQueryBuilder",
+    "Paginator",
+    "AsyncPaginator",
     "ContractEvent",
     "TrackedContract",
     "WebhookSubscription",
