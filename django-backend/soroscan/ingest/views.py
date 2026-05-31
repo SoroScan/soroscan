@@ -9,7 +9,7 @@ import time
 from datetime import timedelta
 
 from django.conf import settings
-from django.db.models import Count, Max, Min, Q
+from django.db.models import Count, Max, Min, Q, Avg
 from django.db.models.functions import Cast
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
@@ -35,13 +35,17 @@ from .models import (
     ContractInvocation,
     ContractSource,
     ContractVerification,
+    OrganizationCostSnapshot,
+    OrganizationBudget,
     IngestError,
     IndexerState,
     Team,
     TeamMembership,
     TrackedContract,
+    WebhookDeliveryLog,
     WebhookSubscription,
 )
+from .cache_utils import get_cached_contract
 from .serializers import (
     APIKeySerializer,
     ContractEventSerializer,
@@ -49,6 +53,8 @@ from .serializers import (
     ContractSourceSerializer,
     ContractVerificationSerializer,
     EventSearchSerializer,
+    OrganizationBudgetSerializer,
+    OrganizationCostSnapshotSerializer,
     RecordEventRequestSerializer,
     TeamMemberAddSerializer,
     TeamSerializer,
@@ -102,6 +108,9 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
     search_fields = ["name", "alias", "contract_id"]
     ordering_fields = ["created_at", "name", "alias"]
     ordering = ["-created_at"]
+    action_throttle_scopes = {
+        "stats": "contract_stats",
+    }
 
     @staticmethod
     def _collect_warnings(items: list[dict]) -> list[dict[str, str]]:
@@ -124,8 +133,24 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
             response.data.setdefault("warnings", [])
         return response
 
+    def create(self, request, *args, **kwargs):
+        dry_run = request.query_params.get("dry_run", "").lower() == "true"
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if dry_run:
+            return Response({"detail": "Valid"}, status=status.HTTP_200_OK)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        from .tasks import alert_downstream_contract_change
+
+        alert_downstream_contract_change.delay(instance.contract_id, "modified")
 
     def get_queryset(self):
         qs = TrackedContract.objects.all()
@@ -298,6 +323,9 @@ class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
     ]
     ordering_fields = ["timestamp", "ledger"]
     ordering = ["-timestamp"]
+    action_throttle_scopes = {
+        "search": "events_search",
+    }
 
     def get_queryset(self):
         return ContractEvent.objects.select_related("contract").all()
@@ -581,6 +609,30 @@ class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
         return Response({"status": "test_webhook_queued"})
 
     @extend_schema(
+        request=None,
+        responses={
+            200: inline_serializer(
+                name="PingWebhookResponse",
+                fields={
+                    "status": serializers.CharField(),
+                    "webhook_id": serializers.IntegerField(),
+                },
+            )
+        },
+    )
+    @action(detail=True, methods=["post"])
+    def ping(self, request, pk=None):
+        """
+        Dispatch a background task that sends a test ping payload to the webhook
+        endpoint.  The task logs whether the target responded with HTTP 200.
+        """
+        from .tasks import ping_webhook
+
+        webhook = self.get_object()
+        ping_webhook.delay(webhook.id)
+        return Response({"status": "ping_queued", "webhook_id": webhook.id})
+
+    @extend_schema(
         request=inline_serializer(
             name="WebhookConditionDryRunRequest",
             fields={
@@ -828,6 +880,32 @@ def health_check(request):
 
 @extend_schema(
     responses=inline_serializer(
+        name="NetworkListResponse",
+        fields={
+            "networks": serializers.ListField(
+                child=inline_serializer(
+                    name="NetworkEntry",
+                    fields={
+                        "id": serializers.CharField(),
+                        "name": serializers.CharField(),
+                        "rpc_url": serializers.CharField(),
+                        "network_passphrase": serializers.CharField(),
+                    },
+                )
+            )
+        },
+    )
+)
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def networks_view(request):
+    """Return the list of Soroban networks supported by this indexer."""
+    networks = getattr(settings, "SOROBAN_NETWORKS", [])
+    return Response({"networks": networks})
+
+
+@extend_schema(
+    responses=inline_serializer(
         name="ContractStatusResponse",
         fields={
             "total_contracts": serializers.IntegerField(),
@@ -868,9 +946,88 @@ def contract_status(request):
     )
 
 
+@extend_schema(
+    responses=inline_serializer(
+        name="VulnerabilityImpactResponse",
+        fields={
+            "contract_id": serializers.CharField(),
+            "affected_contracts": serializers.JSONField(),
+            "impacted_count": serializers.IntegerField(),
+            "risk_score": serializers.FloatField(),
+            "impact_level": serializers.CharField(),
+            "has_cycles": serializers.BooleanField(),
+        },
+    )
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def vulnerability_impact_view(request, contract_id: str):
+    from .tasks import assess_vulnerability_impact
+
+    result = assess_vulnerability_impact(contract_id)
+    return Response(result)
+
+
+@extend_schema(
+    parameters=[
+        inline_serializer(
+            name="OrganizationCostBreakdownParams",
+            fields={
+                "organization_id": serializers.IntegerField(required=False),
+                "month": serializers.CharField(required=False),
+            },
+        )
+    ],
+    responses=inline_serializer(
+        name="OrganizationCostBreakdownResponse",
+        fields={
+            "results": serializers.JSONField(),
+        },
+    ),
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def organization_cost_breakdown_view(request):
+    """Admin endpoint exposing per-organization cost snapshots and budget state."""
+    if not request.user.is_staff:
+        return Response({"error": "Admin access required"}, status=status.HTTP_403_FORBIDDEN)
+
+    snapshots = OrganizationCostSnapshot.objects.select_related("organization").all()
+    org_id = request.query_params.get("organization_id")
+    month = request.query_params.get("month")
+
+    if org_id:
+        snapshots = snapshots.filter(organization_id=org_id)
+    if month:
+        try:
+            year, month_num = month.split("-", 1)
+            snapshots = snapshots.filter(month__year=int(year), month__month=int(month_num))
+        except (TypeError, ValueError):
+            return Response(
+                {"error": "month must be in YYYY-MM format"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    budgets = {
+        budget.organization_id: OrganizationBudgetSerializer(budget).data
+        for budget in OrganizationBudget.objects.select_related("organization").all()
+    }
+
+    payload = []
+    for snapshot in snapshots.order_by("-month", "organization__name"):
+        item = OrganizationCostSnapshotSerializer(snapshot).data
+        item["budget"] = budgets.get(snapshot.organization_id)
+        payload.append(item)
+
+    return Response({"results": payload})
+
+
 def contract_timeline_view(request, contract_id: str):
     """Redirect timeline requests to the frontend contract timeline page."""
-    contract = get_object_or_404(TrackedContract, contract_id=contract_id)
+    contract = get_cached_contract(contract_id)
+    if not contract:
+        from django.http import Http404
+        raise Http404
     frontend_base = _frontend_base_url()
     return redirect(f"{frontend_base}/contracts/{contract.contract_id}/timeline")
 
@@ -896,7 +1053,10 @@ def transaction_events_view(request, tx_id: str):
 
 def contract_event_explorer_view(request, contract_id: str):
     """Redirect explorer requests to the frontend event explorer page."""
-    contract = get_object_or_404(TrackedContract, contract_id=contract_id)
+    contract = get_cached_contract(contract_id)
+    if not contract:
+        from django.http import Http404
+        raise Http404
     frontend_base = _frontend_base_url()
     return redirect(f"{frontend_base}/contracts/{contract.contract_id}/events/explorer")
 
@@ -905,7 +1065,10 @@ def contract_event_explorer_view(request, contract_id: str):
 @permission_classes([AllowAny])
 def contract_event_types_view(request, contract_id: str):
     """Get event types and their counts for a specific contract."""
-    contract = get_object_or_404(TrackedContract, contract_id=contract_id)
+    contract = get_cached_contract(contract_id)
+    if not contract:
+        from django.http import Http404
+        raise Http404
     
     cache_key = stable_cache_key("contract_event_types", {"contract_id": contract_id})
     
@@ -1000,7 +1163,9 @@ def restore_archived_events(request):
     restored_count = 0
     for row in rows:
         try:
-            contract = TrackedContract.objects.get(contract_id=row["contract__contract_id"])
+            contract = get_cached_contract(row["contract__contract_id"])
+            if not contract:
+                raise TrackedContract.DoesNotExist(f"Contract {row['contract__contract_id']} not found")
             ContractEvent.objects.get_or_create(
                 contract=contract,
                 ledger=row["ledger"],
@@ -1175,3 +1340,402 @@ def rate_limit_analytics_view(request):
             "api_keys": results,
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# Issue #280: GDPR — deletion requests & compliance export
+# ---------------------------------------------------------------------------
+
+class DataDeletionRequestSerializer(serializers.ModelSerializer):
+    requested_by = serializers.CharField(source="requested_by.username", read_only=True)
+    contract_ids = serializers.SerializerMethodField()
+
+    class Meta:
+        from .models import DataDeletionRequest
+        model = DataDeletionRequest
+        fields = [
+            "id", "requested_by", "subject_identifier", "contract_ids",
+            "status", "events_deleted", "error_message", "requested_at", "completed_at",
+        ]
+        read_only_fields = ["status", "events_deleted", "error_message", "requested_at", "completed_at"]
+
+    def get_contract_ids(self, obj):
+        return list(obj.contracts.values_list("contract_id", flat=True))
+
+
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+def deletion_requests_view(request):
+    """
+    GET  /api/deletion-requests/   — list all requests (staff) or own requests
+    POST /api/deletion-requests/   — submit a new GDPR deletion request
+    """
+    from .models import DataDeletionRequest, TrackedContract
+
+    if request.method == "GET":
+        qs = (
+            DataDeletionRequest.objects.all()
+            if request.user.is_staff
+            else DataDeletionRequest.objects.filter(requested_by=request.user)
+        )
+        serializer = DataDeletionRequestSerializer(qs, many=True)
+        return Response(serializer.data)
+
+    # POST — create a new deletion request
+    subject = request.data.get("subject_identifier", "").strip()
+    if not subject:
+        return Response({"error": "subject_identifier is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    contract_ids = request.data.get("contract_ids", [])
+    req = DataDeletionRequest.objects.create(
+        requested_by=request.user,
+        subject_identifier=subject,
+    )
+    if contract_ids:
+        contracts = TrackedContract.objects.filter(contract_id__in=contract_ids)
+        req.contracts.set(contracts)
+
+    return Response(DataDeletionRequestSerializer(req).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def compliance_export_view(request):
+    """
+    GET /api/compliance-export/?from={iso}&to={iso}
+    Returns a CSV audit trail of AuditLog entries for compliance auditors.
+    Staff only.
+    """
+    import csv
+    from django.http import StreamingHttpResponse
+    from .models import AuditLog
+
+    if not request.user.is_staff:
+        return Response({"error": "Staff only"}, status=status.HTTP_403_FORBIDDEN)
+
+    qs = AuditLog.objects.select_related("user").order_by("timestamp")
+    from_ts = request.query_params.get("from")
+    to_ts = request.query_params.get("to")
+    if from_ts:
+        qs = qs.filter(timestamp__gte=from_ts)
+    if to_ts:
+        qs = qs.filter(timestamp__lte=to_ts)
+
+    def rows():
+        yield ["id", "timestamp", "user", "action", "model_name", "object_id", "ip_address", "changes"]
+        for entry in qs.iterator():
+            yield [
+                entry.id,
+                entry.timestamp.isoformat(),
+                entry.user.username if entry.user else "",
+                entry.action,
+                entry.model_name,
+                entry.object_id,
+                entry.ip_address or "",
+                json.dumps(entry.changes),
+            ]
+
+    class EchoBuffer:
+        def write(self, value):
+            return value
+
+    writer = csv.writer(EchoBuffer())
+    response = StreamingHttpResponse(
+        (writer.writerow(row) for row in rows()),
+        content_type="text/csv",
+    )
+    response["Content-Disposition"] = 'attachment; filename="compliance_audit.csv"'
+    return response
+
+
+# ---------------------------------------------------------------------------
+# Issue #592: Batch webhook delivery status
+# ---------------------------------------------------------------------------
+
+@extend_schema(
+    request=inline_serializer(
+        name="WebhookBatchStatusRequest",
+        fields={
+            "delivery_ids": serializers.ListField(
+                child=serializers.IntegerField(),
+                help_text="WebhookDeliveryLog primary keys to look up",
+            ),
+        },
+    ),
+    responses={
+        200: inline_serializer(
+            name="WebhookBatchStatusResponse",
+            fields={
+                "deliveries": serializers.ListField(
+                    child=inline_serializer(
+                        name="WebhookDeliveryStatusEntry",
+                        fields={
+                            "id": serializers.IntegerField(),
+                            "subscription_id": serializers.IntegerField(allow_null=True),
+                            "success": serializers.BooleanField(allow_null=True),
+                            "http_status_code": serializers.IntegerField(allow_null=True),
+                            "status": serializers.CharField(),
+                            "attempt_number": serializers.IntegerField(allow_null=True),
+                            "timestamp": serializers.DateTimeField(allow_null=True),
+                        },
+                    )
+                ),
+            },
+        ),
+        400: inline_serializer(
+            name="WebhookBatchStatusBadRequest",
+            fields={"detail": serializers.CharField()},
+        ),
+    },
+)
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def webhook_batch_delivery_status_view(request):
+    """
+    POST /api/webhooks/deliveries/batch-status/
+
+    Look up delivery status for multiple WebhookDeliveryLog records in one query.
+    """
+    delivery_ids = request.data.get("delivery_ids")
+    if not isinstance(delivery_ids, list) or not delivery_ids:
+        return Response(
+            {"detail": "delivery_ids must be a non-empty list of integers."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        parsed_ids = [int(delivery_id) for delivery_id in delivery_ids]
+    except (TypeError, ValueError):
+        return Response(
+            {"detail": "delivery_ids must contain only integers."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if len(parsed_ids) > 200:
+        return Response(
+            {"detail": "delivery_ids may contain at most 200 ids."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    logs = (
+        WebhookDeliveryLog.objects.filter(pk__in=parsed_ids)
+        .only(
+            "id",
+            "subscription_id",
+            "success",
+            "status_code",
+            "attempt_number",
+            "timestamp",
+        )
+        .order_by("id")
+    )
+    by_id = {log.id: log for log in logs}
+
+    deliveries = []
+    for delivery_id in parsed_ids:
+        log = by_id.get(delivery_id)
+        if log is None:
+            deliveries.append(
+                {
+                    "id": delivery_id,
+                    "subscription_id": None,
+                    "success": None,
+                    "http_status_code": None,
+                    "status": "not_found",
+                    "attempt_number": None,
+                    "timestamp": None,
+                }
+            )
+            continue
+
+        deliveries.append(
+            {
+                "id": log.id,
+                "subscription_id": log.subscription_id,
+                "success": log.success,
+                "http_status_code": log.status_code,
+                "status": "success" if log.success else "failed",
+                "attempt_number": log.attempt_number,
+                "timestamp": log.timestamp,
+            }
+        )
+
+    return Response({"deliveries": deliveries})
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def webhook_delivery_metrics_view(request):
+    """
+    GET /api/webhooks/deliveries/metrics/
+
+    Returns webhook delivery health metrics.
+
+    Query params:
+    - subscription_id: optional integer to restrict to a specific subscription
+    - minutes: optional integer for a relative time range (last N minutes)
+    - recent: optional integer number of recent deliveries to include (default 10)
+    """
+    now = timezone.now()
+
+    # Time range: prefer `minutes` when provided, otherwise default to 24 hours
+    minutes = request.query_params.get("minutes")
+    try:
+        minutes = int(minutes) if minutes is not None else None
+    except (TypeError, ValueError):
+        return Response({"detail": "minutes must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if minutes is not None and minutes <= 0:
+        return Response({"detail": "minutes must be > 0."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if minutes is None:
+        start = now - timedelta(hours=24)
+    else:
+        start = now - timedelta(minutes=minutes)
+
+    qs = WebhookDeliveryLog.objects.filter(timestamp__gte=start, timestamp__lte=now)
+
+    subscription_id = request.query_params.get("subscription_id")
+    if subscription_id is not None:
+        try:
+            subpk = int(subscription_id)
+        except (TypeError, ValueError):
+            return Response({"detail": "subscription_id must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
+        qs = qs.filter(subscription_id=subpk)
+
+    # Aggregates
+    total = qs.count()
+    success_count = qs.filter(success=True).count()
+    success_rate = (success_count / total) * 100.0 if total > 0 else None
+    avg_latency = qs.aggregate(avg_latency_ms=Avg("latency_ms"))["avg_latency_ms"]
+
+    # Recent deliveries
+    try:
+        recent_n = int(request.query_params.get("recent", 10))
+    except (TypeError, ValueError):
+        recent_n = 10
+
+    recent_qs = qs.order_by("-timestamp")[: recent_n]
+    recent_deliveries = list(
+        recent_qs.values(
+            "id",
+            "subscription_id",
+            "status_code",
+            "success",
+            "error",
+            "attempt_number",
+            "timestamp",
+        )
+    )
+
+    # Failure breakdown by status_code (including null network errors)
+    failed = qs.filter(success=False)
+    breakdown_qs = (
+        failed.values("status_code")
+        .annotate(count=Count("id"))
+        .order_by("-count")
+    )
+    failure_breakdown = []
+    for row in breakdown_qs:
+        code = row["status_code"]
+        key = "network_error" if code is None else str(code)
+        failure_breakdown.append({"code": key, "count": row["count"]})
+
+    resp = {
+        "total_deliveries": total,
+        "success_count": success_count,
+        "success_rate_percent": success_rate,
+        "avg_latency_ms": avg_latency,
+        "recent_deliveries": recent_deliveries,
+        "failure_breakdown": failure_breakdown,
+        "time_range": {"start": start, "end": now},
+    }
+
+    return Response(resp)
+
+
+# ---------------------------------------------------------------------------
+# Issue #284: Contract deployment timeline
+# ---------------------------------------------------------------------------
+
+class ContractDeploymentSerializer(serializers.ModelSerializer):
+    class Meta:
+        from .models import ContractDeployment
+        model = ContractDeployment
+        fields = [
+            "id", "bytecode_hash", "ledger_deployed", "deployer_address",
+            "is_upgrade", "tx_hash", "notes", "detected_at",
+        ]
+
+
+class ContractABIVersionSerializer(serializers.ModelSerializer):
+    class Meta:
+        from .models import ContractABIVersion
+        model = ContractABIVersion
+        fields = [
+            "id", "version_number", "valid_from_ledger", "valid_to_ledger",
+            "has_breaking_changes", "breaking_change_details", "created_at",
+        ]
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def deployment_timeline_view(request, contract_id):
+    """
+    GET /api/contracts/<contract_id>/deployments/
+    Returns the full deployment history and ABI versions for a contract.
+    Includes compatibility warnings for breaking ABI changes.
+    """
+    from .models import ContractDeployment, ContractABIVersion
+
+    contract = get_cached_contract(contract_id)
+    if not contract:
+        from django.http import Http404
+        raise Http404
+    deployments = ContractDeployment.objects.filter(contract=contract).order_by("ledger_deployed")
+    abi_versions = ContractABIVersion.objects.filter(contract=contract).order_by("version_number")
+
+    warnings = []
+    for av in abi_versions:
+        if av.has_breaking_changes:
+            warnings.append({
+                "abi_version": av.version_number,
+                "ledger": av.valid_from_ledger,
+                "detail": av.breaking_change_details or "Breaking ABI change detected",
+            })
+
+    return Response({
+        "contract_id": contract_id,
+        "deployments": ContractDeploymentSerializer(deployments, many=True).data,
+        "abi_versions": ContractABIVersionSerializer(abi_versions, many=True).data,
+        "compatibility_warnings": warnings,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Issue: Contract Identity Endpoint
+# ---------------------------------------------------------------------------
+
+@extend_schema(
+    responses=inline_serializer(
+        name="ContractIdentityResponse",
+        fields={
+            "contract_id": serializers.CharField(),
+            "network_passphrase": serializers.CharField(),
+            "rpc_url": serializers.CharField(),
+        },
+    )
+)
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def contract_identity_view(request):
+    """
+    GET /api/contract/identity/
+    Returns the SoroScan contract ID and network information.
+    Allows clients to verify where events are coming from.
+    """
+    return Response({
+        "contract_id": getattr(settings, "SOROSCAN_CONTRACT_ID", ""),
+        "network_passphrase": getattr(settings, "STELLAR_NETWORK_PASSPHRASE", ""),
+        "rpc_url": getattr(settings, "SOROBAN_RPC_URL", ""),
+    })

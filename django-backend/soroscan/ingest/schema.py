@@ -28,6 +28,11 @@ from .models import (
     WebhookDeliveryLog,
 )
 from .services.timeline import build_timeline
+from ..graphql_extensions import (
+    GraphQLRateLimitExtension,
+    GraphQLResolverLoggingExtension,
+    log_graphql_resolver,
+)
 
 
 def _get_authenticated_user(info: Info):
@@ -1025,6 +1030,7 @@ class Mutation:
 @strawberry.type
 class Subscription:
     @strawberry.subscription
+    @log_graphql_resolver
     async def notifications(
         self, info: Info
     ) -> AsyncGenerator[NotificationType, None]:
@@ -1082,6 +1088,7 @@ class Subscription:
             await channel_layer.group_discard(group_name, channel_name)
 
     @strawberry.subscription
+    @log_graphql_resolver
     async def contract_events(
         self, info: Info, contract_id: str
     ) -> AsyncGenerator[EventType, None]:
@@ -1135,4 +1142,12 @@ class Subscription:
             await channel_layer.group_discard(group_name, channel_name)
 
 
-schema = strawberry.Schema(query=Query, mutation=Mutation, subscription=Subscription)
+schema = strawberry.Schema(
+    query=Query,
+    mutation=Mutation,
+    subscription=Subscription,
+    extensions=[
+        GraphQLRateLimitExtension,
+        GraphQLResolverLoggingExtension,
+    ],
+)

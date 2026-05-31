@@ -1,10 +1,12 @@
+"use client"
+
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { AlertCircle, CheckCircle2, Info, XCircle, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const alertVariants = cva(
-  "relative w-full rounded-lg border px-4 py-3 text-sm grid grid-cols-[auto_1fr_auto] gap-3 items-start [&>svg]:size-5",
+  "relative w-full rounded-lg border px-4 py-3 text-sm grid grid-cols-[auto_1fr_auto] gap-3 items-start [&>svg]:size-5 transition-all",
   {
     variants: {
       variant: {
@@ -30,12 +32,21 @@ const variantIcons = {
 interface AlertProps extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof alertVariants> {
   title?: string
   description?: string
+  dismissible?: boolean
   onDismiss?: () => void
 }
 
 const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
-  ({ className, variant = "info", title, description, onDismiss, ...props }, ref) => {
+  ({ className, variant = "info", title, description, dismissible = false, onDismiss, ...props }, ref) => {
+    const [isVisible, setIsVisible] = React.useState(true)
     const Icon = variantIcons[variant || "info"]
+
+    const handleDismiss = () => {
+      setIsVisible(false)
+      if (onDismiss) onDismiss()
+    }
+
+    if (!isVisible) return null
 
     return (
       <div
@@ -44,15 +55,16 @@ const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
         className={cn(alertVariants({ variant }), className)}
         {...props}
       >
-        <Icon className="mt-0.5" aria-hidden="true" />
-        <div className="flex flex-col gap-1">
+        <Icon className="mt-0.5 shrink-0" aria-hidden="true" />
+        <div className="flex flex-col gap-1 flex-1">
           {title && <h5 className="font-semibold leading-none tracking-tight">{title}</h5>}
           {description && <div className="text-sm opacity-90">{description}</div>}
         </div>
-        {onDismiss && (
+        {(dismissible || onDismiss) && (
           <button
-            onClick={onDismiss}
-            className="p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer"
+            type="button"
+            onClick={handleDismiss}
+            className="p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer shrink-0"
             aria-label="Dismiss alert"
           >
             <X className="size-4" />

@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 import responses
 from django.contrib.auth import get_user_model
@@ -398,6 +400,102 @@ class TestRecordEventView:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "contract_id" in response.data
+
+
+@pytest.mark.django_db
+class TestWebhookPingEndpoint:
+    def test_ping_queues_task_and_returns_200(self, authenticated_client, contract):
+        webhook = WebhookSubscriptionFactory(contract=contract)
+
+        with patch("soroscan.ingest.tasks.ping_webhook.delay") as mock_delay:
+            url = reverse("webhook-ping", args=[webhook.id])
+            response = authenticated_client.post(url)
+            mock_delay.assert_called_once_with(webhook.id)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["status"] == "ping_queued"
+        assert response.data["webhook_id"] == webhook.id
+
+    def test_ping_returns_404_for_missing_webhook(self, authenticated_client):
+        url = reverse("webhook-ping", args=[999999])
+        response = authenticated_client.post(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_ping_requires_authentication(self, api_client, contract):
+        webhook = WebhookSubscriptionFactory(contract=contract)
+        url = reverse("webhook-ping", args=[webhook.id])
+        response = api_client.post(url)
+
+        assert response.status_code in [
+            status.HTTP_401_UNAUTHORIZED,
+            status.HTTP_403_FORBIDDEN,
+        ]
+class TestNetworksEndpoint:
+    def test_networks_returns_list(self, api_client, settings):
+        settings.SOROBAN_NETWORKS = [
+            {
+                "id": "testnet",
+                "name": "Testnet",
+                "rpc_url": "https://soroban-testnet.stellar.org",
+                "network_passphrase": "Test SDF Network ; September 2015",
+            },
+            {
+                "id": "mainnet",
+                "name": "Mainnet",
+                "rpc_url": "https://mainnet.stellar.validationcloud.io/v1/public",
+                "network_passphrase": "Public Global Stellar Network ; September 2015",
+            },
+        ]
+        url = reverse("networks")
+        response = api_client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "networks" in response.data
+        assert len(response.data["networks"]) == 2
+
+    def test_networks_response_structure(self, api_client, settings):
+        settings.SOROBAN_NETWORKS = [
+            {
+                "id": "testnet",
+                "name": "Testnet",
+                "rpc_url": "https://soroban-testnet.stellar.org",
+                "network_passphrase": "Test SDF Network ; September 2015",
+            },
+        ]
+        url = reverse("networks")
+        response = api_client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        network = response.data["networks"][0]
+        assert network["id"] == "testnet"
+        assert network["name"] == "Testnet"
+        assert "rpc_url" in network
+        assert "network_passphrase" in network
+
+    def test_networks_is_publicly_accessible(self, api_client, settings):
+        settings.SOROBAN_NETWORKS = []
+        url = reverse("networks")
+        response = api_client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["networks"] == []
+
+    def test_networks_matches_settings(self, api_client, settings):
+        custom_networks = [
+            {
+                "id": "futurenet",
+                "name": "Futurenet",
+                "rpc_url": "https://soroban-futurenet.stellar.org",
+                "network_passphrase": "Test SDF Future Network ; October 2022",
+            }
+        ]
+        settings.SOROBAN_NETWORKS = custom_networks
+        url = reverse("networks")
+        response = api_client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["networks"] == custom_networks
 
 
 @pytest.mark.django_db

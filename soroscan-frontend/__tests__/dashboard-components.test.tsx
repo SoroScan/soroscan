@@ -1,7 +1,37 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { PaginationControls } from "@/app/dashboard/components/PaginationControls";
+import { EventTable } from "@/app/dashboard/components/EventTable";
 
 describe("Dashboard Components", () => {
+  describe("EventTable", () => {
+    it("renders default empty state when hasActiveFilters is false", () => {
+      render(<EventTable events={[]} loading={false} onEventClick={jest.fn()} hasActiveFilters={false} />);
+      expect(screen.getByText("No events found. Select a contract and adjust filters to view events.")).toBeInTheDocument();
+    });
+
+    it("renders friendly empty state with clear filters button when hasActiveFilters is true", () => {
+      const mockOnClearFilters = jest.fn();
+      render(
+        <EventTable
+          events={[]}
+          loading={false}
+          onEventClick={jest.fn()}
+          hasActiveFilters={true}
+          onClearFilters={mockOnClearFilters}
+        />
+      );
+
+      expect(screen.getByText("No events match your criteria")).toBeInTheDocument();
+      expect(screen.getByText(/We couldn't find any events matching your current search/)).toBeInTheDocument();
+
+      const clearButton = screen.getByRole("button", { name: "Clear Filters" });
+      expect(clearButton).toBeInTheDocument();
+      
+      fireEvent.click(clearButton);
+      expect(mockOnClearFilters).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe("PaginationControls", () => {
     it("renders pagination controls with correct page info", () => {
       const mockOnPageChange = jest.fn();

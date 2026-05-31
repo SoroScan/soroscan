@@ -13,6 +13,8 @@ from .models import (
     ContractSource,
     ContractVerification,
     Organization,
+    OrganizationBudget,
+    OrganizationCostSnapshot,
     OrganizationMembership,
     Team,
     TeamMembership,
@@ -72,6 +74,41 @@ class TeamSerializer(serializers.ModelSerializer):
                 role=TeamMembership.Role.ADMIN,
             )
         return team
+
+
+class OrganizationBudgetSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OrganizationBudget
+        fields = [
+            "monthly_budget_usd",
+            "warning_threshold_percent",
+            "critical_threshold_percent",
+            "is_active",
+            "updated_at",
+        ]
+
+
+class OrganizationCostSnapshotSerializer(serializers.ModelSerializer):
+    organization_id = serializers.IntegerField(source="organization.id", read_only=True)
+    organization_name = serializers.CharField(source="organization.name", read_only=True)
+
+    class Meta:
+        model = OrganizationCostSnapshot
+        fields = [
+            "organization_id",
+            "organization_name",
+            "month",
+            "rpc_calls",
+            "storage_bytes",
+            "compute_units",
+            "rpc_cost_usd",
+            "storage_cost_usd",
+            "compute_cost_usd",
+            "actual_cost_usd",
+            "projected_monthly_cost_usd",
+            "breakdown",
+            "updated_at",
+        ]
 
 
 class TeamMemberAddSerializer(serializers.Serializer):
@@ -241,6 +278,10 @@ class WebhookSubscriptionSerializer(serializers.ModelSerializer):
             "target_url",
             "is_active",
             "signature_algorithm",
+            "ack_header_name",
+            "ack_header_value",
+            "delivery_sla_seconds",
+            "escalation_policy",
             "filter_condition",
             "created_at",
             "last_triggered",
@@ -289,6 +330,52 @@ class WebhookSubscriptionSerializer(serializers.ModelSerializer):
         _validate(value)
         return value
 
+    def validate_escalation_policy(self, value):
+        if value in (None, []):
+            return []
+        if not isinstance(value, list):
+            raise serializers.ValidationError("escalation_policy must be a list.")
+
+        for idx, item in enumerate(value):
+            if not isinstance(item, dict):
+                raise serializers.ValidationError(
+                    f"escalation_policy[{idx}] must be an object."
+                )
+            channel = str(item.get("channel", "")).strip().lower()
+            if channel not in {"slack", "sms", "pagerduty"}:
+                raise serializers.ValidationError(
+                    f"escalation_policy[{idx}].channel must be slack, sms, or pagerduty."
+                )
+            if not str(item.get("target", "")).strip():
+                raise serializers.ValidationError(
+                    f"escalation_policy[{idx}].target is required."
+                )
+            try:
+                threshold = int(item.get("after_failures", 1))
+            except (TypeError, ValueError) as exc:
+                raise serializers.ValidationError(
+                    f"escalation_policy[{idx}].after_failures must be an integer."
+                ) from exc
+            if threshold < 1:
+                raise serializers.ValidationError(
+                    f"escalation_policy[{idx}].after_failures must be >= 1."
+                )
+        return value
+
+    def validate(self, attrs):
+        contract = attrs.get("contract")
+        if not contract and self.instance:
+            contract = self.instance.contract
+            
+        if contract:
+            estimated_size = contract.metadata.get("estimated_payload_size", 0)
+            if estimated_size > 1048576:  # 1MB
+                raise serializers.ValidationError({"contract": "Estimated payload exceeds 1MB limit."})
+                
+            if contract.metadata.get("is_massive", False):
+                raise serializers.ValidationError({"contract": "Contract events are known to be massive."})
+                
+        return attrs
 
 class RecordEventRequestSerializer(serializers.Serializer):
     """

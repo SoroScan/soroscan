@@ -5,6 +5,10 @@ FRONTEND_ISSUES.md
 update-main.sh
 ALT_ISSUES.md
 venv/
-node_modules
-venv/
-AGENTS.md
+.venv/
+.venv-*/
+node_modules/
+DESIGN_ISSUES.md
+PUSH_ISSUES_README.md
+push_issues_to_github.py
+DOCUMENTATION_ISSUES.md
