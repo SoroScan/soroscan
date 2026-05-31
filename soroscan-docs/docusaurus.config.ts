@@ -11,6 +11,7 @@ const config: Config = {
   baseUrl: '/',
 
   organizationName: 'Harbduls',
+  organizationName: 'SoroScan',
   projectName: 'soroscan',
 
   onBrokenLinks: 'warn',
@@ -30,6 +31,10 @@ const config: Config = {
           routeBasePath: '/', // Serve docs at site root
           sidebarPath: './sidebars.ts',
           editUrl: 'https://github.com/Harbduls/soroscan/tree/main/docs/',
+          routeBasePath: '/',
+          sidebarPath: './sidebars.ts',
+          editUrl: 'https://github.com/SoroScan/soroscan/tree/main/docs/',
+          docItemComponent: '@theme/ApiItem',
         },
         blog: false,
         theme: {
@@ -43,6 +48,31 @@ const config: Config = {
     colorMode: {
       defaultMode: 'dark',
       disableSwitch: true, // Retro terminal is only dark
+  plugins: [
+    [
+      'docusaurus-plugin-openapi-docs',
+      {
+        id: 'api', // plugin id
+        docsPluginId: 'classic', // configured for preset-classic
+        config: {
+          soroscan: {
+            specPath: 'openapi.json',
+            outputDir: '../docs/api-reference',
+            sidebarOptions: {
+              groupPathsBy: 'tag',
+            },
+          },
+        },
+      },
+    ],
+  ],
+
+  themes: ['docusaurus-theme-openapi-docs'],
+
+  themeConfig: {
+    colorMode: {
+      defaultMode: 'dark',
+      disableSwitch: true,
       respectPrefersColorScheme: false,
     },
     navbar: {
@@ -65,6 +95,12 @@ const config: Config = {
         },
         {
           href: 'https://github.com/Harbduls/soroscan',
+          to: '/category/api',
+          label: 'API Explorer',
+          position: 'left',
+        },
+        {
+          href: 'https://github.com/SoroScan/soroscan',
           label: 'GitHub',
           position: 'right',
         },
@@ -92,6 +128,25 @@ const config: Config = {
           title: 'More',
           items: [
             { label: 'GitHub', href: 'https://github.com/Harbduls/soroscan' },
+            { label: 'Python SDK', to: '/sdk-python' },
+            { label: 'TypeScript SDK', to: '/sdk-typescript' },
+          ],
+        },
+        {
+          title: 'Developer Resources',
+          items: [
+            { label: 'API Explorer', to: '/api-explorer' },
+            { label: 'Cookbook', to: '/cookbook/track-contract-events' },
+            { label: 'Changelog', to: '/changelog' },
+            { label: 'Rate Limits', to: '/rate-limits' },
+          ],
+        },
+        {
+          title: 'Community',
+          items: [
+            { label: 'Stack Overflow', href: 'https://stackoverflow.com/questions/tagged/soroscan' },
+            { label: 'Discord', href: 'https://discord.gg/soroscan' },
+            { label: 'GitHub', href: 'https://github.com/SoroScan/soroscan' },
           ],
         },
       ],
@@ -101,8 +156,10 @@ const config: Config = {
       theme: prismThemes.github,
       darkTheme: prismThemes.dracula,
       additionalLanguages: ['python', 'bash', 'json', 'typescript'],
+      additionalLanguages: ['python', 'bash', 'json', 'typescript', 'yaml'],
     },
   } satisfies Preset.ThemeConfig,
 };
 
+export default config;
 export default config;

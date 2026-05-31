@@ -3,12 +3,16 @@ Django Admin configuration for SoroScan models.
 """
 from django import forms
 from django.contrib import admin, messages
-from django.contrib.admin.helpers import ActionForm
+from django.contrib.admin.helpers import ActionForm, ACTION_CHECKBOX_NAME
 from django.db.models import Count
-from django.http import HttpResponse
-from django.urls import path
+from django.http import HttpResponse, StreamingHttpResponse
+from django.urls import path, reverse
 from django.utils.html import format_html
+import csv
 import json
+from datetime import datetime
+import requests as http_requests
+import hashlib
 
 from .models import (
     AlertExecution,
@@ -17,22 +21,40 @@ from .models import (
     APIKey,
     ArchivalAuditLog,
     ArchivedEventBatch,
+    AuditLog,
     ContractABI,
+    ContractABIVersion,
+    ContractDependency,
+    ContractDeployment,
     ContractEvent,
+    DependencyImpactAssessment,
+    ContractMetadata,
+    CallGraph,
     ContractSigningKey,
     ContractQuota,
+    ContractSource,
+    ContractVerification,
+    DataDeletionRequest,
     DataRetentionPolicy,
     EventSchema,
     IndexerState,
+    IngestError,
+    EventDeduplicationConfig,
+    Organization,
+    OrganizationBudget,
+    OrganizationCostSnapshot,
+    OrganizationMembership,
+    PIIField,
     RemediationIncident,
     RemediationRule,
     Team,
     TeamMembership,
     TrackedContract,
+    WebhookDeadLetter,
     WebhookDeliveryLog,
     WebhookSubscription,
 )
-from .tasks import backfill_contract_events
+from .tasks import backfill_contract_events, dispatch_webhook
 
 
 class BackfillActionForm(ActionForm):
@@ -101,7 +123,7 @@ class AdminAuditMixin:
 
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
-    list_display = ["name", "slug", "created_by", "created_at"]
+    list_display = ["name", "organization", "slug", "created_by", "created_at"]
     search_fields = ["name", "slug"]
     prepopulated_fields = {"slug": ("name",)}
 
@@ -113,16 +135,65 @@ class TeamMembershipAdmin(admin.ModelAdmin):
     search_fields = ["team__name", "user__username"]
 
 
+@admin.register(Organization)
+class OrganizationAdmin(admin.ModelAdmin):
+    list_display = ["name", "slug", "owner", "quota", "created_at"]
+    search_fields = ["name", "slug", "owner__username"]
+    readonly_fields = ["created_at", "updated_at"]
+
+
+@admin.register(OrganizationMembership)
+class OrganizationMembershipAdmin(admin.ModelAdmin):
+    list_display = ["organization", "user", "role", "invited_by", "joined_at"]
+    list_filter = ["role"]
+    search_fields = ["organization__name", "user__username"]
+
+
+@admin.register(OrganizationBudget)
+class OrganizationBudgetAdmin(admin.ModelAdmin):
+    list_display = [
+        "organization",
+        "monthly_budget_usd",
+        "warning_threshold_percent",
+        "critical_threshold_percent",
+        "is_active",
+        "updated_at",
+    ]
+    list_filter = ["is_active"]
+    search_fields = ["organization__name", "organization__slug"]
+
+
+@admin.register(OrganizationCostSnapshot)
+class OrganizationCostSnapshotAdmin(admin.ModelAdmin):
+    list_display = [
+        "organization",
+        "month",
+        "rpc_calls",
+        "storage_bytes",
+        "compute_units",
+        "actual_cost_usd",
+        "projected_monthly_cost_usd",
+    ]
+    list_filter = ["month"]
+    search_fields = ["organization__name", "organization__slug"]
+    readonly_fields = ["created_at", "updated_at"]
+
+
 
 @admin.register(TrackedContract)
 class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
     list_display = [
         "name",
+        "alias",
         "contract_id_short",
+        "network",
         "owner",
         "team",
         "is_active",
         "is_paused_display",
+        "deprecation_status",
+        "event_filter_type",
+        "max_events_per_minute",
         "last_indexed_ledger",
         "event_count",
         "created_at",
@@ -135,6 +206,40 @@ class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
     # In Django, only one action_form can be set. I'll combine them or use a more generic form if possible.
     # For now, I'll prioritize PauseActionForm as per the new requirements.
     actions = ["pause_indexing", "resume_indexing", "backfill_events"]
+    list_filter = ["is_active", "network", "deprecation_status", "event_filter_type", "created_at"]
+    search_fields = ["name", "alias", "contract_id"]
+    readonly_fields = ["created_at", "updated_at"]
+    ordering = ["-created_at", "name"]
+    action_form = BackfillActionForm
+    actions = ["backfill_events", "clear_cache"]
+    fieldsets = (
+        (None, {
+            "fields": (
+                "contract_id", "name", "alias", "description",
+                "owner", "team", "network", "is_active",
+            ),
+        }),
+        ("Event Filtering", {
+            "fields": ("event_filter_type", "event_filter_list"),
+            "description": (
+                "Control which event types are persisted at ingest time. "
+                "Whitelist: only listed types are stored. "
+                "Blacklist: listed types are dropped."
+            ),
+        }),
+        ("Advanced", {
+            "fields": (
+                "deprecation_status", "deprecation_reason",
+                "max_events_per_minute", "abi_schema", "json_schema", "metadata",
+                "last_indexed_ledger",
+            ),
+            "classes": ("collapse",),
+        }),
+        ("Timestamps", {
+            "fields": ("created_at", "updated_at"),
+            "classes": ("collapse",),
+        }),
+    )
 
     @admin.display(description="Contract ID")
     def contract_id_short(self, obj):
@@ -145,7 +250,7 @@ class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
         queryset = super().get_queryset(request)
         return queryset.annotate(
             _event_count=Count("events", distinct=True)
-        ).select_related("owner")
+        ).select_related("owner", "team")
 
     @admin.display(description="Paused", boolean=True)
     def is_paused_display(self, obj):
@@ -236,6 +341,22 @@ class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
                 level=messages.SUCCESS,
             )
 
+    @admin.action(description="Clear Redis cache for selected contracts")
+    def clear_cache(self, request, queryset):
+        from .cache_utils import invalidate_contract_query_cache, invalidate_event_count_cache
+
+        cleared = 0
+        for contract in queryset:
+            invalidate_contract_query_cache(contract.contract_id)
+            invalidate_event_count_cache(contract.contract_id)
+            cleared += 1
+
+        self.message_user(
+            request,
+            f"Cache cleared for {cleared} contract(s).",
+            level=messages.SUCCESS,
+        )
+
 
 @admin.register(EventSchema)
 class EventSchemaAdmin(AdminAuditMixin, admin.ModelAdmin):
@@ -318,7 +439,7 @@ class ContractEventAdmin(AdminAuditMixin, admin.ModelAdmin):
     ]
     ordering = ["timestamp"]
     date_hierarchy = "timestamp"
-    actions = ["trigger_reindex"]
+    actions = ["trigger_reindex", "export_events_csv"]
 
     def get_queryset(self, request):
         """Optimize queries with select_related to prevent N+1 issues."""
@@ -397,6 +518,38 @@ class ContractEventAdmin(AdminAuditMixin, admin.ModelAdmin):
                 level=messages.SUCCESS,
             )
 
+    @admin.action(description="Export selected events to CSV")
+    def export_events_csv(self, request, queryset):
+        """
+        Export selected ContractEvent records to CSV using a streaming response.
+        Streams the file to handle large selections efficiently.
+        """
+        class Echo:
+            """An object that implements just the write method of the file-like interface."""
+            def write(self, value):
+                return value
+
+        def stream_csv():
+            pseudo_buffer = Echo()
+            writer = csv.writer(pseudo_buffer)
+            # Yield header
+            yield writer.writerow(["ID", "Contract Address", "Event Type", "Timestamp"])
+            
+            # Fetch events efficiently
+            events = queryset.select_related("contract").iterator(chunk_size=2000)
+            for event in events:
+                yield writer.writerow([
+                    event.id,
+                    event.contract.contract_id,
+                    event.event_type,
+                    event.timestamp.isoformat() if event.timestamp else "",
+                ])
+
+        filename = f"contract_events_{datetime.now().strftime('%Y%m%d')}.csv"
+        response = StreamingHttpResponse(stream_csv(), content_type="text/csv")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
     # ------------------------------------------------------------------
     # Slow query report — accessible at /admin/ingest/contractevent/slow-query-report/
     # ------------------------------------------------------------------
@@ -451,19 +604,142 @@ class ContractEventAdmin(AdminAuditMixin, admin.ModelAdmin):
 @admin.register(WebhookSubscription)
 class WebhookSubscriptionAdmin(AdminAuditMixin, admin.ModelAdmin):
     """Admin interface for webhook subscriptions with delivery status display."""
+    change_form_template = "admin/ingest/webhooksubscription/change_form.html"
     list_display = [
         "target_url",
         "contract_name",
         "event_type_display",
         "status",
         "is_active_display",
+        "timeout_seconds",
         "failure_count",
         "last_delivery_status",
     ]
-    list_filter = ["is_active", "status", "contract", "created_at"]
+    list_filter = ["is_active", "status", "contract", "created_at", "retry_backoff_strategy"]
     search_fields = ["target_url", "contract__name", "event_type"]
     readonly_fields = ["secret", "created_at", "last_triggered", "failure_count", "status"]
+    fieldsets = (
+        (None, {
+            "fields": ("contract", "target_url", "event_type", "is_active"),
+        }),
+        ("Configuration", {
+            "fields": (
+                "timeout_seconds",
+                "signature_algorithm",
+                "ack_header_name",
+                "ack_header_value",
+                "delivery_sla_seconds",
+                "escalation_policy",
+                "filter_condition",
+            ),
+        }),
+        ("Retry Configuration", {
+            "fields": ("retry_backoff_strategy", "retry_backoff_seconds"),
+            "description": "Configure how the webhook retries failed deliveries. "
+                          "Exponential: base * 2^attempt | Linear: base * attempt | Fixed: base",
+        }),
+        ("Status", {
+            "fields": ("status", "failure_count", "last_triggered"),
+            "classes": ("collapse",),
+        }),
+        ("Secret", {
+            "fields": ("secret",),
+            "classes": ("collapse",),
+        }),
+    )
     ordering = ["-created_at"]
+
+    class Media:
+        js = ("ingest/admin_event_type_autocomplete.js",)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "event-types/",
+                self.admin_site.admin_view(self.event_types_api),
+                name="webhooksubscription_event_types",
+            ),
+            path(
+                "<int:pk>/ping/",
+                self.admin_site.admin_view(self.ping_webhook),
+                name="webhooksubscription_ping",
+            ),
+        ]
+        return custom_urls + urls
+
+    def ping_webhook(self, request, pk):
+        import hashlib
+        import hmac
+        from django.shortcuts import redirect
+        from django.utils import timezone
+
+        webhook = WebhookSubscription.objects.get(pk=pk)
+        test_payload = {
+            "event_type": "ping",
+            "payload": {"message": "This is a test ping from SoroScan admin"},
+            "contract_id": webhook.contract.contract_id,
+            "timestamp": timezone.now().isoformat(),
+        }
+        payload_bytes = json.dumps(test_payload, sort_keys=True).encode("utf-8")
+        algorithm = (webhook.signature_algorithm or WebhookSubscription.SIGNATURE_SHA256).lower()
+        digestmod = hashlib.sha1 if algorithm == WebhookSubscription.SIGNATURE_SHA1 else hashlib.sha256
+        prefix = "sha1" if algorithm == WebhookSubscription.SIGNATURE_SHA1 else "sha256"
+        sig_hex = hmac.new(
+            webhook.secret.encode("utf-8"),
+            msg=payload_bytes,
+            digestmod=digestmod,
+        ).hexdigest()
+        headers = {
+            "Content-Type": "application/json",
+            "X-SoroScan-Signature": f"{prefix}={sig_hex}",
+            "X-SoroScan-Timestamp": timezone.now().isoformat(),
+        }
+        try:
+            response = http_requests.post(
+                webhook.target_url,
+                data=payload_bytes,
+                headers=headers,
+                timeout=10,
+            )
+            response.raise_for_status()
+            self.message_user(
+                request,
+                f"Test ping sent successfully to {webhook.target_url} (HTTP {response.status_code}).",
+                messages.SUCCESS,
+            )
+        except http_requests.RequestException as exc:
+            self.message_user(
+                request,
+                f"Test ping to {webhook.target_url} failed: {exc}",
+                messages.ERROR,
+            )
+        return redirect(
+            reverse("admin:ingest_webhooksubscription_change", args=[pk])
+        )
+
+    def event_types_api(self, request):
+        from django.http import JsonResponse
+        from soroscan.ingest.models import TrackedContract
+        contract_id = request.GET.get("contract_id")
+        if not contract_id:
+            return JsonResponse({"results": []})
+        try:
+            contract = TrackedContract.objects.get(pk=contract_id)
+        except TrackedContract.DoesNotExist:
+            return JsonResponse({"results": []})
+        
+        types = set()
+        if hasattr(contract, "event_schemas"):
+            types.update(contract.event_schemas.values_list("event_type", flat=True))
+        if hasattr(contract, "abi") and contract.abi.abi_json:
+            for ev in contract.abi.abi_json:
+                if isinstance(ev, dict) and ev.get("name"):
+                    types.add(ev["name"])
+        types.update(contract.events.values_list("event_type", flat=True).distinct())
+        
+        results = [{"id": t, "text": t} for t in sorted(types)]
+        return JsonResponse({"results": results})
 
     def get_queryset(self, request):
         """Optimize queries with select_related to prevent N+1 issues."""
@@ -528,10 +804,13 @@ class WebhookDeliveryLogAdmin(AdminAuditMixin, admin.ModelAdmin):
         "subscription_url",
         "attempt_number",
         "status_code_display",
+        "acknowledged",
+        "within_sla",
+        "latency_ms",
         "success_display",
         "timestamp",
     ]
-    list_filter = ["success", "timestamp"]
+    list_filter = ["success", "acknowledged", "within_sla", "timestamp"]
     search_fields = ["subscription__target_url", "error"]
     readonly_fields = [
         "subscription",
@@ -539,6 +818,9 @@ class WebhookDeliveryLogAdmin(AdminAuditMixin, admin.ModelAdmin):
         "attempt_number",
         "status_code",
         "success",
+        "acknowledged",
+        "latency_ms",
+        "within_sla",
         "error",
         "timestamp",
     ]
@@ -576,6 +858,71 @@ class WebhookDeliveryLogAdmin(AdminAuditMixin, admin.ModelAdmin):
     @admin.display(description="Success", boolean=True)
     def success_display(self, obj):
         return obj.success
+
+    @admin.action(description="Retry selected webhook deliveries")
+    def retry_webhook_delivery(self, request, queryset):
+        """
+        Manually retry selected webhook deliveries by requeueing the Celery task.
+        Shows a confirmation page before proceeding.
+        """
+        from django.template.response import TemplateResponse
+
+        if request.POST.get("post"):
+            # Process the retry
+            count = 0
+            for obj in queryset:
+                dispatch_webhook.delay(obj.subscription_id, obj.event_id)
+                count += 1
+
+            self.message_user(
+                request,
+                f"Successfully requeued {count} webhook delivery/deliveries.",
+                messages.SUCCESS,
+            )
+            return None
+
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Are you sure?",
+            "queryset": queryset,
+            "opts": self.model._meta,
+            "action_checkbox_name": ACTION_CHECKBOX_NAME,
+            "media": self.media,
+        }
+
+        return TemplateResponse(
+            request,
+            "admin/ingest/webhookdeliverylog/webhook_retry_confirmation.html",
+            context,
+        )
+
+    actions = ["retry_webhook_delivery"]
+
+
+@admin.register(WebhookDeadLetter)
+class WebhookDeadLetterAdmin(AdminAuditMixin, admin.ModelAdmin):
+    """Manual review queue for webhook deliveries that exhausted retries."""
+
+    list_display = [
+        "id",
+        "subscription",
+        "status_code",
+        "retries_exhausted",
+        "resolved",
+        "created_at",
+    ]
+    list_filter = ["resolved", "created_at", "status_code"]
+    search_fields = ["subscription__target_url", "error"]
+    readonly_fields = [
+        "subscription",
+        "event",
+        "payload",
+        "status_code",
+        "error",
+        "retries_exhausted",
+        "created_at",
+    ]
+    ordering = ["-created_at"]
 
 
 # ---------------------------------------------------------------------------
@@ -623,6 +970,34 @@ class APIKeyAdmin(AdminAuditMixin, admin.ModelAdmin):
             quota = APIKey.TIER_QUOTAS.get(obj.tier, 50)
             obj.quota_per_hour = quota if quota is not None else APIKey.UNLIMITED_QUOTA
         super().save_model(request, obj, form, change)
+
+
+@admin.register(ContractDependency)
+class ContractDependencyAdmin(AdminAuditMixin, admin.ModelAdmin):
+    list_display = ["caller", "callee", "call_count", "risk_score", "last_call"]
+    list_filter = ["last_call"]
+    search_fields = ["caller__contract_id", "callee__contract_id"]
+
+
+@admin.register(CallGraph)
+class CallGraphAdmin(AdminAuditMixin, admin.ModelAdmin):
+    list_display = ["contract", "has_cycles", "computed_at"]
+    list_filter = ["has_cycles", "computed_at"]
+    readonly_fields = ["computed_at"]
+
+
+@admin.register(DependencyImpactAssessment)
+class DependencyImpactAssessmentAdmin(AdminAuditMixin, admin.ModelAdmin):
+    list_display = [
+        "root_contract",
+        "impacted_count",
+        "risk_score",
+        "impact_level",
+        "has_cycles",
+        "computed_at",
+    ]
+    list_filter = ["impact_level", "has_cycles", "computed_at"]
+    search_fields = ["root_contract__contract_id", "root_contract__name"]
 
 
 @admin.register(ContractQuota)
@@ -869,3 +1244,182 @@ class AdminActionAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return False
 
+
+@admin.register(IngestError)
+class IngestErrorAdmin(admin.ModelAdmin):
+    list_display = ["created_at", "error_type", "contract_id", "sample_error", "ledger"]
+    list_filter = ["error_type", "created_at"]
+    search_fields = ["contract_id", "error_message", "tx_hash"]
+    readonly_fields = ["created_at", "sample_error"]
+    ordering = ["-created_at"]
+    
+    def has_add_permission(self, request):
+        return False
+    
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+
+# ---------------------------------------------------------------------------
+# Contract Metadata Registry
+# ---------------------------------------------------------------------------
+
+class TagListFilter(admin.SimpleListFilter):
+    title = "tags"
+    parameter_name = "tags"
+
+    def lookups(self, request, model_admin):
+        return [
+            ("has_tags", "Has Tags"),
+            ("no_tags", "No Tags"),
+        ]
+
+    def queryset(self, request, queryset):
+        if self.value() == "has_tags":
+            return queryset.exclude(tags=[])
+        if self.value() == "no_tags":
+            return queryset.filter(tags=[])
+        return queryset
+
+
+@admin.register(ContractMetadata)
+class ContractMetadataAdmin(AdminAuditMixin, admin.ModelAdmin):
+    list_display = ["contract", "name", "tags", "documentation_url", "github_repo", "team_email"]
+    search_fields = ["name", "description", "tags"]
+    list_filter = [TagListFilter]
+    readonly_fields = ["created_at", "updated_at"]
+
+
+@admin.register(ContractSource)
+class ContractSourceAdmin(AdminAuditMixin, admin.ModelAdmin):
+    list_display = ["contract", "uploaded_by", "uploaded_at", "file_size"]
+    list_filter = ["uploaded_at"]
+    search_fields = ["contract__name", "contract__contract_id", "uploaded_by__username"]
+    readonly_fields = ["uploaded_at"]
+
+    def file_size(self, obj):
+        if obj.source_file:
+            return f"{obj.source_file.size} bytes"
+        return "—"
+    file_size.short_description = "File Size"
+
+
+@admin.register(ContractVerification)
+class ContractVerificationAdmin(AdminAuditMixin, admin.ModelAdmin):
+    list_display = ["contract", "status", "verified_at", "compiler_version"]
+    list_filter = ["status", "verified_at"]
+    search_fields = ["contract__name", "contract__contract_id"]
+    readonly_fields = ["verified_at"]
+
+
+# ---------------------------------------------------------------------------
+# Issue #280: GDPR Data Governance
+# ---------------------------------------------------------------------------
+
+@admin.register(AuditLog)
+class AuditLogAdmin(admin.ModelAdmin):
+    list_display = ["timestamp", "action", "model_name", "object_id", "user", "ip_address"]
+    list_filter = ["action", "model_name", "timestamp"]
+    search_fields = ["object_id", "user__username", "model_name"]
+    readonly_fields = ["timestamp", "action", "model_name", "object_id", "user", "ip_address", "changes"]
+    ordering = ["-timestamp"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(PIIField)
+class PIIFieldAdmin(admin.ModelAdmin):
+    list_display = ["contract", "event_type", "field_path", "description", "created_at"]
+    list_filter = ["created_at"]
+    search_fields = ["contract__contract_id", "contract__name", "field_path"]
+    readonly_fields = ["created_at"]
+
+
+@admin.register(DataDeletionRequest)
+class DataDeletionRequestAdmin(admin.ModelAdmin):
+    list_display = ["subject_identifier", "status", "requested_by", "events_deleted", "requested_at", "completed_at"]
+    list_filter = ["status", "requested_at"]
+    search_fields = ["subject_identifier", "requested_by__username"]
+    readonly_fields = ["requested_at", "completed_at", "events_deleted", "error_message"]
+    filter_horizontal = ["contracts"]
+
+
+# ---------------------------------------------------------------------------
+# Issue #284: Contract Deployment Tracking
+# ---------------------------------------------------------------------------
+
+@admin.register(ContractDeployment)
+class ContractDeploymentAdmin(admin.ModelAdmin):
+    list_display = ["contract", "bytecode_hash_short", "ledger_deployed", "deployer_address", "is_upgrade", "detected_at"]
+    list_filter = ["is_upgrade", "detected_at"]
+    search_fields = ["contract__contract_id", "contract__name", "bytecode_hash", "deployer_address"]
+    readonly_fields = ["detected_at"]
+
+    def bytecode_hash_short(self, obj):
+        return obj.bytecode_hash[:16] + "..."
+    bytecode_hash_short.short_description = "Bytecode Hash"
+
+
+@admin.register(ContractABIVersion)
+class ContractABIVersionAdmin(admin.ModelAdmin):
+    list_display = ["contract", "version_number", "valid_from_ledger", "valid_to_ledger", "has_breaking_changes", "created_at"]
+    list_filter = ["has_breaking_changes", "created_at"]
+    search_fields = ["contract__contract_id", "contract__name"]
+    readonly_fields = ["created_at"]
+
+
+@admin.register(EventDeduplicationConfig)
+class EventDeduplicationConfigAdmin(AdminAuditMixin, admin.ModelAdmin):
+    list_display = ["contract", "enabled", "updated_at"]
+    search_fields = ["contract__name", "contract__contract_id"]
+    readonly_fields = ["created_at", "updated_at"]
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "test/<int:contract_id>/",
+                self.admin_site.admin_view(self.test_dedup_view),
+                name="soroscan_dedup_test",
+            ),
+        ]
+        return custom + urls
+
+    def test_dedup_view(self, request, contract_id):
+        try:
+            contract = TrackedContract.objects.get(pk=contract_id)
+        except TrackedContract.DoesNotExist:
+            return HttpResponse(json.dumps({"error": "contract not found"}), content_type="application/json", status=404)
+
+        try:
+            body = request.body.decode("utf-8") if request.body else "{}"
+            payload = json.loads(body)
+        except Exception:
+            payload = {}
+
+        config = getattr(contract, "dedup_config", None)
+        if not config or not config.enabled:
+            return HttpResponse(json.dumps({"dedup_enabled": False}), content_type="application/json")
+
+        material = {}
+        for f in config.fields:
+            if f in ("event_type", "ledger", "event_index", "tx_hash"):
+                material[f] = payload.get(f)
+            else:
+                material[f] = payload.get("payload", {}).get(f)
+
+        dedup_material = json.dumps(material, sort_keys=True, default=str)
+        dedup_hash = hashlib.sha256(dedup_material.encode("utf-8")).hexdigest()
+
+        return HttpResponse(
+            json.dumps({"dedup_hash": dedup_hash, "material": material}),
+            content_type="application/json",
+        )

@@ -38,10 +38,15 @@ export function CreateWebhookModal({ isOpen, onClose, onCreate }: CreateWebhookM
   const [selectedTypes, setSelectedTypes] = React.useState<EventType[]>(["ALL"])
   const [contractFilter, setContractFilter] = React.useState("")
   const [status, setStatus] = React.useState<WebhookStatus>("ACTIVE")
+  const [timeoutInput, setTimeoutInput] = React.useState("30")
+  const [timeoutTouched, setTimeoutTouched] = React.useState(false)
   const [submitting, setSubmitting] = React.useState(false)
 
   const urlValid = isValidUrl(url)
+  const timeoutValue = Number(timeoutInput)
+  const timeoutValid = Number.isInteger(timeoutValue) && timeoutValue >= 5 && timeoutValue <= 60
   const urlError = urlTouched && !urlValid ? "Must be a valid https:// URL" : null
+  const timeoutError = timeoutTouched && !timeoutValid ? "Timeout must be a whole number between 5 and 60 seconds." : null
 
   const toggleType = (t: EventType) => {
     if (t === "ALL") {
@@ -57,6 +62,12 @@ export function CreateWebhookModal({ isOpen, onClose, onCreate }: CreateWebhookM
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!urlValid) { setUrlTouched(true); return }
+    if (!urlValid || !timeoutValid) {
+      setUrlTouched(true)
+      setTimeoutTouched(true)
+      return
+    }
+
     setSubmitting(true)
     setTimeout(() => {
       onCreate({
@@ -64,17 +75,19 @@ export function CreateWebhookModal({ isOpen, onClose, onCreate }: CreateWebhookM
         eventTypes: selectedTypes.length === 0 ? ["ALL"] : selectedTypes,
         contractFilter: contractFilter.trim() || undefined,
         status,
+        timeoutSeconds: timeoutValue,
       })
       // reset
       setUrl(""); setUrlTouched(false); setSelectedTypes(["ALL"])
-      setContractFilter(""); setStatus("ACTIVE"); setSubmitting(false)
+      setContractFilter(""); setStatus("ACTIVE"); setTimeoutInput("30"); setTimeoutTouched(false)
+      setSubmitting(false)
       onClose()
     }, 600)
   }
 
   const handleClose = () => {
     setUrl(""); setUrlTouched(false); setSelectedTypes(["ALL"])
-    setContractFilter(""); setStatus("ACTIVE")
+    setContractFilter(""); setStatus("ACTIVE"); setTimeoutInput("30"); setTimeoutTouched(false)
     onClose()
   }
 
@@ -84,6 +97,7 @@ export function CreateWebhookModal({ isOpen, onClose, onCreate }: CreateWebhookM
         {/* URL */}
         <div>
           <Input
+            id="webhook-url-input"
             label="ENDPOINT_URL *"
             type="url"
             placeholder="https://yourapp.io/webhook"
@@ -94,6 +108,40 @@ export function CreateWebhookModal({ isOpen, onClose, onCreate }: CreateWebhookM
           />
           {urlError && (
             <p className="text-terminal-danger text-[10px] mt-1 ml-1">{urlError}</p>
+          )}
+        </div>
+
+        {/* Event timeout */}
+        <div>
+          <Input
+            id="timeout-input"
+            label="REQUEST_TIMEOUT (seconds)"
+            type="number"
+            min={5}
+            max={60}
+            step={1}
+            value={timeoutInput}
+            onChange={(e) => setTimeoutInput(e.target.value)}
+            onBlur={() => setTimeoutTouched(true)}
+            aria-invalid={!!timeoutError}
+          />
+          <div className="flex flex-wrap gap-2 mt-2">
+            {[10, 20, 30, 45, 60].map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => {
+                  setTimeoutInput(String(value))
+                  setTimeoutTouched(true)
+                }}
+                className="rounded border border-terminal-green/20 px-3 py-1.5 text-[11px] text-terminal-gray transition hover:border-terminal-green hover:text-terminal-green"
+              >
+                {value}s
+              </button>
+            ))}
+          </div>
+          {timeoutError && (
+            <p className="text-terminal-danger text-[10px] mt-1 ml-1">{timeoutError}</p>
           )}
         </div>
 
@@ -128,6 +176,7 @@ export function CreateWebhookModal({ isOpen, onClose, onCreate }: CreateWebhookM
 
         {/* Contract filter */}
         <Input
+          id="contract-filter-input"
           label="CONTRACT_FILTER (optional)"
           type="text"
           placeholder="CABC...9X4Z — leave blank for all contracts"

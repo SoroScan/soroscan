@@ -1,7 +1,6 @@
 """SoroScan API client implementations."""
 
-from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, TYPE_CHECKING
 from urllib.parse import urljoin
 
 import httpx
@@ -13,6 +12,10 @@ from soroscan.exceptions import (
     SoroScanNotFoundError,
     SoroScanRateLimitError,
     SoroScanValidationError,
+    SoroScanServerError,
+    SoroScanNetworkError,
+    SoroScanTimeoutError,
+    SoroScanConnectionError,
 )
 from soroscan.models import (
     ContractEvent,
@@ -23,6 +26,9 @@ from soroscan.models import (
     TrackedContract,
     WebhookSubscription,
 )
+
+if TYPE_CHECKING:
+    from soroscan.builder import EventQueryBuilder, ContractQueryBuilder, AsyncEventQueryBuilder, AsyncContractQueryBuilder
 
 
 class SoroScanClient:
@@ -63,6 +69,39 @@ class SoroScanClient:
         """Close the HTTP client."""
         self._client.close()
 
+    def events(self) -> "EventQueryBuilder":
+        """
+        Create a fluent event query builder (issue #481).
+        
+        Example:
+            >>> events = (client.events()
+            ...     .filter_by_contract("CCAAA...")
+            ...     .filter_by_event_type("transfer")
+            ...     .paginate(limit=50, offset=0)
+            ...     .execute())
+        
+        Returns:
+            EventQueryBuilder instance for method chaining
+        """
+        from soroscan.builder import EventQueryBuilder
+        return EventQueryBuilder(self)
+    
+    def contracts(self) -> "ContractQueryBuilder":
+        """
+        Create a fluent contract query builder (issue #481).
+        
+        Example:
+            >>> contracts = (client.contracts()
+            ...     .filter_by_active(True)
+            ...     .search("token")
+            ...     .execute())
+        
+        Returns:
+            ContractQueryBuilder instance for method chaining
+        """
+        from soroscan.builder import ContractQueryBuilder
+        return ContractQueryBuilder(self)
+
     def _get_headers(self) -> dict[str, str]:
         """Build request headers."""
         headers = {"Content-Type": "application/json"}
@@ -84,17 +123,43 @@ class SoroScanClient:
             error_data = {}
 
         error_message = error_data.get("detail") or error_data.get("error") or response.text
+        error_code = error_data.get("code") or "unknown_error"
 
         if response.status_code == 400:
-            raise SoroScanValidationError(error_message, response.status_code, error_data)
+            raise SoroScanValidationError(
+                error_message,
+                response.status_code,
+                error_code,
+                error_data,
+                field=error_data.get("field"),
+                value=error_data.get("value"),
+                errors=error_data.get("errors"),
+            )
         elif response.status_code == 401 or response.status_code == 403:
-            raise SoroScanAuthError(error_message, response.status_code, error_data)
+            raise SoroScanAuthError(error_message, response.status_code, error_code, error_data)
         elif response.status_code == 404:
-            raise SoroScanNotFoundError(error_message, response.status_code, error_data)
+            raise SoroScanNotFoundError(
+                error_message,
+                response.status_code,
+                error_code,
+                error_data,
+                resource_type=error_data.get("resource_type"),
+                resource_id=error_data.get("resource_id"),
+            )
         elif response.status_code == 429:
-            raise SoroScanRateLimitError(error_message, response.status_code, error_data)
+            raise SoroScanRateLimitError(
+                error_message,
+                response.status_code,
+                error_code,
+                error_data,
+                retry_after=error_data.get("retry_after"),
+                limit=error_data.get("limit"),
+                remaining=error_data.get("remaining"),
+            )
+        elif response.status_code >= 500:
+            raise SoroScanServerError(error_message, response.status_code, error_code, error_data)
         else:
-            raise SoroScanAPIError(error_message, response.status_code, error_data)
+            raise SoroScanAPIError(error_message, response.status_code, error_code, error_data)
 
     def get_contracts(
         self,
@@ -163,7 +228,7 @@ class SoroScanClient:
             Created contract
         """
         url = urljoin(self.base_url, "/api/contracts/")
-        payload = {
+        payload: dict[str, Any] = {
             "contract_id": contract_id,
             "name": name,
             "description": description,
@@ -439,7 +504,7 @@ class SoroScanClient:
         if response.status_code != 204:
             self._handle_response(response)
 
-    def test_webhook(self, webhook_id: int) -> dict[str, str]:
+    def test_webhook(self, webhook_id: int) -> dict[str, Any]:
         """
         Send a test webhook.
 
@@ -451,7 +516,7 @@ class SoroScanClient:
         """
         url = urljoin(self.base_url, f"/api/webhooks/{webhook_id}/test/")
         response = self._client.post(url, headers=self._get_headers())
-        return self._handle_response(response)  # type: ignore[return-value]
+        return self._handle_response(response)
 
 
 class AsyncSoroScanClient:
@@ -492,6 +557,37 @@ class AsyncSoroScanClient:
         """Close the HTTP client."""
         await self._client.aclose()
 
+    def events(self) -> "AsyncEventQueryBuilder":
+        """
+        Create a fluent async event query builder (issue #481).
+        
+        Example:
+            >>> events = await (client.events()
+            ...     .filter_by_contract("CCAAA...")
+            ...     .filter_by_event_type("transfer")
+            ...     .execute())
+        
+        Returns:
+            AsyncEventQueryBuilder instance for method chaining
+        """
+        from soroscan.builder import AsyncEventQueryBuilder
+        return AsyncEventQueryBuilder(self)
+    
+    def contracts(self) -> "AsyncContractQueryBuilder":
+        """
+        Create a fluent async contract query builder (issue #481).
+        
+        Example:
+            >>> contracts = await (client.contracts()
+            ...     .filter_by_active(True)
+            ...     .execute())
+        
+        Returns:
+            AsyncContractQueryBuilder instance for method chaining
+        """
+        from soroscan.builder import AsyncContractQueryBuilder
+        return AsyncContractQueryBuilder(self)
+
     def _get_headers(self) -> dict[str, str]:
         """Build request headers."""
         headers = {"Content-Type": "application/json"}
@@ -512,17 +608,43 @@ class AsyncSoroScanClient:
             error_data = {}
 
         error_message = error_data.get("detail") or error_data.get("error") or response.text
+        error_code = error_data.get("code") or "unknown_error"
 
         if response.status_code == 400:
-            raise SoroScanValidationError(error_message, response.status_code, error_data)
+            raise SoroScanValidationError(
+                error_message,
+                response.status_code,
+                error_code,
+                error_data,
+                field=error_data.get("field"),
+                value=error_data.get("value"),
+                errors=error_data.get("errors"),
+            )
         elif response.status_code == 401 or response.status_code == 403:
-            raise SoroScanAuthError(error_message, response.status_code, error_data)
+            raise SoroScanAuthError(error_message, response.status_code, error_code, error_data)
         elif response.status_code == 404:
-            raise SoroScanNotFoundError(error_message, response.status_code, error_data)
+            raise SoroScanNotFoundError(
+                error_message,
+                response.status_code,
+                error_code,
+                error_data,
+                resource_type=error_data.get("resource_type"),
+                resource_id=error_data.get("resource_id"),
+            )
         elif response.status_code == 429:
-            raise SoroScanRateLimitError(error_message, response.status_code, error_data)
+            raise SoroScanRateLimitError(
+                error_message,
+                response.status_code,
+                error_code,
+                error_data,
+                retry_after=error_data.get("retry_after"),
+                limit=error_data.get("limit"),
+                remaining=error_data.get("remaining"),
+            )
+        elif response.status_code >= 500:
+            raise SoroScanServerError(error_message, response.status_code, error_code, error_data)
         else:
-            raise SoroScanAPIError(error_message, response.status_code, error_data)
+            raise SoroScanAPIError(error_message, response.status_code, error_code, error_data)
 
     async def get_contracts(
         self,
@@ -591,7 +713,7 @@ class AsyncSoroScanClient:
             Created contract
         """
         url = urljoin(self.base_url, "/api/contracts/")
-        payload = {
+        payload: dict[str, Any] = {
             "contract_id": contract_id,
             "name": name,
             "description": description,
@@ -869,7 +991,7 @@ class AsyncSoroScanClient:
         if response.status_code != 204:
             self._handle_response(response)
 
-    async def test_webhook(self, webhook_id: int) -> dict[str, str]:
+    async def test_webhook(self, webhook_id: int) -> dict[str, Any]:
         """
         Send a test webhook.
 
@@ -881,4 +1003,4 @@ class AsyncSoroScanClient:
         """
         url = urljoin(self.base_url, f"/api/webhooks/{webhook_id}/test/")
         response = await self._client.post(url, headers=self._get_headers())
-        return self._handle_response(response)  # type: ignore[return-value]
+        return self._handle_response(response)
