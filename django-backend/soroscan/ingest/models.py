@@ -1158,6 +1158,52 @@ class ContractQuota(models.Model):
         return f"{self.api_key.name} / {self.contract.name}: {self.quota_per_hour}/hr"
 
 
+class Invoice(models.Model):
+    STATUS_DRAFT = "draft"
+    STATUS_SENT = "sent"
+    STATUS_PAID = "paid"
+    STATUS_OVERDUE = "overdue"
+    STATUS_CANCELLED = "cancelled"
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, "Draft"),
+        (STATUS_SENT, "Sent"),
+        (STATUS_PAID, "Paid"),
+        (STATUS_OVERDUE, "Overdue"),
+        (STATUS_CANCELLED, "Cancelled"),
+    ]
+
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="invoices",
+    )
+    invoice_number = models.CharField(max_length=64, unique=True, db_index=True)
+    amount_usd = models.DecimalField(max_digits=14, decimal_places=2)
+    currency = models.CharField(max_length=3, default="USD")
+    status = models.CharField(
+        max_length=16,
+        choices=STATUS_CHOICES,
+        default=STATUS_DRAFT,
+        db_index=True,
+    )
+    period_start = models.DateField(help_text="Start of billing period")
+    period_end = models.DateField(help_text="End of billing period")
+    issued_at = models.DateTimeField(auto_now_add=True)
+    due_date = models.DateField()
+    paid_at = models.DateTimeField(null=True, blank=True)
+    line_items = models.JSONField(default=list, blank=True, help_text="Invoice line items")
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-issued_at"]
+        indexes = [
+            models.Index(fields=["organization", "status", "issued_at"]),
+        ]
+
+    def __str__(self):
+        return f"Invoice #{self.invoice_number} ({self.organization.name})"
+
+
 # ---------------------------------------------------------------------------
 # Issue #X: Event-driven alerts with rule engine and notifications
 # ---------------------------------------------------------------------------
