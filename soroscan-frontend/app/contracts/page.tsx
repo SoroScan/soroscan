@@ -20,6 +20,7 @@ export default function ContractsPage() {
   const [deleteTarget, setDeleteTarget] = React.useState<Contract | null>(null);
   const [isDeleting, setIsDeleting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [showFavoritesOnly, setShowFavoritesOnly] = React.useState(false);
 
   const loadContracts = React.useCallback(async () => {
     try {
@@ -77,9 +78,17 @@ export default function ContractsPage() {
               Manage tracked contracts and event monitoring
             </p>
           </div>
-          <Button variant="primary" onClick={() => setIsRegisterModalOpen(true)}>
-            Register Contract
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant={showFavoritesOnly ? "primary" : "secondary"}
+              onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
+            >
+              {showFavoritesOnly ? "Show All" : "Show Favorites"}
+            </Button>
+            <Button variant="primary" onClick={() => setIsRegisterModalOpen(true)}>
+              Register Contract
+            </Button>
+          </div>
         </div>
 
         {error && (
@@ -100,6 +109,7 @@ export default function ContractsPage() {
                 contracts={contracts}
                 onDelete={handleDeleteClick}
                 onRegister={() => setIsRegisterModalOpen(true)}
+                showFavoritesOnly={showFavoritesOnly}
               />
           )}
         </Card>
