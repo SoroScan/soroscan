@@ -20,7 +20,6 @@ import { EventChart } from "./components/EventChart"
 import { WebhookStats } from "./components/WebhookStats"
 import { ErrorLog } from "./components/ErrorLog"
 import { fetchSystemMetrics, SystemMetricsData } from "@/components/ingest/graphql"
-import { useToast } from "@/context/ToastContext"
 
 export default function AdminDashboard() {
   const [data, setData] = React.useState<SystemMetricsData | null>(null)
