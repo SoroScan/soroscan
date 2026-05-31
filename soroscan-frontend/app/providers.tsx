@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { ToastProvider } from "@/context/ToastContext";
+import { TimezoneProvider } from "@/context/TimezoneContext";
 import { ApolloProvider } from "@/providers/ApolloProvider";
 
 interface ProvidersProps {
@@ -11,7 +12,9 @@ interface ProvidersProps {
 export function Providers({ children }: ProvidersProps) {
   return (
     <ApolloProvider>
-      <ToastProvider>{children}</ToastProvider>
+      <TimezoneProvider>
+        <ToastProvider>{children}</ToastProvider>
+      </TimezoneProvider>
     </ApolloProvider>
   );
 }

@@ -2,6 +2,8 @@
 
 import React, { useState } from 'react';
 import { useTimeline } from '../context';
+import { useAdminTimezone } from '../../context/AdminTimezoneContext';
+import { formatTimeInTimezone, formatDateOnlyInTimezone } from '../../utils/timezone';
 import type { TimelineEvent } from '../types';
 import { STATUS_COLORS, STATUS_ICONS } from '../types';
 
@@ -12,9 +14,11 @@ interface TimelineEventItemProps {
 
 export function TimelineEventItem({ event, index }: TimelineEventItemProps) {
   const { selectedEvent, setSelectedEvent } = useTimeline();
+  const { timezone, displayMode } = useAdminTimezone();
   const [isExpanded, setIsExpanded] = useState(false);
   
   const isSelected = selectedEvent?.id === event.id;
+  const effectiveTimezone = displayMode === 'utc' ? 'UTC' : timezone;
   
   const handleClick = () => {
     setSelectedEvent(event);
@@ -22,8 +26,7 @@ export function TimelineEventItem({ event, index }: TimelineEventItemProps) {
   };
   
   const formatTimestamp = (timestamp: string) => {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString('en-US', {
+    return formatTimeInTimezone(timestamp, effectiveTimezone, {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
@@ -31,8 +34,7 @@ export function TimelineEventItem({ event, index }: TimelineEventItemProps) {
   };
   
   const formatDate = (timestamp: string) => {
-    const date = new Date(timestamp);
-    return date.toLocaleDateString('en-US', {
+    return formatDateOnlyInTimezone(timestamp, effectiveTimezone, {
       month: 'short',
       day: 'numeric',
       year: 'numeric',

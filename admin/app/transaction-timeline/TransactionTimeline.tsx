@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useTimeline } from './context';
+import { AdminTimezoneSelector } from '../components/AdminTimezoneSelector';
 import { ZOOM_LEVELS, STATUS_COLORS } from './types';
 import type { EventStatus } from './types';
 import { TimelineGroupList } from './components/TimelineGroup';
@@ -91,7 +92,12 @@ export function TransactionTimeline() {
       </div>
       
       {/* Filters bar */}
-      <div className="flex items-center gap-6 p-3 border-b border-zinc-800 bg-zinc-900/30">
+      <div className="flex items-center gap-6 p-3 border-b border-zinc-800 bg-zinc-900/30 overflow-x-auto">
+        {/* Timezone selector */}
+        <div className="flex-shrink-0">
+          <AdminTimezoneSelector />
+        </div>
+        
         {/* Search */}
         <div className="flex items-center gap-2">
           <svg className="w-4 h-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">

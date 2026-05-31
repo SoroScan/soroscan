@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { formatDateTime } from "@/components/ingest/formatters";
+import { useTimezone } from "@/context/TimezoneContext";
 import type { EventRecord } from "@/components/ingest/types";
 import styles from "@/components/ingest/ingest-terminal.module.css";
 import { JsonHighlight } from "./JsonHighlight";
@@ -14,6 +15,9 @@ interface EventDetailModalProps {
 export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
   const [copied, setCopied] = useState<string | null>(null);
   const [payloadView, setPayloadView] = useState<"json" | "hex">("json");
+  const { timezone, displayMode } = useTimezone();
+  
+  const effectiveTimezone = displayMode === 'utc' ? 'UTC' : timezone;
 
   const payloadJson = JSON.stringify(event.payload, null, 2);
   const payloadHex = toHex(payloadJson);
@@ -68,7 +72,7 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
                   gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
                 }}
               >
-                <MetaBadge label="Timestamp" value={formatDateTime(event.timestamp)} />
+                <MetaBadge label="Timestamp" value={formatDateTime(event.timestamp, effectiveTimezone)} />
                 <MetaBadge label="Ledger" value={event.ledger.toString()} />
                 <MetaBadge label="Event Index" value={event.eventIndex.toString()} />
                 <MetaBadge label="Event Type" value={event.eventType} />

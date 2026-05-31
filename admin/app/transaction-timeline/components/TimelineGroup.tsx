@@ -2,6 +2,8 @@
 
 import React from 'react';
 import { useTimeline } from '../context';
+import { useAdminTimezone } from '../../context/AdminTimezoneContext';
+import { formatDateInTimezone } from '../../utils/timezone';
 import type { TimelineGroup as TimelineGroupType } from '../types';
 import { TimelineEventList } from './TimelineEvent';
 
@@ -12,12 +14,13 @@ interface TimelineGroupProps {
 
 export function TimelineGroup({ group, index }: TimelineGroupProps) {
   const { expandedGroups, toggleGroup, zoomLevel } = useTimeline();
+  const { timezone, displayMode } = useAdminTimezone();
   
   const isExpanded = expandedGroups.has(index);
+  const effectiveTimezone = displayMode === 'utc' ? 'UTC' : timezone;
   
   const formatDateTime = (timestamp: string) => {
-    const date = new Date(timestamp);
-    return date.toLocaleString('en-US', {
+    return formatDateInTimezone(timestamp, effectiveTimezone, {
       month: 'short',
       day: 'numeric',
       year: 'numeric',

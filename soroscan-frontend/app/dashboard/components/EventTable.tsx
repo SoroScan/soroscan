@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { formatDateTime, shortHash } from "@/components/ingest/formatters";
+import { useTimezone } from "@/context/TimezoneContext";
 import type { EventRecord } from "@/components/ingest/types";
 import styles from "@/components/ingest/ingest-terminal.module.css";
 
@@ -33,6 +34,9 @@ export function EventTable({
 }: EventTableProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [tagInputs, setTagInputs] = useState<Record<string, string>>({});
+  const { timezone, displayMode } = useTimezone();
+  
+  const effectiveTimezone = displayMode === 'utc' ? 'UTC' : timezone;
 
   const copyToClipboard = async (text: string, id: string) => {
     try {
@@ -253,7 +257,7 @@ export function EventTable({
                     {event.ledger}
                   </button>
                 </td>
-                <td data-label="Time">{formatDateTime(event.timestamp)}</td>
+                <td data-label="Time">{formatDateTime(event.timestamp, effectiveTimezone)}</td>
                 <td data-label="Tx">
                   <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                     <code>{shortHash(event.txHash)}</code>

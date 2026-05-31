@@ -15,6 +15,8 @@ import {
   shortHash,
   trimPayload,
 } from "@/components/ingest/formatters";
+import { TimezoneSelector } from "@/components/TimezoneSelector";
+import { useTimezone } from "@/context/TimezoneContext";
 import styles from "@/components/ingest/ingest-terminal.module.css";
 import type {
   EventTimelineGroup,
@@ -42,6 +44,7 @@ interface StatusState {
 }
 
 export function TimelineView({ contractId }: { contractId: string }) {
+  const { timezone, displayMode } = useTimezone();
   const [contractName, setContractName] = useState(contractId);
   const [isContractMissing, setIsContractMissing] = useState(false);
   const [bucketIndex, setBucketIndex] = useState(2);
@@ -55,9 +58,10 @@ export function TimelineView({ contractId }: { contractId: string }) {
   });
   const [isExportOpen, setIsExportOpen] = useState(false);
 
-  const timezone = useMemo(
-    () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-    [],
+  // Use UTC if display mode is 'utc', otherwise use the selected timezone
+  const effectiveTimezone = useMemo(
+    () => (displayMode === 'utc' ? 'UTC' : timezone),
+    [timezone, displayMode]
   );
 
   useEffect(() => {
@@ -144,7 +148,7 @@ export function TimelineView({ contractId }: { contractId: string }) {
           contractId,
           bucketSize: selectedBucket,
           eventTypes: selectedEventTypes.length ? selectedEventTypes : null,
-          timezone,
+          timezone: effectiveTimezone,
           includeEvents: true,
           limitGroups: 500,
         });
@@ -172,14 +176,15 @@ export function TimelineView({ contractId }: { contractId: string }) {
     return () => {
       active = false;
     };
-  }, [contractId, bucketIndex, selectedEventTypes, timezone]);
+  }, [contractId, bucketIndex, selectedEventTypes, effectiveTimezone]);
 
   const selectedBucket = BUCKETS[bucketIndex];
 
   const summaryText = timeline
     ? `${timeline.totalEvents} events across ${timeline.groups.length} groups (${formatDateTime(
         timeline.since,
-      )} to ${formatDateTime(timeline.until)})`
+        effectiveTimezone,
+      )} to ${formatDateTime(timeline.until, effectiveTimezone)})`
     : isContractMissing
       ? "Contract not found."
       : "Timeline unavailable.";
@@ -289,6 +294,11 @@ export function TimelineView({ contractId }: { contractId: string }) {
           </div>
 
           <div className={styles.controlCard}>
+            <h2 className={styles.sectionTitle}>Timezone</h2>
+            <TimezoneSelector />
+          </div>
+
+          <div className={styles.controlCard}>
             <h2 className={styles.sectionTitle}>Export</h2>
             <div className={styles.row}>
               <button
@@ -330,6 +340,7 @@ export function TimelineView({ contractId }: { contractId: string }) {
                   bucketSize={selectedBucket}
                   expanded={expandedGroups.has(group.start)}
                   onToggle={() => toggleGroup(group.start)}
+                  timezone={effectiveTimezone}
                 />
               ))
             )}
@@ -364,6 +375,7 @@ function TimelineGroupRow({
   bucketSize,
   expanded,
   onToggle,
+  timezone,
 }: {
   index: number;
   groups: EventTimelineGroup[];
@@ -371,6 +383,7 @@ function TimelineGroupRow({
   bucketSize: TimelineBucketSize;
   expanded: boolean;
   onToggle: () => void;
+  timezone: string;
 }) {
   const branch = index === groups.length - 1 ? "\\--" : "|--";
 
@@ -384,7 +397,7 @@ function TimelineGroupRow({
       >
         <div className={styles.groupHeaderLine}>
           <span className={styles.branch}>{`${expanded ? "[-]" : "[+]"} ${branch}`}</span>
-          <span className={styles.range}>{formatRange(group.start, group.end, bucketSize)}</span>
+          <span className={styles.range}>{formatRange(group.start, group.end, bucketSize, timezone)}</span>
         </div>
 
         <div className={styles.groupHeaderLine}>
@@ -400,7 +413,7 @@ function TimelineGroupRow({
           group.events.map((event) => (
             <div key={event.id} className={styles.eventRow}>
               <div>
-                {`|   |-- ${formatDateTime(event.timestamp)} [${event.eventType}] ledger ${event.ledger} tx ${shortHash(event.txHash)}`}
+                {`|   |-- ${formatDateTime(event.timestamp, timezone)} [${event.eventType}] ledger ${event.ledger} tx ${shortHash(event.txHash)}`}
               </div>
               <code className={styles.eventCode}>{trimPayload(event.payload)}</code>
             </div>
@@ -419,10 +432,10 @@ function formatTypeCounts(typeCounts: { eventType: string; count: number }[]): s
   return typeCounts.map((item) => `[${item.eventType}] ${item.count}`).join(", ");
 }
 
-function formatRange(start: string, end: string, bucketSize: TimelineBucketSize): string {
+function formatRange(start: string, end: string, bucketSize: TimelineBucketSize, timezone: string): string {
   if (bucketSize === "ONE_DAY") {
-    return `${formatDateOnly(start)} - ${formatDateOnly(end)}`;
+    return `${formatDateOnly(start, timezone)} - ${formatDateOnly(end, timezone)}`;
   }
 
-  return `${formatDateTime(start)} - ${formatDateTime(end)}`;
+  return `${formatDateTime(start, timezone)} - ${formatDateTime(end, timezone)}`;
 }

@@ -1,23 +1,18 @@
-export function formatDateTime(value: string): string {
-  const parsed = new Date(value);
-  return parsed.toLocaleString(undefined, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
+import { formatDateInTimezone, formatDateOnlyInTimezone, formatTimeInTimezone, getUserLocalTimezone } from '@/lib/timezone';
+
+export function formatDateTime(value: string, timezone?: string): string {
+  const tz = timezone || getUserLocalTimezone();
+  return formatDateInTimezone(value, tz);
 }
 
-export function formatDateOnly(value: string): string {
-  const parsed = new Date(value);
-  return parsed.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
+export function formatDateOnly(value: string, timezone?: string): string {
+  const tz = timezone || getUserLocalTimezone();
+  return formatDateOnlyInTimezone(value, tz);
+}
+
+export function formatTimeOnly(value: string, timezone?: string): string {
+  const tz = timezone || getUserLocalTimezone();
+  return formatTimeInTimezone(value, tz);
 }
 
 export function shortHash(hash: string | null | undefined): string {
