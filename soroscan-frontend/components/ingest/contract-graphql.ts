@@ -1,4 +1,4 @@
-import { graphqlRequest } from "./graphql";
+import { graphqlRequest, gql } from "./graphql";
 import type { Contract, ContractFormData, BackfillTask } from "./contract-types";
 
 export const LIST_CONTRACTS_QUERY = `
@@ -84,6 +84,44 @@ export const TRIGGER_BACKFILL_MUTATION = `
   }
 `;
 
+export const GET_CONTRACT_RATE_QUERY = gql`
+  query GetContractRate($contractId: String!) {
+    contract(id: $contractId) {
+      id
+      maxEventsPerMinute
+      events {
+        totalCount
+      }
+      recentEvents: events(first: 10) {
+        edges {
+          node {
+            timestamp
+          }
+        }
+      }
+    }
+  }
+`;
+
+export const GET_CONTRACT_RATE_QUERY = gql`
+  query GetContractRate($contractId: String!) {
+    contract(id: $contractId) {
+      id
+      maxEventsPerMinute
+      events {
+        totalCount
+      }
+      recentEvents: events(first: 10) {
+        edges {
+          node {
+            timestamp
+          }
+        }
+      }
+    }
+  }
+`;
+
 export async function listContracts(): Promise<Contract[]> {
   const data = await graphqlRequest<{ contracts: Contract[] }, Record<string, never>>(
     LIST_CONTRACTS_QUERY,
@@ -133,4 +171,24 @@ export async function triggerBackfill(contractId: string): Promise<BackfillTask>
     { contractId: string }
   >(TRIGGER_BACKFILL_MUTATION, { contractId });
   return data.triggerBackfill;
+}
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+export async function listWebhooks(): Promise<WebhookSubscriptionSummary[]> {
+  const response = await fetch(`${API_BASE}/api/webhooks/`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to load webhooks: ${response.status}`);
+  }
+  const data = await response.json();
+  return (data.results ?? data).map((wh: Record<string, unknown>) => ({
+    id: String(wh.id),
+    contractId: String(wh.contract_id ?? ""),
+    eventType: String(wh.event_type ?? ""),
+    targetUrl: String(wh.target_url ?? ""),
+    isActive: Boolean(wh.is_active),
+  }));
 }
