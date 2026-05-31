@@ -2,6 +2,7 @@ import React from "react"
 import { render, screen, fireEvent } from "@testing-library/react"
 import { WebhookTable } from "@/app/webhooks/components/WebhookTable"
 import { CreateWebhookModal } from "@/app/webhooks/components/CreateWebhookModal"
+import WebhookDetailPage from "@/app/webhooks/[id]/page"
 import { DeliveryLog } from "@/app/webhooks/[id]/components/DeliveryLog"
 import { MOCK_WEBHOOKS, MOCK_DELIVERY_LOGS } from "@/app/webhooks/mock-data"
 import type { Webhook } from "@/app/webhooks/types"
@@ -214,6 +215,55 @@ describe("CreateWebhookModal", () => {
     )
     expect(screen.getByText("ACTIVE")).toBeInTheDocument()
     expect(screen.getByText("SUSPENDED")).toBeInTheDocument()
+  })
+
+  it("shows timeout validation error on invalid input + blur", () => {
+    render(
+      <CreateWebhookModal isOpen onClose={mockClose} onCreate={mockCreate} />
+    )
+    const timeoutInput = screen.getByLabelText("REQUEST_TIMEOUT (seconds)") as HTMLInputElement
+    fireEvent.change(timeoutInput, { target: { value: "3" } })
+    fireEvent.blur(timeoutInput)
+    expect(screen.getByText(/Timeout must be a whole number between 5 and 60 seconds./)).toBeInTheDocument()
+  })
+
+  it("accepts a valid timeout value", () => {
+    render(
+      <CreateWebhookModal isOpen onClose={mockClose} onCreate={mockCreate} />
+    )
+    const timeoutInput = screen.getByLabelText("REQUEST_TIMEOUT (seconds)") as HTMLInputElement
+    fireEvent.change(timeoutInput, { target: { value: "35" } })
+    fireEvent.blur(timeoutInput)
+    expect(screen.queryByText(/Timeout must be a whole number between 5 and 60 seconds./)).not.toBeInTheDocument()
+  })
+})
+
+// ── WebhookDetailPage ───────────────────────────────────────────────────────
+describe("WebhookDetailPage", () => {
+  it("renders timeout editor and updates the configured timeout", () => {
+    render(<WebhookDetailPage />)
+    const timeoutInput = screen.getByLabelText("REQUEST_TIMEOUT (seconds)") as HTMLInputElement
+
+    expect(timeoutInput.value).toBe("30")
+
+    fireEvent.change(timeoutInput, { target: { value: "25" } })
+    fireEvent.blur(timeoutInput)
+    fireEvent.click(screen.getByText("SAVE"))
+
+    expect(screen.queryByText(/Timeout must be between 5 and 60 seconds./)).not.toBeInTheDocument()
+    expect(screen.getByText("Timeout updated successfully.")).toBeInTheDocument()
+    expect(screen.getByText("25s")).toBeInTheDocument()
+  })
+
+  it("prevents saving an out-of-range timeout", () => {
+    render(<WebhookDetailPage />)
+    const timeoutInput = screen.getByLabelText("REQUEST_TIMEOUT (seconds)") as HTMLInputElement
+
+    fireEvent.change(timeoutInput, { target: { value: "2" } })
+    fireEvent.blur(timeoutInput)
+    fireEvent.click(screen.getByText("SAVE"))
+
+    expect(screen.getByText(/Timeout must be between 5 and 60 seconds./)).toBeInTheDocument()
   })
 })
 

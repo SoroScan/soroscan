@@ -20,6 +20,7 @@ export interface Webhook {
   lastDelivery?: string
   lastStatusCode?: number
   successRate: number // 0–100
+  timeoutSeconds: number
   secret: string
   totalDeliveries: number
 }
