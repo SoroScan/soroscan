@@ -73,7 +73,7 @@ describe("ExportEventsModal", () => {
         txHash: "abcdef0123456789",
         payload: { value: 100 },
       },
-    ] as any);
+    ] as unknown as import("@/components/ingest/types").EventRecord[]);
 
     render(<ExportEventsModal {...defaultProps} />);
 
