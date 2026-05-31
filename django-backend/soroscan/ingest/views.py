@@ -1739,3 +1739,29 @@ def contract_identity_view(request):
         "network_passphrase": getattr(settings, "STELLAR_NETWORK_PASSPHRASE", ""),
         "rpc_url": getattr(settings, "SOROBAN_RPC_URL", ""),
     })
+
+
+# ---------------------------------------------------------------------------
+# Issue #536: Event Completeness SLA Tracking
+# ---------------------------------------------------------------------------
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def sla_metrics_view(request):
+    """Return SLA metrics for all contracts for the past 24 hours."""
+    from .models import ContractCompletenessSLA
+    from django.db.models import Max, Avg, Count, Q
+
+    latest_sla = (
+        ContractCompletenessSLA.objects
+        .values("contract")
+        .annotate(
+            latest_sla=Max("sla_percentage"),
+            latest_hour=Max("hour_start"),
+            avg_sla=Avg("sla_percentage"),
+            violations=Count("id", filter=Q(is_violated=True)),
+        )
+        .order_by("-latest_sla")
+    )
+
+    return Response(list(latest_sla))

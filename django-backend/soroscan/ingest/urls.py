@@ -25,6 +25,7 @@ from .views import (
     networks_view,
     record_event_view,
     restore_archived_events,
+    sla_metrics_view,
     transaction_events_view,
     vulnerability_impact_view,
 )
@@ -71,6 +72,7 @@ urlpatterns = [
         organization_cost_breakdown_view,
         name="admin-organization-costs",
     ),
+    path("admin/sla-metrics/", sla_metrics_view, name="admin-sla-metrics"),
     path("deletion-requests/", deletion_requests_view, name="deletion-requests"),
     path("compliance-export/", compliance_export_view, name="compliance-export"),
     path("networks/", networks_view, name="networks"),
