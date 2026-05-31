@@ -1,0 +1,3285 @@
+openapi: 3.0.3
+info:
+  title: SoroScan API
+  version: 1.0.0
+  description: REST API documentation for SoroScan, a Stellar Soroban smart contract
+    indexer.
+paths:
+  /api/analytics/rate-limits/:
+    get:
+      operationId: api_analytics_rate_limits_retrieve
+      description: Return 7-day API key usage analytics from Redis-backed counters.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateLimitAnalyticsResponse'
+          description: ''
+  /api/audit-trail/:
+    get:
+      operationId: api_audit_trail_list
+      description: Query immutable admin audit trail entries.
+      parameters:
+      - in: query
+        name: action
+        schema:
+          type: string
+          minLength: 1
+      - in: query
+        name: limit
+        schema:
+          type: integer
+      - in: query
+        name: object_id
+        schema:
+          type: string
+          minLength: 1
+      - in: query
+        name: object_type
+        schema:
+          type: string
+          minLength: 1
+      - in: query
+        name: since
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: until
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: user
+        schema:
+          type: string
+          minLength: 1
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminAction'
+          description: ''
+  /api/contracts/status/:
+    get:
+      operationId: api_contracts_status_retrieve
+      description: Return aggregate contract and event indexing snapshot statistics.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContractStatusResponse'
+          description: ''
+  /api/ingest/admin/ingest-errors/:
+    get:
+      operationId: api_ingest_admin_ingest_errors_retrieve
+      description: Get recent ingest errors (admin only).
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/ingest/admin/organization-costs/:
+    get:
+      operationId: api_ingest_admin_organization_costs_retrieve
+      description: Admin endpoint exposing per-organization cost snapshots and budget
+        state.
+      parameters:
+      - in: query
+        name: month
+        schema:
+          type: string
+          minLength: 1
+      - in: query
+        name: organization_id
+        schema:
+          type: integer
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationCostBreakdownResponse'
+          description: ''
+  /api/ingest/api-keys/:
+    get:
+      operationId: api_ingest_api_keys_list
+      description: |-
+        ViewSet for managing API keys with tiered rate limiting.
+
+        Endpoints:
+        - GET /api-keys/ - List your API keys
+        - POST /api-keys/ - Create a new API key
+        - GET /api-keys/{id}/ - Get key details (key value shown only on creation)
+        - DELETE /api-keys/{id}/ - Revoke an API key
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAPIKeyList'
+          description: ''
+    post:
+      operationId: api_ingest_api_keys_create
+      description: |-
+        ViewSet for managing API keys with tiered rate limiting.
+
+        Endpoints:
+        - GET /api-keys/ - List your API keys
+        - POST /api-keys/ - Create a new API key
+        - GET /api-keys/{id}/ - Get key details (key value shown only on creation)
+        - DELETE /api-keys/{id}/ - Revoke an API key
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/APIKey'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/APIKey'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/APIKey'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKey'
+          description: ''
+  /api/ingest/api-keys/{id}/:
+    get:
+      operationId: api_ingest_api_keys_retrieve
+      description: |-
+        ViewSet for managing API keys with tiered rate limiting.
+
+        Endpoints:
+        - GET /api-keys/ - List your API keys
+        - POST /api-keys/ - Create a new API key
+        - GET /api-keys/{id}/ - Get key details (key value shown only on creation)
+        - DELETE /api-keys/{id}/ - Revoke an API key
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKey'
+          description: ''
+    delete:
+      operationId: api_ingest_api_keys_destroy
+      description: |-
+        ViewSet for managing API keys with tiered rate limiting.
+
+        Endpoints:
+        - GET /api-keys/ - List your API keys
+        - POST /api-keys/ - Create a new API key
+        - GET /api-keys/{id}/ - Get key details (key value shown only on creation)
+        - DELETE /api-keys/{id}/ - Revoke an API key
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/ingest/audit-trail/:
+    get:
+      operationId: api_ingest_audit_trail_list
+      description: Query immutable admin audit trail entries.
+      parameters:
+      - in: query
+        name: action
+        schema:
+          type: string
+          minLength: 1
+      - in: query
+        name: limit
+        schema:
+          type: integer
+      - in: query
+        name: object_id
+        schema:
+          type: string
+          minLength: 1
+      - in: query
+        name: object_type
+        schema:
+          type: string
+          minLength: 1
+      - in: query
+        name: since
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: until
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: user
+        schema:
+          type: string
+          minLength: 1
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminAction'
+          description: ''
+  /api/ingest/compliance-export/:
+    get:
+      operationId: api_ingest_compliance_export_retrieve
+      description: |-
+        GET /api/compliance-export/?from={iso}&to={iso}
+        Returns a CSV audit trail of AuditLog entries for compliance auditors.
+        Staff only.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/ingest/contracts/:
+    get:
+      operationId: api_ingest_contracts_list
+      description: |-
+        ViewSet for managing tracked contracts.
+
+        Endpoints:
+        - GET /contracts/ - List all tracked contracts
+        - POST /contracts/ - Register a new contract
+        - GET /contracts/{id}/ - Get contract details
+        - PUT /contracts/{id}/ - Update contract
+        - DELETE /contracts/{id}/ - Delete contract
+        - GET /contracts/{id}/events/ - Get events for contract
+        - GET /contracts/{id}/stats/ - Get contract statistics
+      parameters:
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTrackedContractList'
+          description: ''
+    post:
+      operationId: api_ingest_contracts_create
+      description: |-
+        ViewSet for managing tracked contracts.
+
+        Endpoints:
+        - GET /contracts/ - List all tracked contracts
+        - POST /contracts/ - Register a new contract
+        - GET /contracts/{id}/ - Get contract details
+        - PUT /contracts/{id}/ - Update contract
+        - DELETE /contracts/{id}/ - Delete contract
+        - GET /contracts/{id}/events/ - Get events for contract
+        - GET /contracts/{id}/stats/ - Get contract statistics
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrackedContract'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TrackedContract'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TrackedContract'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrackedContract'
+          description: ''
+  /api/ingest/contracts/{contract_id}/deployments/:
+    get:
+      operationId: api_ingest_contracts_deployments_retrieve
+      description: |-
+        GET /api/contracts/<contract_id>/deployments/
+        Returns the full deployment history and ABI versions for a contract.
+        Includes compatibility warnings for breaking ABI changes.
+      parameters:
+      - in: path
+        name: contract_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/ingest/contracts/{contract_id}/event-types/:
+    get:
+      operationId: api_ingest_contracts_event_types_retrieve
+      description: Get event types and their counts for a specific contract.
+      parameters:
+      - in: path
+        name: contract_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/ingest/contracts/{contract_id}/vulnerability-impact/:
+    get:
+      operationId: api_ingest_contracts_vulnerability_impact_retrieve
+      parameters:
+      - in: path
+        name: contract_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VulnerabilityImpactResponse'
+          description: ''
+  /api/ingest/contracts/{id}/:
+    get:
+      operationId: api_ingest_contracts_retrieve
+      description: |-
+        ViewSet for managing tracked contracts.
+
+        Endpoints:
+        - GET /contracts/ - List all tracked contracts
+        - POST /contracts/ - Register a new contract
+        - GET /contracts/{id}/ - Get contract details
+        - PUT /contracts/{id}/ - Update contract
+        - DELETE /contracts/{id}/ - Delete contract
+        - GET /contracts/{id}/events/ - Get events for contract
+        - GET /contracts/{id}/stats/ - Get contract statistics
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this tracked contract.
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrackedContract'
+          description: ''
+    put:
+      operationId: api_ingest_contracts_update
+      description: |-
+        ViewSet for managing tracked contracts.
+
+        Endpoints:
+        - GET /contracts/ - List all tracked contracts
+        - POST /contracts/ - Register a new contract
+        - GET /contracts/{id}/ - Get contract details
+        - PUT /contracts/{id}/ - Update contract
+        - DELETE /contracts/{id}/ - Delete contract
+        - GET /contracts/{id}/events/ - Get events for contract
+        - GET /contracts/{id}/stats/ - Get contract statistics
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this tracked contract.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrackedContract'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TrackedContract'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TrackedContract'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrackedContract'
+          description: ''
+    patch:
+      operationId: api_ingest_contracts_partial_update
+      description: |-
+        ViewSet for managing tracked contracts.
+
+        Endpoints:
+        - GET /contracts/ - List all tracked contracts
+        - POST /contracts/ - Register a new contract
+        - GET /contracts/{id}/ - Get contract details
+        - PUT /contracts/{id}/ - Update contract
+        - DELETE /contracts/{id}/ - Delete contract
+        - GET /contracts/{id}/events/ - Get events for contract
+        - GET /contracts/{id}/stats/ - Get contract statistics
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this tracked contract.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedTrackedContract'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedTrackedContract'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedTrackedContract'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrackedContract'
+          description: ''
+    delete:
+      operationId: api_ingest_contracts_destroy
+      description: |-
+        ViewSet for managing tracked contracts.
+
+        Endpoints:
+        - GET /contracts/ - List all tracked contracts
+        - POST /contracts/ - Register a new contract
+        - GET /contracts/{id}/ - Get contract details
+        - PUT /contracts/{id}/ - Update contract
+        - DELETE /contracts/{id}/ - Delete contract
+        - GET /contracts/{id}/events/ - Get events for contract
+        - GET /contracts/{id}/stats/ - Get contract statistics
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this tracked contract.
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/ingest/contracts/{id}/completeness/:
+    get:
+      operationId: api_ingest_contracts_completeness_retrieve
+      description: |-
+        ViewSet for managing tracked contracts.
+
+        Endpoints:
+        - GET /contracts/ - List all tracked contracts
+        - POST /contracts/ - Register a new contract
+        - GET /contracts/{id}/ - Get contract details
+        - PUT /contracts/{id}/ - Update contract
+        - DELETE /contracts/{id}/ - Delete contract
+        - GET /contracts/{id}/events/ - Get events for contract
+        - GET /contracts/{id}/stats/ - Get contract statistics
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this tracked contract.
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrackedContract'
+          description: ''
+  /api/ingest/contracts/{id}/events/:
+    get:
+      operationId: api_ingest_contracts_events_list
+      description: Get all events for a specific contract.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this tracked contract.
+        required: true
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedContractEventList'
+          description: ''
+  /api/ingest/contracts/{id}/stats/:
+    get:
+      operationId: api_ingest_contracts_stats_retrieve
+      description: Get statistics for a contract.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this tracked contract.
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContractStats'
+          description: ''
+  /api/ingest/contracts/{id}/upload_source/:
+    post:
+      operationId: api_ingest_contracts_upload_source_create
+      description: |-
+        Upload contract source code for verification.
+        Accepts a file (Rust code or tarball) and optional ABI JSON.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this tracked contract.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrackedContract'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TrackedContract'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TrackedContract'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrackedContract'
+          description: ''
+  /api/ingest/contracts/{id}/verify_source/:
+    post:
+      operationId: api_ingest_contracts_verify_source_create
+      description: Verify contract source against deployed bytecode.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this tracked contract.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrackedContract'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TrackedContract'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TrackedContract'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrackedContract'
+          description: ''
+  /api/ingest/contracts/completeness_dashboard/:
+    get:
+      operationId: api_ingest_contracts_completeness_dashboard_retrieve
+      description: |-
+        ViewSet for managing tracked contracts.
+
+        Endpoints:
+        - GET /contracts/ - List all tracked contracts
+        - POST /contracts/ - Register a new contract
+        - GET /contracts/{id}/ - Get contract details
+        - PUT /contracts/{id}/ - Update contract
+        - DELETE /contracts/{id}/ - Delete contract
+        - GET /contracts/{id}/events/ - Get events for contract
+        - GET /contracts/{id}/stats/ - Get contract statistics
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrackedContract'
+          description: ''
+  /api/ingest/deletion-requests/:
+    get:
+      operationId: api_ingest_deletion_requests_retrieve
+      description: |-
+        GET  /api/deletion-requests/   — list all requests (staff) or own requests
+        POST /api/deletion-requests/   — submit a new GDPR deletion request
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: api_ingest_deletion_requests_create
+      description: |-
+        GET  /api/deletion-requests/   — list all requests (staff) or own requests
+        POST /api/deletion-requests/   — submit a new GDPR deletion request
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/ingest/events/:
+    get:
+      operationId: api_ingest_events_list
+      description: |-
+        ViewSet for querying indexed events.
+
+        Endpoints:
+        - GET /events/ - List all events (paginated)
+        - GET /events/{id}/ - Get event details
+        - GET /events/search/ - Full-text + field-level search
+      parameters:
+      - in: query
+        name: contract__contract_id
+        schema:
+          type: string
+      - in: query
+        name: decoding_status
+        schema:
+          type: string
+          enum:
+          - failed
+          - no_abi
+          - success
+        description: |-
+          Result of ABI-based XDR decoding
+
+          * `success` - Success
+          * `failed` - Failed
+          * `no_abi` - No ABI
+      - in: query
+        name: event_type
+        schema:
+          type: string
+      - in: query
+        name: ledger
+        schema:
+          type: integer
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: signature_status
+        schema:
+          type: string
+          enum:
+          - invalid
+          - missing
+          - valid
+        description: |-
+          Result of event signature verification
+
+          * `valid` - Valid
+          * `invalid` - Invalid
+          * `missing` - Missing
+      - in: query
+        name: tx_hash
+        schema:
+          type: string
+      - in: query
+        name: validation_status
+        schema:
+          type: string
+          enum:
+          - failed
+          - passed
+        description: |-
+          Result of schema validation
+
+          * `passed` - Passed
+          * `failed` - Failed
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedContractEventList'
+          description: ''
+  /api/ingest/events/{id}/:
+    get:
+      operationId: api_ingest_events_retrieve
+      description: |-
+        ViewSet for querying indexed events.
+
+        Endpoints:
+        - GET /events/ - List all events (paginated)
+        - GET /events/{id}/ - Get event details
+        - GET /events/search/ - Full-text + field-level search
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this contract event.
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContractEvent'
+          description: ''
+  /api/ingest/events/restore-archive/:
+    post:
+      operationId: api_ingest_events_restore_archive_create
+      description: |-
+        Retrieve an archived event batch from S3 and re-import events into PostgreSQL.
+
+        Query params:
+        - batch_id: ID of the ArchivedEventBatch to restore
+      parameters:
+      - in: query
+        name: batch_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestoreArchiveResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestoreNotFound'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestoreRateLimited'
+          description: ''
+  /api/ingest/events/search/:
+    get:
+      operationId: api_ingest_events_search_list
+      description: |-
+        Full-text and field-level search on contract event payloads.
+
+        Query params:
+        - q                 — free-text substring match against JSON payload text
+        - contract_id       — filter by contract
+        - event_type        — filter by event type
+        - payload_contains  — JSON containment sub-string (fast with GIN index)
+        - payload_field     — dot-notation field path, e.g. decodedPayload.to
+        - payload_op        — operator: eq|neq|gte|lte|gt|lt|contains|startswith|in
+        - payload_value     — value for field comparison
+        - page / page_size  — pagination (max 1000 per page)
+      parameters:
+      - in: query
+        name: contract__contract_id
+        schema:
+          type: string
+      - in: query
+        name: contract_id
+        schema:
+          type: string
+          minLength: 1
+      - in: query
+        name: decoding_status
+        schema:
+          type: string
+          enum:
+          - failed
+          - no_abi
+          - success
+        description: |-
+          Result of ABI-based XDR decoding
+
+          * `success` - Success
+          * `failed` - Failed
+          * `no_abi` - No ABI
+      - in: query
+        name: event_type
+        schema:
+          type: string
+          minLength: 1
+      - in: query
+        name: ledger
+        schema:
+          type: integer
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - in: query
+        name: page
+        schema:
+          type: integer
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+      - in: query
+        name: payload_contains
+        schema:
+          type: string
+          minLength: 1
+      - in: query
+        name: payload_field
+        schema:
+          type: string
+          minLength: 1
+      - in: query
+        name: payload_op
+        schema:
+          enum:
+          - eq
+          - neq
+          - gte
+          - lte
+          - gt
+          - lt
+          - contains
+          - startswith
+          - in
+          type: string
+          minLength: 1
+        description: |-
+          * `eq` - eq
+          * `neq` - neq
+          * `gte` - gte
+          * `lte` - lte
+          * `gt` - gt
+          * `lt` - lt
+          * `contains` - contains
+          * `startswith` - startswith
+          * `in` - in
+      - in: query
+        name: payload_value
+        schema:
+          type: string
+          minLength: 1
+      - in: query
+        name: q
+        schema:
+          type: string
+          minLength: 1
+      - in: query
+        name: signature_status
+        schema:
+          type: string
+          enum:
+          - invalid
+          - missing
+          - valid
+        description: |-
+          Result of event signature verification
+
+          * `valid` - Valid
+          * `invalid` - Invalid
+          * `missing` - Missing
+      - in: query
+        name: tx_hash
+        schema:
+          type: string
+      - in: query
+        name: validation_status
+        schema:
+          type: string
+          enum:
+          - failed
+          - passed
+        description: |-
+          Result of schema validation
+
+          * `passed` - Passed
+          * `failed` - Failed
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEventSearchList'
+          description: ''
+  /api/ingest/health/:
+    get:
+      operationId: api_ingest_health_retrieve
+      description: Health check endpoint.
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheckResponse'
+          description: ''
+  /api/ingest/invocations/:
+    get:
+      operationId: api_ingest_invocations_list
+      description: |-
+        List invocations with optional filters.
+
+        Query params:
+        - caller: Filter by caller address
+        - function_name: Filter by function name
+        - since: ISO timestamp for start of range
+        - until: ISO timestamp for end of range
+        - include_events: Include nested events (default: false)
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedContractInvocationList'
+          description: ''
+  /api/ingest/invocations/{id}/:
+    get:
+      operationId: api_ingest_invocations_retrieve
+      description: |-
+        ViewSet for querying contract invocations.
+
+        Endpoints:
+        - GET /api/contracts/{contract_id}/invocations/ - List invocations
+        - GET /api/invocations/{id}/ - Get invocation details
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContractInvocation'
+          description: ''
+  /api/ingest/record/:
+    post:
+      operationId: api_ingest_record_create
+      description: |-
+        Record a new event by submitting a transaction to the SoroScan contract.
+
+        Request body:
+        {
+            "contract_id": "CABC...",
+            "event_type": "swap",
+            "payload_hash": "abc123..."  // 64-char hex string
+        }
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordEventRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RecordEventRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RecordEventRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecordEventAccepted'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecordEventFailed'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Unauthorized'
+          description: ''
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecordEventError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateLimitExceeded'
+          description: ''
+  /api/ingest/teams/:
+    get:
+      operationId: api_ingest_teams_list
+      description: |-
+        Teams: multi-tenant organization of contracts and members.
+
+        - GET /teams/ — teams the current user belongs to
+        - POST /teams/ — create a team (creator becomes admin)
+        - POST /teams/{id}/members/ — add a user (admin only)
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTeamList'
+          description: ''
+    post:
+      operationId: api_ingest_teams_create
+      description: |-
+        Teams: multi-tenant organization of contracts and members.
+
+        - GET /teams/ — teams the current user belongs to
+        - POST /teams/ — create a team (creator becomes admin)
+        - POST /teams/{id}/members/ — add a user (admin only)
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Team'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Team'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Team'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+          description: ''
+  /api/ingest/teams/{id}/:
+    get:
+      operationId: api_ingest_teams_retrieve
+      description: |-
+        Teams: multi-tenant organization of contracts and members.
+
+        - GET /teams/ — teams the current user belongs to
+        - POST /teams/ — create a team (creator becomes admin)
+        - POST /teams/{id}/members/ — add a user (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+          description: ''
+    put:
+      operationId: api_ingest_teams_update
+      description: |-
+        Teams: multi-tenant organization of contracts and members.
+
+        - GET /teams/ — teams the current user belongs to
+        - POST /teams/ — create a team (creator becomes admin)
+        - POST /teams/{id}/members/ — add a user (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Team'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Team'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Team'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+          description: ''
+    patch:
+      operationId: api_ingest_teams_partial_update
+      description: |-
+        Teams: multi-tenant organization of contracts and members.
+
+        - GET /teams/ — teams the current user belongs to
+        - POST /teams/ — create a team (creator becomes admin)
+        - POST /teams/{id}/members/ — add a user (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedTeam'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedTeam'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedTeam'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+          description: ''
+    delete:
+      operationId: api_ingest_teams_destroy
+      description: |-
+        Teams: multi-tenant organization of contracts and members.
+
+        - GET /teams/ — teams the current user belongs to
+        - POST /teams/ — create a team (creator becomes admin)
+        - POST /teams/{id}/members/ — add a user (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/ingest/teams/{id}/members/:
+    post:
+      operationId: api_ingest_teams_members_create
+      description: |-
+        Teams: multi-tenant organization of contracts and members.
+
+        - GET /teams/ — teams the current user belongs to
+        - POST /teams/ — create a team (creator becomes admin)
+        - POST /teams/{id}/members/ — add a user (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamMemberAdd'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TeamMemberAdd'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TeamMemberAdd'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamMemberAdded'
+          description: ''
+  /api/ingest/transactions/{tx_id}/:
+    get:
+      operationId: api_ingest_transactions_retrieve
+      description: Return all events participating in the same atomic transaction.
+      parameters:
+      - in: path
+        name: tx_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/ingest/webhooks/:
+    get:
+      operationId: api_ingest_webhooks_list
+      description: |-
+        ViewSet for managing webhook subscriptions.
+
+        Endpoints:
+        - GET /webhooks/ - List all webhooks
+        - POST /webhooks/ - Create a new webhook
+        - GET /webhooks/{id}/ - Get webhook details
+        - PUT /webhooks/{id}/ - Update webhook
+        - DELETE /webhooks/{id}/ - Delete webhook
+        - POST /webhooks/{id}/test/ - Send a test webhook
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedWebhookSubscriptionList'
+          description: ''
+    post:
+      operationId: api_ingest_webhooks_create
+      description: |-
+        ViewSet for managing webhook subscriptions.
+
+        Endpoints:
+        - GET /webhooks/ - List all webhooks
+        - POST /webhooks/ - Create a new webhook
+        - GET /webhooks/{id}/ - Get webhook details
+        - PUT /webhooks/{id}/ - Update webhook
+        - DELETE /webhooks/{id}/ - Delete webhook
+        - POST /webhooks/{id}/test/ - Send a test webhook
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookSubscription'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/WebhookSubscription'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/WebhookSubscription'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSubscription'
+          description: ''
+  /api/ingest/webhooks/{id}/:
+    get:
+      operationId: api_ingest_webhooks_retrieve
+      description: |-
+        ViewSet for managing webhook subscriptions.
+
+        Endpoints:
+        - GET /webhooks/ - List all webhooks
+        - POST /webhooks/ - Create a new webhook
+        - GET /webhooks/{id}/ - Get webhook details
+        - PUT /webhooks/{id}/ - Update webhook
+        - DELETE /webhooks/{id}/ - Delete webhook
+        - POST /webhooks/{id}/test/ - Send a test webhook
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this webhook subscription.
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSubscription'
+          description: ''
+    put:
+      operationId: api_ingest_webhooks_update
+      description: |-
+        ViewSet for managing webhook subscriptions.
+
+        Endpoints:
+        - GET /webhooks/ - List all webhooks
+        - POST /webhooks/ - Create a new webhook
+        - GET /webhooks/{id}/ - Get webhook details
+        - PUT /webhooks/{id}/ - Update webhook
+        - DELETE /webhooks/{id}/ - Delete webhook
+        - POST /webhooks/{id}/test/ - Send a test webhook
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this webhook subscription.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookSubscription'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/WebhookSubscription'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/WebhookSubscription'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSubscription'
+          description: ''
+    patch:
+      operationId: api_ingest_webhooks_partial_update
+      description: |-
+        ViewSet for managing webhook subscriptions.
+
+        Endpoints:
+        - GET /webhooks/ - List all webhooks
+        - POST /webhooks/ - Create a new webhook
+        - GET /webhooks/{id}/ - Get webhook details
+        - PUT /webhooks/{id}/ - Update webhook
+        - DELETE /webhooks/{id}/ - Delete webhook
+        - POST /webhooks/{id}/test/ - Send a test webhook
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this webhook subscription.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedWebhookSubscription'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedWebhookSubscription'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedWebhookSubscription'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSubscription'
+          description: ''
+    delete:
+      operationId: api_ingest_webhooks_destroy
+      description: |-
+        ViewSet for managing webhook subscriptions.
+
+        Endpoints:
+        - GET /webhooks/ - List all webhooks
+        - POST /webhooks/ - Create a new webhook
+        - GET /webhooks/{id}/ - Get webhook details
+        - PUT /webhooks/{id}/ - Update webhook
+        - DELETE /webhooks/{id}/ - Delete webhook
+        - POST /webhooks/{id}/test/ - Send a test webhook
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this webhook subscription.
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/ingest/webhooks/{id}/dry-run/:
+    post:
+      operationId: api_ingest_webhooks_dry_run_create
+      description: |-
+        ViewSet for managing webhook subscriptions.
+
+        Endpoints:
+        - GET /webhooks/ - List all webhooks
+        - POST /webhooks/ - Create a new webhook
+        - GET /webhooks/{id}/ - Get webhook details
+        - PUT /webhooks/{id}/ - Update webhook
+        - DELETE /webhooks/{id}/ - Delete webhook
+        - POST /webhooks/{id}/test/ - Send a test webhook
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this webhook subscription.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookConditionDryRunRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/WebhookConditionDryRunRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/WebhookConditionDryRunRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookConditionDryRunResponse'
+          description: ''
+  /api/ingest/webhooks/{id}/test/:
+    post:
+      operationId: api_ingest_webhooks_test_create
+      description: |-
+        Send a test delivery directly to the webhook endpoint.
+
+        The request is sent synchronously with a proper HMAC-SHA256 signature
+        so the subscriber can verify authenticity.  A 200 response from this
+        endpoint does NOT mean the delivery succeeded — check the response body
+        for the actual outcome.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this webhook subscription.
+        required: true
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TestWebhookResponse'
+          description: ''
+  /api/meta/db-pool/:
+    get:
+      operationId: api_meta_db_pool_retrieve
+      description: Return real-time database connection pool statistics for the default
+        database alias.  Useful for detecting connection leaks or pool exhaustion.  **Admin
+        access required.**
+      tags:
+      - meta
+      security:
+      - jwtAuth
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DbPoolStatsResponse'
+          description: ''
+  /api/schema/:
+    get:
+      operationId: api_schema_retrieve
+      description: |-
+        OpenApi3 schema for this API. Format can be selected via content negotiation.
+
+        - YAML: application/vnd.oai.openapi
+        - JSON: application/vnd.oai.openapi+json
+      parameters:
+      - in: query
+        name: format
+        schema:
+          type: string
+          enum:
+          - json
+          - yaml
+      - in: query
+        name: lang
+        schema:
+          type: string
+          enum:
+          - af
+          - ar
+          - ar-dz
+          - ast
+          - az
+          - be
+          - bg
+          - bn
+          - br
+          - bs
+          - ca
+          - ckb
+          - cs
+          - cy
+          - da
+          - de
+          - dsb
+          - el
+          - en
+          - en-au
+          - en-gb
+          - eo
+          - es
+          - es-ar
+          - es-co
+          - es-mx
+          - es-ni
+          - es-ve
+          - et
+          - eu
+          - fa
+          - fi
+          - fr
+          - fy
+          - ga
+          - gd
+          - gl
+          - he
+          - hi
+          - hr
+          - hsb
+          - hu
+          - hy
+          - ia
+          - id
+          - ig
+          - io
+          - is
+          - it
+          - ja
+          - ka
+          - kab
+          - kk
+          - km
+          - kn
+          - ko
+          - ky
+          - lb
+          - lt
+          - lv
+          - mk
+          - ml
+          - mn
+          - mr
+          - ms
+          - my
+          - nb
+          - ne
+          - nl
+          - nn
+          - os
+          - pa
+          - pl
+          - pt
+          - pt-br
+          - ro
+          - ru
+          - sk
+          - sl
+          - sq
+          - sr
+          - sr-latn
+          - sv
+          - sw
+          - ta
+          - te
+          - tg
+          - th
+          - tk
+          - tr
+          - tt
+          - udm
+          - ug
+          - uk
+          - ur
+          - uz
+          - vi
+          - zh-hans
+          - zh-hant
+      tags:
+      - api
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/vnd.oai.openapi:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/yaml:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/vnd.oai.openapi+json:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/token/:
+    post:
+      operationId: api_token_create
+      description: |-
+        Takes a set of user credentials and returns an access and refresh JSON web
+        token pair to prove the authentication of those credentials.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPair'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPair'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPair'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenObtainPair'
+          description: ''
+  /api/token/refresh/:
+    post:
+      operationId: api_token_refresh_create
+      description: |-
+        Takes a refresh type JSON web token and returns an access type JSON web
+        token if the refresh token is valid.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /health/:
+    get:
+      operationId: health_retrieve
+      description: Liveness probe - app is running.
+      tags:
+      - health
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /ready/:
+    get:
+      operationId: ready_retrieve
+      description: Readiness probe - DB and Redis are connected.
+      tags:
+      - ready
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+components:
+  schemas:
+    APIKey:
+      type: object
+      description: |-
+        Serializer for APIKey model.
+        The ``key`` field is write-once: visible only in the creation response.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 128
+        key:
+          type: string
+          readOnly: true
+        tier:
+          $ref: '#/components/schemas/TierEnum'
+        quota_per_hour:
+          type: integer
+          readOnly: true
+          description: Max requests per hour. Auto-set from tier on creation.
+        is_active:
+          type: boolean
+        last_used_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - key
+      - last_used_at
+      - name
+      - quota_per_hour
+    AdminAction:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+        action:
+          type: string
+          maxLength: 128
+        object_type:
+          type: string
+          maxLength: 32
+        object_id:
+          type: string
+          maxLength: 255
+        timestamp:
+          type: string
+          format: date-time
+          readOnly: true
+        ip_address:
+          type: string
+        changes: {}
+      required:
+      - action
+      - id
+      - object_id
+      - object_type
+      - timestamp
+      - username
+    ContractEvent:
+      type: object
+      description: |-
+        Serializer for ContractEvent model.
+        Provides read-only details of an indexed event from the Soroban network.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        contract_id:
+          type: string
+          readOnly: true
+        contract_name:
+          type: string
+          readOnly: true
+        event_type:
+          type: string
+          readOnly: true
+          description: Event type/name (e.g., 'swap', 'transfer')
+        payload:
+          readOnly: true
+          description: Decoded event payload
+        payload_hash:
+          type: string
+          readOnly: true
+          description: SHA-256 hash of the payload
+        decoded_payload:
+          readOnly: true
+          nullable: true
+          description: ABI-decoded event payload (human-readable fields)
+        decoding_status:
+          allOf:
+          - $ref: '#/components/schemas/DecodingStatusEnum'
+          readOnly: true
+          description: |-
+            Result of ABI-based XDR decoding
+
+            * `success` - Success
+            * `failed` - Failed
+            * `no_abi` - No ABI
+        ledger:
+          type: integer
+          readOnly: true
+          description: Ledger sequence number
+        event_index:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: 0-based event index within the ledger
+        timestamp:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Event timestamp
+        tx_hash:
+          type: string
+          readOnly: true
+          description: Transaction hash
+        transaction_id:
+          type: string
+          readOnly: true
+        schema_version:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: EventSchema version used for validation (if any)
+        validation_status:
+          allOf:
+          - $ref: '#/components/schemas/ValidationStatusEnum'
+          readOnly: true
+          description: |-
+            Result of schema validation
+
+            * `passed` - Passed
+            * `failed` - Failed
+        signature_status:
+          allOf:
+          - $ref: '#/components/schemas/SignatureStatusEnum'
+          readOnly: true
+          description: |-
+            Result of event signature verification
+
+            * `valid` - Valid
+            * `invalid` - Invalid
+            * `missing` - Missing
+      required:
+      - contract_id
+      - contract_name
+      - decoded_payload
+      - decoding_status
+      - event_type
+      - id
+      - ledger
+      - payload
+      - payload_hash
+      - schema_version
+      - signature_status
+      - timestamp
+      - transaction_id
+      - tx_hash
+      - validation_status
+    ContractInvocation:
+      type: object
+      description: |-
+        Serializer for ContractInvocation model.
+        Provides read-only details of a contract function invocation.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        tx_hash:
+          type: string
+          readOnly: true
+          description: Transaction hash
+        caller:
+          type: string
+          readOnly: true
+          description: Source account address (G...)
+        contract_id:
+          type: string
+          readOnly: true
+        contract_name:
+          type: string
+          readOnly: true
+        function_name:
+          type: string
+          readOnly: true
+          description: Contract function name
+        parameters:
+          readOnly: true
+          description: Function parameters in XDR-encoded form
+        result:
+          readOnly: true
+          nullable: true
+          description: Function result in XDR-encoded form
+        ledger_sequence:
+          type: integer
+          readOnly: true
+          description: Ledger sequence number
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when record was created
+        events_count:
+          type: integer
+          description: Return count of related events.
+          readOnly: true
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContractEvent'
+          readOnly: true
+      required:
+      - caller
+      - contract_id
+      - contract_name
+      - created_at
+      - events
+      - events_count
+      - function_name
+      - id
+      - ledger_sequence
+      - parameters
+      - result
+      - tx_hash
+    ContractStats:
+      type: object
+      properties:
+        total_events:
+          type: integer
+        unique_event_types:
+          type: integer
+        latest_ledger:
+          type: integer
+        last_activity:
+          type: string
+          format: date-time
+        contract_id:
+          type: string
+        name:
+          type: string
+      required:
+      - contract_id
+      - last_activity
+      - latest_ledger
+      - name
+      - total_events
+      - unique_event_types
+    ContractStatusResponse:
+      type: object
+      properties:
+        total_contracts:
+          type: integer
+        active_contracts:
+          type: integer
+        paused_contracts:
+          type: integer
+        total_events_indexed:
+          type: integer
+        last_event_timestamp:
+          type: string
+          format: date-time
+          nullable: true
+        events_per_minute:
+          type: integer
+      required:
+      - active_contracts
+      - events_per_minute
+      - last_event_timestamp
+      - paused_contracts
+      - total_contracts
+      - total_events_indexed
+    DbPoolStatsResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+          description: Total live connections for the current database.
+        active:
+          type: integer
+          description: Live connections currently executing queries.
+        idle:
+          type: integer
+          description: Live connections currently idle.
+        wait_queue:
+          type: integer
+          description: Live connections waiting on a database wait event.
+      required:
+      - active
+      - idle
+      - total
+      - wait_queue
+    DecodingStatusEnum:
+      enum:
+      - success
+      - failed
+      - no_abi
+      type: string
+      description: |-
+        * `success` - Success
+        * `failed` - Failed
+        * `no_abi` - No ABI
+    DeprecationStatusEnum:
+      enum:
+      - active
+      - deprecated
+      - suspended
+      type: string
+      description: |-
+        * `active` - Active
+        * `deprecated` - Deprecated
+        * `suspended` - Suspended
+    EventFilterTypeEnum:
+      enum:
+      - none
+      - whitelist
+      - blacklist
+      type: string
+      description: |-
+        * `none` - No Filter
+        * `whitelist` - Whitelist
+        * `blacklist` - Blacklist
+    EventSearch:
+      type: object
+      description: |-
+        Read-only serializer for event search results.
+        Includes a ``relevance_score`` placeholder for future ranking support.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        contract_id:
+          type: string
+          readOnly: true
+        contract_name:
+          type: string
+          readOnly: true
+        event_type:
+          type: string
+          readOnly: true
+          description: Event type/name (e.g., 'swap', 'transfer')
+        payload:
+          readOnly: true
+          description: Decoded event payload
+        payload_hash:
+          type: string
+          readOnly: true
+          description: SHA-256 hash of the payload
+        ledger:
+          type: integer
+          readOnly: true
+          description: Ledger sequence number
+        event_index:
+          type: integer
+          readOnly: true
+          description: 0-based event index within the ledger
+        timestamp:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Event timestamp
+        tx_hash:
+          type: string
+          readOnly: true
+          description: Transaction hash
+        transaction_id:
+          type: string
+          readOnly: true
+        validation_status:
+          allOf:
+          - $ref: '#/components/schemas/ValidationStatusEnum'
+          readOnly: true
+          description: |-
+            Result of schema validation
+
+            * `passed` - Passed
+            * `failed` - Failed
+        signature_status:
+          allOf:
+          - $ref: '#/components/schemas/SignatureStatusEnum'
+          readOnly: true
+          description: |-
+            Result of event signature verification
+
+            * `valid` - Valid
+            * `invalid` - Invalid
+            * `missing` - Missing
+        relevance_score:
+          type: number
+          format: double
+          readOnly: true
+      required:
+      - contract_id
+      - contract_name
+      - event_index
+      - event_type
+      - id
+      - ledger
+      - payload
+      - payload_hash
+      - relevance_score
+      - signature_status
+      - timestamp
+      - transaction_id
+      - tx_hash
+      - validation_status
+    HealthCheckResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        service:
+          type: string
+      required:
+      - service
+      - status
+    OrganizationCostBreakdownResponse:
+      type: object
+      properties:
+        results: {}
+      required:
+      - results
+    PaginatedAPIKeyList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/APIKey'
+    PaginatedContractEventList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContractEvent'
+    PaginatedContractInvocationList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContractInvocation'
+    PaginatedEventSearchList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventSearch'
+    PaginatedTeamList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Team'
+    PaginatedTrackedContractList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrackedContract'
+    PaginatedWebhookSubscriptionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookSubscription'
+    PatchedTeam:
+      type: object
+      description: Team (multi-tenant organization). Slug is auto-assigned on create.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 128
+        slug:
+          type: string
+          readOnly: true
+          pattern: ^[-a-zA-Z0-9_]+$
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+    PatchedTrackedContract:
+      type: object
+      description: |-
+        Serializer for TrackedContract model.
+        Used for creating, updating, and returning tracked Soroban smart contracts.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        contract_id:
+          type: string
+          description: Stellar contract address (C...)
+          maxLength: 56
+        name:
+          type: string
+          description: Human-readable contract name
+          maxLength: 100
+        alias:
+          type: string
+          description: Optional friendly name/alias for easier identification (e.g.
+            'Token Transfer Contract')
+          maxLength: 256
+        description:
+          type: string
+          description: Optional description
+        abi_schema:
+          nullable: true
+          description: Optional ABI/schema for decoding events
+        json_schema:
+          nullable: true
+          description: Optional JSON Schema used to validate ingested event payloads.
+        is_active:
+          type: boolean
+          description: Whether indexing is active
+        deprecation_status:
+          allOf:
+          - $ref: '#/components/schemas/DeprecationStatusEnum'
+          description: |-
+            Manual lifecycle/deprecation state for warning users
+
+            * `active` - Active
+            * `deprecated` - Deprecated
+            * `suspended` - Suspended
+        deprecation_reason:
+          type: string
+          description: Optional reason shown to users when contract is deprecated/suspended
+        max_events_per_minute:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          nullable: true
+          description: Max events per minute for ingest-time rate limiting (None =
+            unlimited)
+        event_filter_type:
+          allOf:
+          - $ref: '#/components/schemas/EventFilterTypeEnum'
+          description: |-
+            Ingest filter mode: none = store all events; whitelist = only store listed event types; blacklist = drop listed event types.
+
+            * `none` - No Filter
+            * `whitelist` - Whitelist
+            * `blacklist` - Blacklist
+        event_filter_list:
+          description: List of event type names used by the whitelist/blacklist filter.
+        metadata:
+          description: Custom attributes for storing contract metadata (team, owner,
+            cost center, etc.)
+        last_indexed_ledger:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: Last ledger sequence that was indexed for this contract
+        team:
+          type: integer
+          nullable: true
+        event_count:
+          type: integer
+          readOnly: true
+        last_event_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: Timestamp of the last indexed event for this contract
+        warnings:
+          type: array
+          items:
+            type: object
+            additionalProperties:
+              type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+    PatchedWebhookSubscription:
+      type: object
+      description: |-
+        Serializer for WebhookSubscription model.
+        Configures endpoints to receive event payloads when matches occur.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        contract:
+          type: integer
+          description: Contract to monitor
+        contract_id:
+          type: string
+          readOnly: true
+        event_type:
+          type: string
+          description: Event type filter (blank = all events)
+          maxLength: 100
+        target_url:
+          type: string
+          format: uri
+          description: URL to POST event data to
+          maxLength: 200
+        is_active:
+          type: boolean
+        signature_algorithm:
+          allOf:
+          - $ref: '#/components/schemas/SignatureAlgorithmEnum'
+          description: |-
+            HMAC algorithm used for X-SoroScan-Signature header.
+
+            * `sha256` - SHA-256
+            * `sha1` - SHA-1 (legacy)
+        ack_header_name:
+          type: string
+          description: HTTP response header that must be present to acknowledge receipt.
+          maxLength: 64
+        ack_header_value:
+          type: string
+          description: Expected acknowledgement header value.
+          maxLength: 128
+        delivery_sla_seconds:
+          type: integer
+          maximum: 3600
+          minimum: 1
+          description: SLA target in seconds for successful delivery acknowledgements.
+        escalation_policy:
+          description: 'Ordered escalation policy list, e.g. [{"channel": "slack",
+            "target": "...", "after_failures": 2}]. Defaults to Slack -> SMS -> PagerDuty
+            when empty.'
+        filter_condition:
+          nullable: true
+          description: Optional JSON condition DSL used to route events to this webhook.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        last_triggered:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        failure_count:
+          type: integer
+          readOnly: true
+    RateLimitAnalyticsResponse:
+      type: object
+      properties:
+        window_hours:
+          type: integer
+        generated_at:
+          type: string
+          format: date-time
+        api_keys: {}
+      required:
+      - api_keys
+      - generated_at
+      - window_hours
+    RateLimitExceeded:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    RecordEventAccepted:
+      type: object
+      properties:
+        status:
+          type: string
+        tx_hash:
+          type: string
+        transaction_status:
+          type: string
+      required:
+      - status
+      - transaction_status
+      - tx_hash
+    RecordEventError:
+      type: object
+      properties:
+        status:
+          type: string
+        error:
+          type: string
+      required:
+      - error
+      - status
+    RecordEventFailed:
+      type: object
+      properties:
+        status:
+          type: string
+        error:
+          type: string
+        transaction_status:
+          type: string
+      required:
+      - error
+      - status
+      - transaction_status
+    RecordEventRequest:
+      type: object
+      description: |-
+        Serializer for incoming event recording requests.
+        Used to submit a transaction to the SoroScan contract for indexing.
+      properties:
+        contract_id:
+          type: string
+          description: Target contract address
+          maxLength: 56
+        event_type:
+          type: string
+          description: Event type name
+          maxLength: 100
+        payload_hash:
+          type: string
+          description: SHA-256 hash of payload (hex)
+          maxLength: 64
+      required:
+      - contract_id
+      - event_type
+      - payload_hash
+    RestoreArchiveResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        restored_count:
+          type: integer
+        batch_id:
+          type: integer
+      required:
+      - batch_id
+      - restored_count
+      - status
+    RestoreNotFound:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    RestoreRateLimited:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    RoleEnum:
+      enum:
+      - owner
+      - admin
+      - member
+      type: string
+      description: |-
+        * `owner` - Owner
+        * `admin` - Admin
+        * `member` - Member
+    SignatureAlgorithmEnum:
+      enum:
+      - sha256
+      - sha1
+      type: string
+      description: |-
+        * `sha256` - SHA-256
+        * `sha1` - SHA-1 (legacy)
+    SignatureStatusEnum:
+      enum:
+      - valid
+      - invalid
+      - missing
+      type: string
+      description: |-
+        * `valid` - Valid
+        * `invalid` - Invalid
+        * `missing` - Missing
+    Team:
+      type: object
+      description: Team (multi-tenant organization). Slug is auto-assigned on create.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 128
+        slug:
+          type: string
+          readOnly: true
+          pattern: ^[-a-zA-Z0-9_]+$
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - name
+      - slug
+    TeamMemberAdd:
+      type: object
+      description: Add an existing user to a team (by user id).
+      properties:
+        user_id:
+          type: integer
+          minimum: 1
+        role:
+          allOf:
+          - $ref: '#/components/schemas/RoleEnum'
+          default: member
+      required:
+      - user_id
+    TeamMemberAdded:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+      - status
+    TestWebhookResponse:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+      - status
+    TierEnum:
+      enum:
+      - free
+      - pro
+      - enterprise
+      type: string
+      description: |-
+        * `free` - Free
+        * `pro` - Pro
+        * `enterprise` - Enterprise
+    TokenObtainPair:
+      type: object
+      properties:
+        username:
+          type: string
+          writeOnly: true
+        password:
+          type: string
+          writeOnly: true
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+          readOnly: true
+      required:
+      - access
+      - password
+      - refresh
+      - username
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+          writeOnly: true
+      required:
+      - access
+      - refresh
+    TrackedContract:
+      type: object
+      description: |-
+        Serializer for TrackedContract model.
+        Used for creating, updating, and returning tracked Soroban smart contracts.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        contract_id:
+          type: string
+          description: Stellar contract address (C...)
+          maxLength: 56
+        name:
+          type: string
+          description: Human-readable contract name
+          maxLength: 100
+        alias:
+          type: string
+          description: Optional friendly name/alias for easier identification (e.g.
+            'Token Transfer Contract')
+          maxLength: 256
+        description:
+          type: string
+          description: Optional description
+        abi_schema:
+          nullable: true
+          description: Optional ABI/schema for decoding events
+        json_schema:
+          nullable: true
+          description: Optional JSON Schema used to validate ingested event payloads.
+        is_active:
+          type: boolean
+          description: Whether indexing is active
+        deprecation_status:
+          allOf:
+          - $ref: '#/components/schemas/DeprecationStatusEnum'
+          description: |-
+            Manual lifecycle/deprecation state for warning users
+
+            * `active` - Active
+            * `deprecated` - Deprecated
+            * `suspended` - Suspended
+        deprecation_reason:
+          type: string
+          description: Optional reason shown to users when contract is deprecated/suspended
+        max_events_per_minute:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          nullable: true
+          description: Max events per minute for ingest-time rate limiting (None =
+            unlimited)
+        event_filter_type:
+          allOf:
+          - $ref: '#/components/schemas/EventFilterTypeEnum'
+          description: |-
+            Ingest filter mode: none = store all events; whitelist = only store listed event types; blacklist = drop listed event types.
+
+            * `none` - No Filter
+            * `whitelist` - Whitelist
+            * `blacklist` - Blacklist
+        event_filter_list:
+          description: List of event type names used by the whitelist/blacklist filter.
+        metadata:
+          description: Custom attributes for storing contract metadata (team, owner,
+            cost center, etc.)
+        last_indexed_ledger:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: Last ledger sequence that was indexed for this contract
+        team:
+          type: integer
+          nullable: true
+        event_count:
+          type: integer
+          readOnly: true
+        last_event_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: Timestamp of the last indexed event for this contract
+        warnings:
+          type: array
+          items:
+            type: object
+            additionalProperties:
+              type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - contract_id
+      - created_at
+      - event_count
+      - id
+      - last_event_at
+      - last_indexed_ledger
+      - name
+      - updated_at
+      - warnings
+    Unauthorized:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    ValidationStatusEnum:
+      enum:
+      - passed
+      - failed
+      type: string
+      description: |-
+        * `passed` - Passed
+        * `failed` - Failed
+    VulnerabilityImpactResponse:
+      type: object
+      properties:
+        contract_id:
+          type: string
+        affected_contracts: {}
+        impacted_count:
+          type: integer
+        risk_score:
+          type: number
+          format: double
+        impact_level:
+          type: string
+        has_cycles:
+          type: boolean
+      required:
+      - affected_contracts
+      - contract_id
+      - has_cycles
+      - impact_level
+      - impacted_count
+      - risk_score
+    WebhookConditionDryRunRequest:
+      type: object
+      properties:
+        sample_event: {}
+      required:
+      - sample_event
+    WebhookConditionDryRunResponse:
+      type: object
+      properties:
+        matched:
+          type: boolean
+      required:
+      - matched
+    WebhookSubscription:
+      type: object
+      description: |-
+        Serializer for WebhookSubscription model.
+        Configures endpoints to receive event payloads when matches occur.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        contract:
+          type: integer
+          description: Contract to monitor
+        contract_id:
+          type: string
+          readOnly: true
+        event_type:
+          type: string
+          description: Event type filter (blank = all events)
+          maxLength: 100
+        target_url:
+          type: string
+          format: uri
+          description: URL to POST event data to
+          maxLength: 200
+        is_active:
+          type: boolean
+        signature_algorithm:
+          allOf:
+          - $ref: '#/components/schemas/SignatureAlgorithmEnum'
+          description: |-
+            HMAC algorithm used for X-SoroScan-Signature header.
+
+            * `sha256` - SHA-256
+            * `sha1` - SHA-1 (legacy)
+        ack_header_name:
+          type: string
+          description: HTTP response header that must be present to acknowledge receipt.
+          maxLength: 64
+        ack_header_value:
+          type: string
+          description: Expected acknowledgement header value.
+          maxLength: 128
+        delivery_sla_seconds:
+          type: integer
+          maximum: 3600
+          minimum: 1
+          description: SLA target in seconds for successful delivery acknowledgements.
+        escalation_policy:
+          description: 'Ordered escalation policy list, e.g. [{"channel": "slack",
+            "target": "...", "after_failures": 2}]. Defaults to Slack -> SMS -> PagerDuty
+            when empty.'
+        filter_condition:
+          nullable: true
+          description: Optional JSON condition DSL used to route events to this webhook.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        last_triggered:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        failure_count:
+          type: integer
+          readOnly: true
+      required:
+      - contract
+      - contract_id
+      - created_at
+      - failure_count
+      - id
+      - last_triggered
+      - target_url
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
