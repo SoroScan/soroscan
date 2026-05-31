@@ -17,6 +17,7 @@ import { Footer } from "@/components/terminal/landing/Footer"
 import { Button } from "@/components/terminal/Button"
 import { MetricsCard } from "./components/MetricsCard"
 import { EventChart } from "./components/EventChart"
+import { WebhookSuccessChart } from "./components/WebhookSuccessChart"
 import { WebhookStats } from "./components/WebhookStats"
 import { ErrorLog } from "./components/ErrorLog"
 import { fetchSystemMetrics, SystemMetricsData } from "@/components/ingest/graphql"
@@ -157,20 +158,28 @@ export default function AdminDashboard() {
         </div>
 
         {/* Charts & Stats Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2">
-            <EventChart 
-              title="Ingestion Timeline" 
-              data={chartData} 
-              loading={loading} 
-            />
-          </div>
+        <div className="grid grid-cols-1 gap-6">
           <div>
-            <WebhookStats 
-              successRate={metrics?.webhookSuccessRate ?? 0} 
-              avgTime={metrics?.avgWebhookDeliveryTime ?? 0}
+            <WebhookSuccessChart 
+              baseSuccessRate={metrics?.webhookSuccessRate ?? 0}
               loading={loading}
             />
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2">
+              <EventChart 
+                title="Ingestion Timeline" 
+                data={chartData} 
+                loading={loading} 
+              />
+            </div>
+            <div>
+              <WebhookStats 
+                successRate={metrics?.webhookSuccessRate ?? 0} 
+                avgTime={metrics?.avgWebhookDeliveryTime ?? 0}
+                loading={loading}
+              />
+            </div>
           </div>
         </div>
 
