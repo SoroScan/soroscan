@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 type APIKey = {
   id: string;
@@ -16,19 +16,20 @@ function generateKey(): string {
 }
 
 export default function APIKeyManager() {
-  const [keys, setKeys] = useState<APIKey[]>([]);
-  const [copied, setCopied] = useState<string | null>(null);
-
-  useEffect(() => {
-    const saved = localStorage.getItem("apiKeys");
-    if (saved) {
-      try {
-        setKeys(JSON.parse(saved) as APIKey[]);
-      } catch {
-        setKeys([]);
+  const [keys, setKeys] = useState<APIKey[]>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("apiKeys");
+      if (saved) {
+        try {
+          return JSON.parse(saved) as APIKey[];
+        } catch {
+          return [];
+        }
       }
     }
-  }, []);
+    return [];
+  });
+  const [copied, setCopied] = useState<string | null>(null);
 
   const saveKeys = (newKeys: APIKey[]) => {
     setKeys(newKeys);

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 type Webhook = {
   id: string;
@@ -11,21 +11,22 @@ type Webhook = {
 const defaultWebhooks: Webhook[] = [];
 
 export default function WebhookManager() {
-  const [webhooks, setWebhooks] = useState<Webhook[]>(defaultWebhooks);
+  const [webhooks, setWebhooks] = useState<Webhook[]>(() => {
+    if (typeof window !== "undefined") {
+      const savedData = localStorage.getItem("webhooks");
+      if (savedData) {
+        try {
+          return JSON.parse(savedData) as Webhook[];
+        } catch {
+          return defaultWebhooks;
+        }
+      }
+    }
+    return defaultWebhooks;
+  });
   const [newUrl, setNewUrl] = useState("");
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    const savedData = localStorage.getItem("webhooks");
-    if (savedData) {
-      try {
-        setWebhooks(JSON.parse(savedData) as Webhook[]);
-      } catch {
-        setWebhooks(defaultWebhooks);
-      }
-    }
-  }, []);
 
   const persist = (next: Webhook[]) => {
     setWebhooks(next);

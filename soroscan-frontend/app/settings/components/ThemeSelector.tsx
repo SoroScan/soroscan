@@ -2,14 +2,13 @@
 import { useEffect, useState } from "react";
 
 export default function ThemeSelector() {
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
-
-  useEffect(() => {
-    const stored = localStorage.getItem("theme") as "dark" | "light" | null;
-    if (stored) {
-      setTheme(stored);
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("theme") as "dark" | "light" | null;
+      if (stored) return stored;
     }
-  }, []);
+    return "dark";
+  });
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");

@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import AccountSettings from "./components/AccountSettings";
 import APIKeyManager from "./components/APIKeyManager";
@@ -27,16 +26,10 @@ export default function SettingsShell() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState<TabId>("account");
 
-  useEffect(() => {
-    const tabParam = searchParams?.get("tab");
-    const nextTab = getTabId(tabParam);
-
-    if (nextTab !== activeTab) {
-      setActiveTab(nextTab);
-    }
-  }, [searchParams?.toString()]);
+  // Derive the active tab dynamically during render instead of storing it in state
+  const tabParam = searchParams?.get("tab") ?? null;
+  const activeTab = getTabId(tabParam);
 
   const setTab = (tabId: TabId) => {
     const params = new URLSearchParams(searchParams?.toString() ?? "");
@@ -45,7 +38,6 @@ export default function SettingsShell() {
     const queryString = params.toString();
     const url = queryString ? `${pathname}?${queryString}` : pathname;
 
-    setActiveTab(tabId);
     router.replace(url);
   };
 

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 type Prefs = {
   email: boolean;
@@ -16,19 +16,20 @@ const DEFAULT_PREFS: Prefs = {
 };
 
 export default function NotificationPrefs() {
-  const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    const savedPrefs = localStorage.getItem("notificationPrefs");
-    if (savedPrefs) {
-      try {
-        setPrefs(JSON.parse(savedPrefs) as Prefs);
-      } catch {
-        setPrefs(DEFAULT_PREFS);
+  const [prefs, setPrefs] = useState<Prefs>(() => {
+    if (typeof window !== "undefined") {
+      const savedPrefs = localStorage.getItem("notificationPrefs");
+      if (savedPrefs) {
+        try {
+          return JSON.parse(savedPrefs) as Prefs;
+        } catch {
+          return DEFAULT_PREFS;
+        }
       }
     }
-  }, []);
+    return DEFAULT_PREFS;
+  });
+  const [saved, setSaved] = useState(false);
 
   const toggle = (key: keyof Omit<Prefs, "webhookUrl">) => {
     setPrefs((current) => ({ ...current, [key]: !current[key] }));
