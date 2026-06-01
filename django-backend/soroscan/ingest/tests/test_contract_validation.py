@@ -3,7 +3,6 @@ Tests for Contract model and serializer validation rules (issue #590).
 """
 import pytest
 from django.core.exceptions import ValidationError
-from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from soroscan.ingest.models import TrackedContract
 from soroscan.ingest.serializers import TrackedContractSerializer
