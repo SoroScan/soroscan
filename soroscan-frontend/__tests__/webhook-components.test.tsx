@@ -196,7 +196,7 @@ describe("CreateWebhookModal", () => {
     const input = screen.getByPlaceholderText(/https:\/\/yourapp.io/)
     fireEvent.change(input, { target: { value: "not-a-url" } })
     fireEvent.blur(input)
-    expect(screen.getByText(/valid https:\/\//)).toBeInTheDocument()
+    expect(screen.getByText(/Must be a valid HTTPS URL/)).toBeInTheDocument()
   })
 
   it("shows no error for a valid URL", () => {

@@ -842,6 +842,32 @@ class Query:
 @strawberry.type
 class Mutation:
     @strawberry.mutation
+    def test_webhook_url(self, url: str, timeout_seconds: int = 10) -> dict:
+        """Test a webhook URL by sending a ping payload."""
+        import requests
+        import json
+        from django.utils import timezone
+        
+        payload = {"type": "ping", "timestamp": timezone.now().isoformat()}
+        payload_bytes = json.dumps(payload, sort_keys=True).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "X-SoroScan-Event": "ping",
+        }
+        
+        try:
+            response = requests.post(
+                url,
+                data=payload_bytes,
+                headers=headers,
+                timeout=timeout_seconds,
+            )
+            success = response.status_code == 200
+            return {"success": success, "status_code": response.status_code}
+        except requests.RequestException as exc:
+            return {"success": False, "error": str(exc)}
+
+    @strawberry.mutation
     def register_contract(
         self,
         info: Info,

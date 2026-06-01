@@ -26,7 +26,7 @@ interface CreateWebhookModalProps {
 function isValidUrl(str: string): boolean {
   try {
     const u = new URL(str)
-    return u.protocol === "http:" || u.protocol === "https:"
+    return u.protocol === "https:"
   } catch {
     return false
   }
@@ -41,12 +41,40 @@ export function CreateWebhookModal({ isOpen, onClose, onCreate }: CreateWebhookM
   const [timeoutInput, setTimeoutInput] = React.useState("30")
   const [timeoutTouched, setTimeoutTouched] = React.useState(false)
   const [submitting, setSubmitting] = React.useState(false)
+  const [testing, setTesting] = React.useState(false)
+  const [testResult, setTestResult] = React.useState<{ success: boolean; status_code?: number; error?: string } | null>(null)
 
   const urlValid = isValidUrl(url)
   const timeoutValue = Number(timeoutInput)
   const timeoutValid = Number.isInteger(timeoutValue) && timeoutValue >= 5 && timeoutValue <= 60
-  const urlError = urlTouched && !urlValid ? "Must be a valid https:// URL" : null
-  const timeoutError = timeoutTouched && !timeoutValid ? "Timeout must be a whole number between 5 and 60 seconds." : null
+  const urlError = (urlTouched || url.length > 0) && !urlValid ? (url ? "Must be a valid HTTPS URL" : "URL is required") : null
+  const timeoutError = (timeoutTouched || timeoutInput.length > 0) && !timeoutValid ? "Timeout must be a whole number between 5 and 60 seconds." : null
+
+  const handleTestConnection = async () => {
+    if (!urlValid) return
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const response = await fetch("/api/graphql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: `
+            mutation TestWebhookUrl($url: String!, $timeoutSeconds: Int!) {
+              testWebhookUrl(url: $url, timeoutSeconds: $timeoutSeconds)
+            }
+          `,
+          variables: { url, timeoutSeconds: timeoutValue },
+        }),
+      })
+      const result = await response.json()
+      setTestResult(result.data?.testWebhookUrl || { success: false, error: "Unknown error" })
+    } catch (e) {
+      setTestResult({ success: false, error: "Failed to test connection" })
+    } finally {
+      setTesting(false)
+    }
+  }
 
   const toggleType = (t: EventType) => {
     if (t === "ALL") {
@@ -95,7 +123,7 @@ export function CreateWebhookModal({ isOpen, onClose, onCreate }: CreateWebhookM
     <Modal isOpen={isOpen} onClose={handleClose} title="NEW_WEBHOOK_SUBSCRIPTION">
       <form onSubmit={handleSubmit} className="space-y-5 text-sm">
         {/* URL */}
-        <div>
+        <div className="space-y-2">
           <Input
             id="webhook-url-input"
             label="ENDPOINT_URL *"
@@ -106,6 +134,26 @@ export function CreateWebhookModal({ isOpen, onClose, onCreate }: CreateWebhookM
             onBlur={() => setUrlTouched(true)}
             aria-invalid={!!urlError}
           />
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={testing || !urlValid}
+              onClick={handleTestConnection}
+              className="text-xs px-3 py-1"
+            >
+              {testing ? "Testing..." : "Test Connection"}
+            </Button>
+            {testResult && (
+              <span className={`text-xs ${testResult.success ? "text-green-400" : "text-red-400"}`}>
+                {testResult.success 
+                  ? testResult.status_code 
+                    ? `Success! (HTTP ${testResult.status_code})` 
+                    : "Success!"
+                  : `Failed: ${testResult.error || "Unknown error"}`}
+              </span>
+            )}
+          </div>
           {urlError && (
             <p className="text-terminal-danger text-[10px] mt-1 ml-1">{urlError}</p>
           )}

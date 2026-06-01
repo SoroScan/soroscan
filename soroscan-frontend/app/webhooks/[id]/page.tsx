@@ -87,13 +87,13 @@ export default function WebhookDetailPage() {
 
   const handleTimeoutChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setTimeoutInput(e.target.value)
-    setTimeoutError(null)
+    setTimeoutError(validateTimeout(parseTimeout(e.target.value)))
     setSaveMessage(null)
   }
 
   const handleTimeoutSuggestion = (value: number) => {
     setTimeoutInput(String(value))
-    setTimeoutError(null)
+    setTimeoutError(validateTimeout(value))
     setSaveMessage(null)
   }
 
