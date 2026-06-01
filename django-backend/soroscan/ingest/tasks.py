@@ -3802,3 +3802,185 @@ def check_replica_health(self) -> dict[str, Any]:
     except Exception as exc:
         logger.error(f"Error checking replica health: {exc}", exc_info=True)
         raise self.retry(exc=exc)
+
+
+# ---------------------------------------------------------------------------
+# Issue #529: Webhook Replay with Event Filtering
+# ---------------------------------------------------------------------------
+
+
+@shared_task(
+    bind=True,
+    max_retries=2,
+    default_retry_delay=60,
+    soft_time_limit=300,
+    time_limit=600,
+)
+def process_webhook_replay(self, replay_id: int) -> dict[str, Any]:
+    """
+    Process a WebhookReplay request: query matching events and dispatch webhooks.
+
+    This task:
+    1. Retrieves matching events based on filters
+    2. Dispatches webhook for each event
+    3. Tracks replay progress
+    4. Handles errors and rate limiting
+
+    Returns dict with replay statistics.
+    """
+    from .models import WebhookReplay
+
+    _start = time.monotonic()
+    m = _get_metrics()
+
+    try:
+        replay = WebhookReplay.objects.select_related("subscription", "created_by").get(
+            id=replay_id
+        )
+    except WebhookReplay.DoesNotExist:
+        logger.warning(f"WebhookReplay {replay_id} not found")
+        return {"status": "failed", "error": "WebhookReplay not found"}
+
+    # Update status to processing
+    replay.status = WebhookReplay.STATUS_PROCESSING
+    replay.started_at = timezone.now()
+    replay.save(update_fields=["status", "started_at"])
+
+    try:
+        # Get matching events
+        matching_events = replay.get_matching_events()
+        total_count = matching_events.count()
+        replay.total_events = total_count
+        replay.save(update_fields=["total_events"])
+
+        logger.info(
+            f"Starting webhook replay: {total_count} events",
+            extra={"replay_id": replay_id, "total_events": total_count},
+        )
+
+        # Process events in batches
+        batch_size = 100
+        replayed = 0
+        failed = 0
+
+        for batch_start in range(0, total_count, batch_size):
+            batch_end = min(batch_start + batch_size, total_count)
+            batch_events = list(matching_events[batch_start:batch_end])
+
+            for event in batch_events:
+                try:
+                    # Dispatch webhook for this event
+                    dispatch_webhook.delay(replay.subscription.id, event.id)
+                    replayed += 1
+
+                    # Update progress
+                    replay.replayed_events = replayed
+                    replay.save(update_fields=["replayed_events"])
+
+                except Exception as exc:
+                    failed += 1
+                    logger.warning(
+                        f"Failed to dispatch webhook replay event {event.id}: {exc}",
+                        extra={"replay_id": replay_id, "event_id": event.id},
+                    )
+
+        # Mark replay as completed
+        replay.status = WebhookReplay.STATUS_COMPLETED
+        replay.completed_at = timezone.now()
+        replay.failed_events = failed
+        replay.save(update_fields=[
+            "status",
+            "completed_at",
+            "failed_events",
+            "replayed_events",
+        ])
+
+        elapsed = time.monotonic() - _start
+        m.task_duration_seconds.labels(task_name="process_webhook_replay").observe(
+            elapsed
+        )
+
+        logger.info(
+            f"Webhook replay completed: {replayed} dispatched, {failed} failed",
+            extra={
+                "replay_id": replay_id,
+                "replayed": replayed,
+                "failed": failed,
+                "elapsed": elapsed,
+            },
+        )
+
+        return {
+            "status": "completed",
+            "replay_id": replay_id,
+            "total_events": total_count,
+            "replayed_events": replayed,
+            "failed_events": failed,
+        }
+
+    except Exception as exc:
+        logger.error(
+            f"Webhook replay failed: {exc}",
+            exc_info=True,
+            extra={"replay_id": replay_id},
+        )
+
+        # Mark as failed
+        replay.status = WebhookReplay.STATUS_FAILED
+        replay.error_message = str(exc)[:1000]
+        replay.completed_at = timezone.now()
+        replay.save(update_fields=[
+            "status",
+            "error_message",
+            "completed_at",
+        ])
+
+        m.task_duration_seconds.labels(task_name="process_webhook_replay").observe(
+            time.monotonic() - _start
+        )
+
+        # Retry on error
+        if self.request.retries < self.max_retries:
+            _log_task_retry(
+                "process_webhook_replay",
+                self.request.retries + 2,
+                type(exc).__name__,
+                countdown=60,
+            )
+            raise self.retry(exc=exc)
+
+        return {
+            "status": "failed",
+            "replay_id": replay_id,
+            "error": str(exc),
+        }
+
+
+@shared_task
+def cleanup_old_webhook_replays() -> int:
+    """
+    Clean up old WebhookReplay records (completed or failed).
+    Keeps replays from last 30 days.
+    """
+    from .models import WebhookReplay
+
+    _start = time.monotonic()
+    cutoff = timezone.now() - timedelta(days=30)
+
+    # Delete completed and failed replays older than cutoff
+    deleted_count, _ = WebhookReplay.objects.filter(
+        status__in=[WebhookReplay.STATUS_COMPLETED, WebhookReplay.STATUS_FAILED],
+        created_at__lt=cutoff,
+    ).delete()
+
+    logger.info(
+        f"Cleaned up {deleted_count} old webhook replays",
+        extra={"deleted_count": deleted_count},
+    )
+
+    _get_metrics().task_duration_seconds.labels(
+        task_name="cleanup_old_webhook_replays"
+    ).observe(time.monotonic() - _start)
+
+    return deleted_count
+

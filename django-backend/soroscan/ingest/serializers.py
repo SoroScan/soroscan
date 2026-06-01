@@ -19,6 +19,7 @@ from .models import (
     Team,
     TeamMembership,
     TrackedContract,
+    WebhookReplay,
     WebhookSubscription,
 )
 
@@ -479,3 +480,65 @@ class ContractVerificationSerializer(serializers.ModelSerializer):
             "error_message",
         ]
         read_only_fields = ["id", "verified_at"]
+
+
+class WebhookReplaySerializer(serializers.ModelSerializer):
+    """
+    Serializer for WebhookReplay model with filtering and status tracking.
+    """
+
+    subscription_id = serializers.IntegerField(write_only=True)
+    created_by_username = serializers.CharField(source="created_by.username", read_only=True)
+
+    class Meta:
+        model = WebhookReplay
+        fields = [
+            "id",
+            "subscription",
+            "subscription_id",
+            "status",
+            "created_at",
+            "created_by_username",
+            # Filter fields
+            "start_date",
+            "end_date",
+            "event_types",
+            # Tracking fields
+            "total_events",
+            "replayed_events",
+            "failed_events",
+            "error_message",
+            "started_at",
+            "completed_at",
+        ]
+        read_only_fields = [
+            "id",
+            "subscription",
+            "status",
+            "total_events",
+            "replayed_events",
+            "failed_events",
+            "error_message",
+            "started_at",
+            "completed_at",
+            "created_at",
+            "created_by_username",
+        ]
+
+    def create(self, validated_data):
+        subscription_id = validated_data.pop("subscription_id")
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+
+        try:
+            subscription = WebhookSubscription.objects.get(id=subscription_id)
+        except WebhookSubscription.DoesNotExist:
+            raise serializers.ValidationError({"subscription_id": "Webhook subscription not found."})
+
+        replay = WebhookReplay.objects.create(
+            subscription=subscription,
+            created_by=user,
+            **validated_data,
+        )
+        return replay
+

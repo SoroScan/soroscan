@@ -17,6 +17,7 @@ from .views import (
     contract_event_types_view,
     organization_cost_breakdown_view,
     WebhookSubscriptionViewSet,
+    WebhookReplayViewSet,
     contract_timeline_view,
     deletion_requests_view,
     deployment_timeline_view,
@@ -32,6 +33,7 @@ router.register(r"contracts", TrackedContractViewSet, basename="contract")
 router.register(r"events", ContractEventViewSet, basename="event")
 router.register(r"invocations", ContractInvocationViewSet, basename="invocation")
 router.register(r"webhooks", WebhookSubscriptionViewSet, basename="webhook")
+router.register(r"webhook-replays", WebhookReplayViewSet, basename="webhook-replay")
 router.register(r"api-keys", APIKeyViewSet, basename="apikey")
 router.register(r"teams", TeamViewSet, basename="team")
 

@@ -2105,3 +2105,128 @@ class ContractABIVersion(models.Model):
 
     def __str__(self):
         return f"ABI v{self.version_number} for {self.contract.contract_id[:8]}... (ledger {self.valid_from_ledger}–{self.valid_to_ledger or '∞'})"
+
+
+class WebhookReplay(models.Model):
+    """
+    Webhook replay request with filtering and status tracking.
+
+    Allows operators to replay webhook events based on filters (date range, event type, contract)
+    for operational needs (issue #529).
+
+    Status lifecycle:
+    - pending: Initial state, awaiting processing
+    - processing: Background task is running
+    - completed: All matching events have been replayed
+    - failed: Replay task encountered an error
+    """
+
+    STATUS_PENDING = "pending"
+    STATUS_PROCESSING = "processing"
+    STATUS_COMPLETED = "completed"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_PROCESSING, "Processing"),
+        (STATUS_COMPLETED, "Completed"),
+        (STATUS_FAILED, "Failed"),
+    ]
+
+    # Mandatory fields
+    subscription = models.ForeignKey(
+        WebhookSubscription,
+        on_delete=models.CASCADE,
+        related_name="replays",
+        help_text="Webhook subscription to replay events to",
+    )
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="webhook_replays",
+        help_text="User who initiated the replay",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        db_index=True,
+        help_text="Current replay status",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    # Filter fields
+    start_date = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Replay events from this date onwards (inclusive)",
+    )
+    end_date = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Replay events up to this date (inclusive)",
+    )
+    event_types = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of event types to filter by (empty = all types)",
+    )
+
+    # Tracking fields
+    total_events = models.PositiveIntegerField(
+        default=0,
+        help_text="Total number of events matched by filters",
+    )
+    replayed_events = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of events successfully replayed",
+    )
+    failed_events = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of events that failed to replay",
+    )
+    error_message = models.TextField(
+        blank=True,
+        help_text="Error details if status is 'failed'",
+    )
+    started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the replay task started processing",
+    )
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the replay task finished",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["subscription", "status"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self):
+        return f"WebhookReplay(sub={self.subscription_id}, status={self.status}, events={self.total_events})"
+
+    def get_matching_events(self):
+        """
+        Retrieve ContractEvent queryset matching the replay filters.
+
+        Filters by:
+        - Date range (start_date, end_date)
+        - Event types
+        """
+        events = self.subscription.contract.events.all()
+
+        if self.start_date:
+            events = events.filter(timestamp__gte=self.start_date)
+        if self.end_date:
+            events = events.filter(timestamp__lte=self.end_date)
+        if self.event_types:
+            events = events.filter(event_type__in=self.event_types)
+
+        return events.order_by("timestamp")
+

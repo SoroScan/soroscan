@@ -43,6 +43,7 @@ from .models import (
     TeamMembership,
     TrackedContract,
     WebhookSubscription,
+    WebhookReplay,
 )
 from .serializers import (
     APIKeySerializer,
@@ -58,6 +59,7 @@ from .serializers import (
     TeamSerializer,
     TrackedContractSerializer,
     WebhookSubscriptionSerializer,
+    WebhookReplaySerializer,
 )
 from .stellar_client import SorobanClient
 
@@ -624,6 +626,132 @@ class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
         matched = evaluate_condition(webhook.filter_condition, sample_event)
         return Response({"matched": bool(matched)})
 
+    @extend_schema(
+        request=inline_serializer(
+            name="WebhookReplayRequest",
+            fields={
+                "start_date": serializers.DateTimeField(required=False, allow_null=True),
+                "end_date": serializers.DateTimeField(required=False, allow_null=True),
+                "event_types": serializers.ListField(
+                    child=serializers.CharField(),
+                    required=False,
+                    allow_empty=True,
+                ),
+            },
+        ),
+        responses={
+            201: inline_serializer(
+                name="WebhookReplayResponse",
+                fields={
+                    "id": serializers.IntegerField(),
+                    "status": serializers.CharField(),
+                    "total_events": serializers.IntegerField(),
+                    "message": serializers.CharField(),
+                },
+            )
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="replay")
+    def replay(self, request, pk=None):
+        """
+        Initiate a webhook replay with optional filters.
+
+        Filters:
+        - start_date: Replay events from this date onwards
+        - end_date: Replay events up to this date
+        - event_types: List of event types to filter by (empty = all types)
+
+        Returns a WebhookReplay record with status tracking.
+        """
+        from .models import WebhookReplay
+        from .serializers import WebhookReplaySerializer
+        from .tasks import process_webhook_replay
+
+        webhook = self.get_object()
+
+        # Rate limiting: allow 5 replays per subscription per hour
+        from django.core.cache import cache
+
+        cache_key = f"webhook_replay_limit:{webhook.id}"
+        replay_count = cache.get(cache_key, 0)
+        if replay_count >= 5:
+            return Response(
+                {"detail": "Rate limit exceeded: maximum 5 replays per hour per webhook."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        # Create replay request
+        data = {
+            "subscription_id": webhook.id,
+            "start_date": request.data.get("start_date"),
+            "end_date": request.data.get("end_date"),
+            "event_types": request.data.get("event_types", []),
+        }
+
+        serializer = WebhookReplaySerializer(data=data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        replay = serializer.save()
+
+        # Increment rate limit counter
+        cache.set(cache_key, replay_count + 1, timeout=3600)
+
+        # Dispatch background task to process replay
+        process_webhook_replay.delay(replay.id)
+
+        return Response(
+            {
+                "id": replay.id,
+                "status": replay.status,
+                "total_events": 0,  # Will be updated by the task
+                "message": "Webhook replay scheduled. Check status later for progress.",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="WebhookReplayStatusResponse",
+                fields={
+                    "id": serializers.IntegerField(),
+                    "status": serializers.CharField(),
+                    "total_events": serializers.IntegerField(),
+                    "replayed_events": serializers.IntegerField(),
+                    "failed_events": serializers.IntegerField(),
+                    "created_at": serializers.DateTimeField(),
+                    "started_at": serializers.DateTimeField(allow_null=True),
+                    "completed_at": serializers.DateTimeField(allow_null=True),
+                },
+            )
+        },
+    )
+    @action(detail=True, methods=["get"], url_path="replay-status")
+    def replay_status(self, request, pk=None):
+        """
+        Get the status of all webhook replays for this subscription.
+
+        Returns a list of replay records with their progress.
+        """
+        from .models import WebhookReplay
+
+        webhook = self.get_object()
+        replays = WebhookReplay.objects.filter(subscription=webhook).order_by("-created_at")
+
+        data = []
+        for replay in replays:
+            data.append({
+                "id": replay.id,
+                "status": replay.status,
+                "total_events": replay.total_events,
+                "replayed_events": replay.replayed_events,
+                "failed_events": replay.failed_events,
+                "created_at": replay.created_at,
+                "started_at": replay.started_at,
+                "completed_at": replay.completed_at,
+            })
+
+        return Response(data)
+
 
 class TeamViewSet(viewsets.ModelViewSet):
     """
@@ -682,6 +810,153 @@ class TeamViewSet(viewsets.ModelViewSet):
         if not created:
             return Response({"status": "already_member"}, status=status.HTTP_200_OK)
         return Response({"status": "created"}, status=status.HTTP_201_CREATED)
+
+
+class WebhookReplayViewSet(viewsets.ModelViewSet):
+    """
+    Webhook Replay: replay historical webhook events with optional filters.
+
+    - GET /webhook-replays/ — list all replays
+    - POST /webhook-replays/ — create a new replay request
+    - GET /webhook-replays/{id}/ — get replay status
+    - POST /webhooks/{id}/replay/ — trigger replay from webhook detail (convenience endpoint)
+    - GET /webhooks/{id}/replay-status/ — get status of all replays for a webhook
+    """
+
+    serializer_class = WebhookReplaySerializer
+    permission_classes = [IsAuthenticated]
+    queryset = WebhookReplay.objects.all()
+    filter_backends = [DjangoFilterBackend, OrderingFilter]
+    filterset_fields = ["subscription", "status", "created_at"]
+    ordering_fields = ["created_at", "status"]
+    ordering = ["-created_at"]
+
+    def get_queryset(self):
+        """Filter replays to only those for subscriptions the user can access."""
+        from .models import WebhookSubscription
+
+        user_subscriptions = WebhookSubscription.objects.filter(
+            team__memberships__user=self.request.user
+        ).values_list("id", flat=True)
+        return WebhookReplay.objects.filter(subscription_id__in=user_subscriptions)
+
+    @extend_schema(
+        request=inline_serializer(
+            name="WebhookReplayRequest",
+            fields={
+                "subscription_id": serializers.IntegerField(),
+                "start_date": serializers.DateTimeField(required=False, allow_null=True),
+                "end_date": serializers.DateTimeField(required=False, allow_null=True),
+                "event_types": serializers.ListField(
+                    child=serializers.CharField(),
+                    required=False,
+                    allow_empty=True,
+                ),
+            },
+        ),
+        responses={
+            201: inline_serializer(
+                name="WebhookReplayCreateResponse",
+                fields={
+                    "id": serializers.IntegerField(),
+                    "status": serializers.CharField(),
+                    "total_events": serializers.IntegerField(),
+                    "message": serializers.CharField(),
+                },
+            )
+        },
+    )
+    def create(self, request, *args, **kwargs):
+        """
+        Create a new webhook replay request with optional filters.
+
+        Filters:
+        - start_date: Replay events from this date onwards
+        - end_date: Replay events up to this date
+        - event_types: List of event types to filter by (empty = all types)
+
+        Returns a WebhookReplay record with status tracking.
+        """
+        from django.core.cache import cache
+
+        subscription_id = request.data.get("subscription_id")
+        if not subscription_id:
+            return Response(
+                {"detail": "subscription_id is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Verify user has access to this subscription
+        from .models import WebhookSubscription
+
+        try:
+            subscription = WebhookSubscription.objects.get(id=subscription_id)
+        except WebhookSubscription.DoesNotExist:
+            return Response(
+                {"detail": "Webhook subscription not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check user team membership
+        if not subscription.team.memberships.filter(user=request.user).exists():
+            return Response(
+                {"detail": "You do not have access to this webhook subscription."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Rate limiting: allow 5 replays per subscription per hour
+        cache_key = f"webhook_replay_limit:{subscription_id}"
+        replay_count = cache.get(cache_key, 0)
+        if replay_count >= 5:
+            return Response(
+                {"detail": "Rate limit exceeded: maximum 5 replays per hour per webhook."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        # Create replay request
+        serializer = self.get_serializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        replay = serializer.save()
+
+        # Increment rate limit counter
+        cache.set(cache_key, replay_count + 1, timeout=3600)
+
+        # Dispatch background task to process replay
+        from .tasks import process_webhook_replay
+
+        process_webhook_replay.delay(replay.id)
+
+        return Response(
+            {
+                "id": replay.id,
+                "status": replay.status,
+                "total_events": 0,  # Will be updated by the task
+                "message": "Webhook replay scheduled. Check status later for progress.",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="WebhookReplayDetailResponse",
+                fields={
+                    "id": serializers.IntegerField(),
+                    "subscription": serializers.IntegerField(),
+                    "status": serializers.CharField(),
+                    "total_events": serializers.IntegerField(),
+                    "replayed_events": serializers.IntegerField(),
+                    "failed_events": serializers.IntegerField(),
+                    "created_at": serializers.DateTimeField(),
+                    "started_at": serializers.DateTimeField(allow_null=True),
+                    "completed_at": serializers.DateTimeField(allow_null=True),
+                },
+            )
+        },
+    )
+    def retrieve(self, request, *args, **kwargs):
+        """Get detailed status of a specific webhook replay."""
+        return super().retrieve(request, *args, **kwargs)
 
 
 class APIKeyViewSet(viewsets.ModelViewSet):
