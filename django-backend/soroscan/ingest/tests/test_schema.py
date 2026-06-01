@@ -96,6 +96,49 @@ class TestGraphQLQueries:
         assert result.errors is None
         assert result.data["contract"]["contractId"] == contract.contract_id
 
+    def test_contract_query_returns_warning_for_deprecated_contract(self, contract):
+        contract.deprecation_status = "deprecated"
+        contract.deprecation_reason = "This contract is deprecated."
+        contract.save(update_fields=["deprecation_status", "deprecation_reason"])
+
+        query = f"""
+            query {{
+                contract(contractId: "{contract.contract_id}") {{
+                    contractId
+                    warnings {{
+                        type
+                        message
+                    }}
+                }}
+            }}
+        """
+        result = schema.execute_sync(query)
+
+        assert result.errors is None
+        assert result.data["contract"]["warnings"] == [
+            {
+                "type": "deprecation",
+                "message": "This contract is deprecated.",
+            }
+        ]
+
+    def test_contract_query_returns_empty_warnings_for_active_contract(self, contract):
+        query = f"""
+            query {{
+                contract(contractId: "{contract.contract_id}") {{
+                    contractId
+                    warnings {{
+                        type
+                        message
+                    }}
+                }}
+            }}
+        """
+        result = schema.execute_sync(query)
+
+        assert result.errors is None
+        assert result.data["contract"]["warnings"] == []
+
     def test_query_contract_not_found(self):
         query = """
             query {
@@ -245,6 +288,7 @@ class TestGraphQLQueries:
                 contractStats(contractId: "{contract.contract_id}") {{
                     totalEvents
                     uniqueEventTypes
+                    lastActivity
                 }}
             }}
         """
@@ -252,6 +296,7 @@ class TestGraphQLQueries:
         assert result.errors is None
         assert result.data["contractStats"]["totalEvents"] == 3
         assert result.data["contractStats"]["uniqueEventTypes"] == 2
+        assert "lastActivity" in result.data["contractStats"]
 
     def test_query_event_types(self, contract):
         ContractEventFactory(contract=contract, event_type="transfer")
@@ -466,7 +511,7 @@ class TestGraphQLQueries:
 
         query = """
             query {
-                events(ledgerMin: 150, ledgerMax: 250) {
+                events(fromLedger: 150, toLedger: 250) {
                     edges { node { id } }
                     totalCount
                 }
@@ -487,8 +532,8 @@ class TestGraphQLQueries:
                 events(
                     contractId: "{contract.contract_id}",
                     eventType: "transfer",
-                    ledgerMin: 50,
-                    ledgerMax: 150
+                    fromLedger: 50,
+                    toLedger: 150
                 ) {{
                     edges {{ node {{ id }} }}
                     totalCount
@@ -500,6 +545,29 @@ class TestGraphQLQueries:
         assert len(result.data["events"]["edges"]) == 1
         assert result.data["events"]["totalCount"] == 1
 
+    def test_query_transaction_groups_cross_contract_events(self, contract):
+        other_contract = TrackedContractFactory(owner=contract.owner)
+        tx_id = "tx-shared-graphql"
+        ContractEventFactory(contract=contract, tx_hash=tx_id, ledger=20, event_index=0)
+        ContractEventFactory(contract=other_contract, tx_hash=tx_id, ledger=20, event_index=1)
+
+        query = f"""
+            query {{
+                transaction(id: "{tx_id}") {{
+                    id
+                    contractId
+                    eventType
+                    transactionId
+                }}
+            }}
+        """
+        result = schema.execute_sync(query)
+        assert result.errors is None
+        assert len(result.data["transaction"]) == 2
+        assert {row["contractId"] for row in result.data["transaction"]} == {
+            contract.contract_id,
+            other_contract.contract_id,
+        }
 
 @pytest.mark.django_db
 class TestGraphQLMutations:

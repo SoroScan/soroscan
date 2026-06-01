@@ -1,0 +1,73 @@
+---
+id: api-ingest-teams-destroy
+title: "api_ingest_teams_destroy"
+description: "Teams: multi-tenant organization of contracts and members."
+sidebar_label: "api_ingest_teams_destroy"
+hide_title: true
+hide_table_of_contents: true
+api: eJzlU91u01AMfhXLV5uUtQNxlbtJFDSEYFqLuNiqyclx28OSczIfZ6xEkXgInpAnQU66sg3GC3CVY8f+/PN97jA2LKQ+hlOHOVLjr3xYc9IrZarTleOkEreYoeNUim8sFHNc2N8c6rZSf6QcKChEWVPw3wY0iCsoY1ChUhNQcFBzXbCkyWW4DEfwdraA6VBiCj+//4DhCbphKFsRDgptYoGCqxjWCTRa0tnH+eOsUpiUgYZ0OBjMaFllrDkBudqHw6eZnXf9dNfNCEPOAY0FD4YciKHaHmKGDQnVrCwJ84sOvY3ekG4ww0A1Y47eYYap3HBNmHeo28a8ScWHNfYZCt+0XthhrtJyv8xQaW1otmtcZpi4bMXrdijw5auetLrB/GJpocKpiSFxMuiXx6/s85iHDxHug6CIbot9n2HNuolGp+OKlYc5DBSn1PjpyO/DZeDvLuY2yVhv38t+qo1qcz+t2QWTsGC2e7yJUpNiju8+L4Y+fFjFId1rZfHzKHFeUoCTs1PM8JYljVO8mBxPjv/Q2PlsvrBQcLFsaw46KmsVBe6RMiCYK1cVjb6CAqSaRPfiAx8c37FMjIwmJq0pWE87+qjxMC5kJ8FnBN+hAXLQ/0f7O9KV73TaVOSDbbCVypYx6mnUsPFsC7QUK4IZ5sNVmLo3MakFdl1BiT9J1ffmvmlZTPHLDG9JPBWmj4sOnU/2dpivqEr8DxIOzneHdQjP9bpzUjA2b6lqzcIMr3k7Hm6/fHgsr2fvZ4sZZkiPVf9E5UOff4XuujFiEa859P2+kpptxfr+F0W84L4=
+sidebar_class_name: "delete api-method"
+info_path: api-reference/soroscan-api
+custom_edit_url: null
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"api_ingest_teams_destroy"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"delete"}
+  path={"/api/ingest/teams/{id}/"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+Teams: multi-tenant organization of contracts and members.
+
+- GET /teams/ — teams the current user belongs to
+- POST /teams/ — create a team (creator becomes admin)
+- POST /teams/\{id\}/members/ — add a user (admin only)
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./api-ingest-teams-destroy.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./api-ingest-teams-destroy.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./api-ingest-teams-destroy.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      
