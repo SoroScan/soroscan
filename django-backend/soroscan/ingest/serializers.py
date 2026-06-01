@@ -135,7 +135,7 @@ class TrackedContractSerializer(serializers.ModelSerializer):
     # Declare these as plain CharField to bypass model-level RegexValidator/UniqueValidator
     # and choices validation so our validate_* methods control error messages entirely.
     contract_id = serializers.CharField(validators=[])
-    network = serializers.CharField()
+    network = serializers.CharField(required=False, default=TrackedContract.Network.MAINNET)
 
     event_count = serializers.SerializerMethodField()
     warnings = serializers.SerializerMethodField()
