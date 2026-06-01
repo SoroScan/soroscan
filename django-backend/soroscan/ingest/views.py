@@ -5,6 +5,8 @@ import hashlib
 import hmac
 import json
 import logging
+import calendar
+from datetime import date
 
 from django.conf import settings
 from django.db.models import Count, Max, Q
@@ -838,3 +840,59 @@ def audit_trail_view(request):
 
     serializer = AdminActionSerializer(qs[:limit], many=True)
     return Response(serializer.data)
+
+
+# ---------------------------------------------------------------------------
+# Issue #538: Cost Attribution per Organization
+# ---------------------------------------------------------------------------
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def org_cost_attribution_view(request, team_slug):
+    """
+    GET /api/billing/orgs/<team_slug>/costs/?period=YYYY-MM
+
+    Returns usage metrics and itemised cost breakdown for the given org.
+    Requires the caller to be a member of the team (or staff).
+
+    Query params:
+      period  – billing month as YYYY-MM (defaults to current month)
+    """
+    from .models import OrganizationUsage
+    from .services.billing import compute_costs, snapshot_usage_for_team
+
+    team = get_object_or_404(Team, slug=team_slug)
+
+    # Access control: team member or staff
+    is_member = TeamMembership.objects.filter(team=team, user=request.user).exists()
+    if not (is_member or request.user.is_staff):
+        return Response({"detail": "Forbidden."}, status=status.HTTP_403_FORBIDDEN)
+
+    # Parse ?period=YYYY-MM
+    period_str = request.query_params.get("period", "")
+    try:
+        if period_str:
+            year, month = int(period_str[:4]), int(period_str[5:7])
+        else:
+            today = timezone.now().date()
+            year, month = today.year, today.month
+        period_start = date(year, month, 1)
+        period_end = date(year, month, calendar.monthrange(year, month)[1])
+    except (ValueError, IndexError):
+        return Response({"detail": "Invalid period. Use YYYY-MM."}, status=status.HTTP_400_BAD_REQUEST)
+
+    from datetime import date
+    usage = snapshot_usage_for_team(team, period_start, period_end)
+    costs = compute_costs(usage)
+
+    return Response({
+        "team": team.slug,
+        "period_start": str(period_start),
+        "period_end": str(period_end),
+        "usage": {
+            "request_count": usage.request_count,
+            "storage_bytes": usage.storage_bytes,
+            "egress_bytes": usage.egress_bytes,
+        },
+        "costs": costs,
+    })

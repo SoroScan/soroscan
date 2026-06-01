@@ -17,6 +17,7 @@ from .views import (
     health_check,
     record_event_view,
     restore_archived_events,
+    org_cost_attribution_view,
 )
 
 router = DefaultRouter()
@@ -39,4 +40,5 @@ urlpatterns = [
     path("health/", health_check, name="health-check"),
     path("events/restore-archive/", restore_archived_events, name="restore-archive"),
     path("audit-trail/", audit_trail_view, name="audit-trail"),
+    path("billing/orgs/<slug:team_slug>/costs/", org_cost_attribution_view, name="org-cost-attribution"),
 ]

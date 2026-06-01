@@ -1041,3 +1041,55 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"[{self.notification_type}] {self.title} → {self.user}"
+
+
+# ---------------------------------------------------------------------------
+# Issue #538: Cost Attribution per Organization
+# ---------------------------------------------------------------------------
+
+class OrganizationUsage(models.Model):
+    """
+    Monthly usage snapshot per team (organization) for billing cost attribution.
+
+    Tracks three cost dimensions:
+      - request_count   → compute cost (API calls made by the org)
+      - storage_bytes   → storage cost (total payload bytes stored)
+      - egress_bytes    → egress cost  (bytes served via API responses)
+    """
+
+    team = models.ForeignKey(
+        Team,
+        on_delete=models.CASCADE,
+        related_name="usage_records",
+        help_text="Organization this usage record belongs to",
+    )
+    period_start = models.DateField(
+        db_index=True,
+        help_text="First day of the billing period (YYYY-MM-01)",
+    )
+    period_end = models.DateField(
+        help_text="Last day of the billing period (inclusive)",
+    )
+    request_count = models.PositiveBigIntegerField(
+        default=0,
+        help_text="Total API requests made by this org in the period",
+    )
+    storage_bytes = models.PositiveBigIntegerField(
+        default=0,
+        help_text="Total bytes of event payload data stored for this org",
+    )
+    egress_bytes = models.PositiveBigIntegerField(
+        default=0,
+        help_text="Total bytes served to this org via API responses",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("team", "period_start")]
+        ordering = ["-period_start"]
+        indexes = [
+            models.Index(fields=["team", "period_start"]),
+        ]
+
+    def __str__(self):
+        return f"{self.team.name} usage {self.period_start}"

@@ -6,6 +6,7 @@ import { FilterBar } from "./FilterBar";
 import { EventDetailModal } from "./EventDetailModal";
 import { PaginationControls } from "./PaginationControls";
 import { AdvancedSearch } from "./AdvancedSearch";
+import { ContractStatsCards } from "./ContractStatsCards";
 import { fetchAllContracts, fetchExplorerEvents } from "@/components/ingest/graphql";
 import type { EventRecord } from "@/components/ingest/types";
 import styles from "@/components/ingest/ingest-terminal.module.css";
@@ -199,6 +200,12 @@ export function EventExplorerDashboard() {
         <AdvancedSearch 
           onSearch={(q) => handleFilterChange({ searchQuery: q })}
           initialQuery={filters.searchQuery}
+        />
+
+        <ContractStatsCards
+          events={filteredEvents}
+          totalCount={totalCount}
+          loading={loading}
         />
 
         <section className={styles.timelinePanel} aria-label="Events table">
