@@ -3,7 +3,6 @@ Tests for ClientIPLoggingMiddleware (issue #426).
 """
 import logging
 
-import pytest
 from django.test import RequestFactory
 
 from soroscan.middleware import ClientIPLoggingMiddleware
