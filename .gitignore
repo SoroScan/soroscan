@@ -8,3 +8,7 @@ venv/
 .venv/
 .venv-*/
 node_modules/
+DESIGN_ISSUES.md
+PUSH_ISSUES_README.md
+push_issues_to_github.py
+DOCUMENTATION_ISSUES.md

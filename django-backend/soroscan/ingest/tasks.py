@@ -39,6 +39,7 @@ from .cache_utils import (
     _SENTINEL,
 )
 from .models import (
+    BlacklistedContract,
     ContractABI,
     ContractEvent,
     ContractSigningKey,
@@ -58,6 +59,7 @@ from .models import (
     OrganizationCostSnapshot,
     WebhookDeadLetter,
 )
+from stellar_sdk import SorobanServer
 from .rate_limit import check_ingest_rate
 from .stellar_client import SorobanClient
 from .metrics import webhook_payload_bytes
@@ -1963,8 +1965,6 @@ def ingest_latest_events() -> int:
     """
     Sync events from Horizon/Soroban RPC.
     """
-    from stellar_sdk import SorobanServer
-
     _start = time.monotonic()
     m = _get_metrics()
 
@@ -1977,11 +1977,22 @@ def ingest_latest_events() -> int:
     new_events = 0
 
     try:
-        contract_ids = list(
+        blacklisted_ids = set(
+            BlacklistedContract.objects.values_list("contract_id", flat=True)
+        )
+        all_active_ids = list(
             TrackedContract.objects.filter(is_active=True).values_list(
                 "contract_id", flat=True
             )
         )
+        for cid in all_active_ids:
+            if cid in blacklisted_ids:
+                logger.info(
+                    "Skipping blacklisted contract %s — not indexing events",
+                    cid,
+                    extra={"contract_id": cid, "reason": "blacklisted"},
+                )
+        contract_ids = [cid for cid in all_active_ids if cid not in blacklisted_ids]
 
         # Always update the gauge, even when there are no active contracts.
         m.active_contracts_gauge.set(len(contract_ids))
@@ -2249,6 +2260,60 @@ def aggregate_event_statistics() -> dict[str, Any]:
     return {
         "total_events": total_events,
         "active_contracts": active_contracts,
+        "timestamp": timezone.now().isoformat(),
+    }
+
+
+@shared_task(name="ingest.tasks.warm_event_count_cache")
+def warm_event_count_cache() -> dict[str, Any]:
+    """
+    Periodically warm cache with frequently accessed contract event counts (issue #587).
+    
+    This task proactively caches event counts for active contracts to improve
+    cache hit rates and reduce database load for frequently accessed data.
+    """
+    _start = time.monotonic()
+    from .cache_utils import get_event_count
+    
+    # Get all active contracts ordered by last activity (most recent first)
+    active_contracts = TrackedContract.objects.filter(
+        is_active=True
+    ).order_by('-last_event_at')[:100]  # Warm top 100 most active contracts
+    
+    warmed_count = 0
+    for contract in active_contracts:
+        try:
+            # Call get_event_count which will cache the result
+            count = get_event_count(contract.contract_id)
+            warmed_count += 1
+            logger.debug(
+                "Warmed cache for contract %s: %d events",
+                contract.contract_id,
+                count,
+                extra={"contract_id": contract.contract_id, "event_count": count},
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to warm cache for contract %s: %s",
+                contract.contract_id,
+                exc,
+                extra={"contract_id": contract.contract_id},
+            )
+    
+    elapsed = time.monotonic() - _start
+    logger.info(
+        "Cache warming completed: %d contracts processed in %.2fs",
+        warmed_count,
+        elapsed,
+        extra={"contracts_warmed": warmed_count, "duration_seconds": round(elapsed, 3)},
+    )
+    
+    m = _get_metrics()
+    m.task_duration_seconds.labels(task_name="warm_event_count_cache").observe(elapsed)
+    
+    return {
+        "contracts_warmed": warmed_count,
+        "duration_seconds": round(elapsed, 3),
         "timestamp": timezone.now().isoformat(),
     }
 

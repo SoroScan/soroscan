@@ -8,7 +8,43 @@ const sidebar: SidebarsConfig = {
     },
     {
       type: "category",
-      label: "api",
+      label: "Reference Guides",
+      items: [
+        {
+          type: "doc",
+          id: "api-reference/api-reference-guide",
+          label: "REST API Guide",
+        },
+        {
+          type: "doc",
+          id: "api-reference/graphql",
+          label: "GraphQL Reference",
+        },
+        {
+          type: "doc",
+          id: "api-reference/playground",
+          label: "Interactive Playground",
+        },
+        {
+          type: "doc",
+          id: "api-reference/postman",
+          label: "Postman Collection",
+        },
+        {
+          type: "doc",
+          id: "api-reference/sdk-integration",
+          label: "SDK Integration",
+        },
+        {
+          type: "doc",
+          id: "api-reference/versioning-deprecation",
+          label: "Versioning & Deprecation",
+        },
+      ],
+    },
+    {
+      type: "category",
+      label: "API Endpoints",
       items: [
         {
           type: "doc",

@@ -7,6 +7,7 @@ import { ArrowLeft, FlaskConical, Trash2, Eye, EyeOff } from "lucide-react"
 import { Navbar } from "@/components/terminal/landing/Navbar"
 import { Footer } from "@/components/terminal/landing/Footer"
 import { Card } from "@/components/terminal/Card"
+import { Input } from "@/components/terminal/Input"
 import { Button } from "@/components/terminal/Button"
 import { Modal } from "@/components/terminal/Modal"
 import { DeliveryLog } from "./components/DeliveryLog"
@@ -51,6 +52,65 @@ export default function WebhookDetailPage() {
   const [testResult, setTestResult] = React.useState<{ ok: boolean; code: number; ms: number } | null>(null)
   const [deleteOpen, setDeleteOpen] = React.useState(false)
   const [secretVisible, setSecretVisible] = React.useState(false)
+  const [timeoutInput, setTimeoutInput] = React.useState(() => String(webhook?.timeoutSeconds ?? 30))
+  const [timeoutError, setTimeoutError] = React.useState<string | null>(null)
+  const [saveMessage, setSaveMessage] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    if (webhook) {
+      setTimeoutInput(String(webhook.timeoutSeconds ?? 30))
+      setTimeoutError(null)
+      setSaveMessage(null)
+    }
+  }, [webhook?.id])
+
+  const parseTimeout = (value: string) => {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  const validateTimeout = (value: number | null) => {
+    if (value === null || Number.isNaN(value)) {
+      return "Please enter a timeout value in seconds."
+    }
+    if (!Number.isInteger(value)) {
+      return "Timeout must be a whole number of seconds."
+    }
+    if (value < 5 || value > 60) {
+      return "Timeout must be between 5 and 60 seconds."
+    }
+    return null
+  }
+
+  const timeoutValue = parseTimeout(timeoutInput)
+  const timeoutValidationMessage = validateTimeout(timeoutValue)
+
+  const handleTimeoutChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setTimeoutInput(e.target.value)
+    setTimeoutError(null)
+    setSaveMessage(null)
+  }
+
+  const handleTimeoutSuggestion = (value: number) => {
+    setTimeoutInput(String(value))
+    setTimeoutError(null)
+    setSaveMessage(null)
+  }
+
+  const handleSaveTimeout = () => {
+    const error = validateTimeout(timeoutValue)
+    if (error) {
+      setTimeoutError(error)
+      setSaveMessage(null)
+      return
+    }
+
+    if (!webhook) return
+
+    setWebhook({ ...webhook, timeoutSeconds: timeoutValue ?? 30 })
+    setTimeoutError(null)
+    setSaveMessage("Timeout updated successfully.")
+  }
 
   if (!webhook) {
     return (
@@ -157,6 +217,63 @@ export default function WebhookDetailPage() {
                   </div>
                 } />
                 <InfoRow label="CONTRACT_FILTER" value={webhook.contractFilter ?? "ALL_CONTRACTS"} />
+                <InfoRow label="REQUEST_TIMEOUT" value={`${webhook.timeoutSeconds}s`} mono={false} />
+                <div className="col-span-full mt-4 rounded border border-terminal-green/10 bg-terminal-black/30 p-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div>
+                      <div className="text-xs text-terminal-cyan uppercase tracking-wider">REQUEST_TIMEOUT</div>
+                      <p className="text-[10px] text-terminal-gray mt-1">
+                        Webhook delivery requests will abort after this timeout if the endpoint is too slow.
+                      </p>
+                    </div>
+                    <div className="text-[10px] text-terminal-gray">Valid range: 5–60 seconds</div>
+                  </div>
+
+                  <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto] items-end">
+                    <Input
+                      id="timeout-input"
+                      label="REQUEST_TIMEOUT (seconds)"
+                      type="number"
+                      min={5}
+                      max={60}
+                      step={1}
+                      value={timeoutInput}
+                      onChange={handleTimeoutChange}
+                      onBlur={() => setTimeoutError(timeoutValidationMessage)}
+                      aria-invalid={!!timeoutError}
+                    />
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="sm"
+                      onClick={handleSaveTimeout}
+                      disabled={!!timeoutValidationMessage || timeoutInput === String(webhook.timeoutSeconds)}
+                      className="w-full sm:w-auto"
+                    >
+                      SAVE
+                    </Button>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {[10, 20, 30, 45, 60].map((value) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => handleTimeoutSuggestion(value)}
+                        className="rounded border border-terminal-green/20 px-3 py-1.5 text-[11px] text-terminal-gray transition hover:border-terminal-green hover:text-terminal-green"
+                      >
+                        {value}s
+                      </button>
+                    ))}
+                  </div>
+
+                  {timeoutError && (
+                    <p className="mt-2 text-terminal-danger text-xs">{timeoutError}</p>
+                  )}
+                  {saveMessage && (
+                    <p className="mt-2 text-terminal-green text-xs">{saveMessage}</p>
+                  )}
+                </div>
                 <InfoRow label="CREATED_AT"    value={new Date(webhook.createdAt).toLocaleString("en-GB")} mono={false} />
                 <InfoRow label="LAST_DELIVERY" value={webhook.lastDelivery ? new Date(webhook.lastDelivery).toLocaleString("en-GB") : "NEVER"} mono={false} />
                 <InfoRow

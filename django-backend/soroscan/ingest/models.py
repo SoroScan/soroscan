@@ -1022,6 +1022,36 @@ class IndexerState(models.Model):
         return f"{self.key}: {self.value}"
 
 
+class EventDeduplicationConfig(models.Model):
+    """
+    Per-contract configuration that defines which event fields should be
+    considered when computing the deduplication fingerprint.
+
+    The `fields` JSONField is a list of strings naming top-level keys from
+    the event payload (or special tokens like 'event_type', 'tx_hash',
+    'ledger', 'event_index') that will be used to build the dedup material.
+    """
+
+    contract = models.OneToOneField(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name="dedup_config",
+        help_text="Contract this dedup config applies to",
+    )
+    enabled = models.BooleanField(default=True, help_text="Enable deduplication for this contract")
+    # list of field names to include when computing dedup fingerprint
+    fields = models.JSONField(default=list, blank=True, help_text="List of event fields (or special tokens) to include in dedup key")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Event Deduplication Config"
+        verbose_name_plural = "Event Deduplication Configs"
+
+    def __str__(self):
+        return f"Dedup config for {self.contract.name} (enabled={self.enabled})"
+
+
 # ---------------------------------------------------------------------------
 # Issue #X: Tiered rate limiting with per-API-key and per-contract quotas
 # ---------------------------------------------------------------------------
@@ -2112,3 +2142,48 @@ class ContractABIVersion(models.Model):
 
     def __str__(self):
         return f"ABI v{self.version_number} for {self.contract.contract_id[:8]}... (ledger {self.valid_from_ledger}–{self.valid_to_ledger or '∞'})"
+
+
+class BlacklistedContract(models.Model):
+    """
+    Contracts whose events must not be indexed.
+
+    Any contract_id present in this table is silently skipped by the
+    ingestion loop, regardless of whether it also exists in
+    TrackedContract.  A log entry is written each time a skip occurs
+    so operators can audit the decision.
+    """
+
+    contract_id = models.CharField(
+        max_length=56,
+        unique=True,
+        db_index=True,
+        validators=[
+            RegexValidator(
+                regex=r"^C[A-Z2-7]{55}$",
+                message="Contract address must start with 'C' and be exactly 56 characters using valid Base32 characters (A-Z, 2-7).",
+            )
+        ],
+        help_text="Stellar contract address to block from indexing (C...)",
+    )
+    reason = models.TextField(
+        blank=True,
+        help_text="Human-readable explanation of why this contract is blacklisted",
+    )
+    added_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="blacklisted_contracts",
+        help_text="User who added this entry",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = "Blacklisted Contract"
+        verbose_name_plural = "Blacklisted Contracts"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Blacklisted({self.contract_id[:8]}...)"

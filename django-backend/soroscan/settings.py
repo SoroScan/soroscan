@@ -109,9 +109,11 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "soroscan.middleware.ReverseProxyFixedIPMiddleware",
+    "soroscan.middleware.ClientIPLoggingMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "soroscan.middleware.RequestIdMiddleware",
     "soroscan.middleware.PlatformVersionMiddleware",
+    "soroscan.perf_logger.SlowQueryLoggerMiddleware",
     "soroscan.middleware.SlowQueryMiddleware",
     "soroscan.middleware.ApiDeprecationMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -190,10 +192,17 @@ CACHES = {
 QUERY_CACHE_TTL_SECONDS = env.int("QUERY_CACHE_TTL_SECONDS", default=60)
 
 # Rate limiting configuration (via environment variables)
+# To add a new endpoint rate limit:
+# 1. Define a new environment variable here (e.g. ENDPOINT_RATE_LIMIT_MYFEATURE).
+# 2. Add it to the DEFAULT_THROTTLE_RATES dictionary below with a custom scope name.
+# 3. Apply the `DynamicEndpointThrottle` to your ViewSet and map the action in `action_throttle_scopes`,
+#    or set `throttle_scope = "my_scope"` on an APIView.
 RATE_LIMIT_ANON = env("RATE_LIMIT_ANON", default="60/minute")
 RATE_LIMIT_USER = env("RATE_LIMIT_USER", default="300/minute")
 RATE_LIMIT_INGEST = env("RATE_LIMIT_INGEST", default="10/minute")
 RATE_LIMIT_GRAPHQL = env("RATE_LIMIT_GRAPHQL", default="60/minute")
+ENDPOINT_RATE_LIMIT_SEARCH = env("ENDPOINT_RATE_LIMIT_SEARCH", default="30/minute")
+ENDPOINT_RATE_LIMIT_STATS = env("ENDPOINT_RATE_LIMIT_STATS", default="100/minute")
 
 # REST Framework
 REST_FRAMEWORK = {
@@ -214,6 +223,7 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_THROTTLE_CLASSES": [
+        "soroscan.throttles.DynamicEndpointThrottle",
         "soroscan.throttles.APIKeyThrottle",
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
@@ -223,6 +233,8 @@ REST_FRAMEWORK = {
         "user": RATE_LIMIT_USER,
         "ingest": RATE_LIMIT_INGEST,
         "graphql": RATE_LIMIT_GRAPHQL,
+        "events_search": ENDPOINT_RATE_LIMIT_SEARCH,
+        "contract_stats": ENDPOINT_RATE_LIMIT_STATS,
     },
 }
 
@@ -312,6 +324,10 @@ CELERY_BEAT_SCHEDULE = {
     "recompute-call-graph": {
         "task": "ingest.tasks.recompute_call_graph",
         "schedule": 3600,  # hourly
+    },
+    "warm-event-count-cache": {
+        "task": "ingest.tasks.warm_event_count_cache",
+        "schedule": 300,  # every 5 minutes
     },
 }
 
@@ -433,6 +449,7 @@ LOGGING = {
 # Slow-query logging (Issue: perf monitoring)
 # ---------------------------------------------------------------------------
 LOGGING_SLOW_QUERIES_THRESHOLD_MS = env.int("SLOW_QUERY_THRESHOLD_MS", default=100)
+DATABASE_SLOW_QUERY_THRESHOLD = env.float("DATABASE_SLOW_QUERY_THRESHOLD", default=1.0)
 
 # Ensure log directories exist before configuring handlers
 _LOG_DIR = BASE_DIR / "logs"
@@ -459,6 +476,11 @@ LOGGING["loggers"]["soroscan.migrate"] = {
     "level": "INFO",
     "propagate": False,
 }
+LOGGING["loggers"]["django.performance.database"] = {
+    "handlers": ["console"],
+    "level": "WARNING",
+    "propagate": False,
+}
 
 # ---------------------------------------------------------------------------
 # Security audit logger — admin login success / failure events
@@ -473,6 +495,15 @@ LOGGING["handlers"]["security_audit"] = {
 }
 LOGGING["loggers"]["soroscan.security_audit"] = {
     "handlers": ["security_audit", "console"],
+    "level": "INFO",
+    "propagate": False,
+}
+
+# ---------------------------------------------------------------------------
+# IP access logger — client IP, method, and path for every API request
+# ---------------------------------------------------------------------------
+LOGGING["loggers"]["soroscan.ip_access"] = {
+    "handlers": ["console"],
     "level": "INFO",
     "propagate": False,
 }
