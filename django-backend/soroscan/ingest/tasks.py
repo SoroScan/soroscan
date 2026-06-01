@@ -59,6 +59,7 @@ from .models import (
     OrganizationCostSnapshot,
     WebhookDeadLetter,
 )
+from stellar_sdk import SorobanServer
 from .rate_limit import check_ingest_rate
 from .stellar_client import SorobanClient
 from .metrics import webhook_payload_bytes
@@ -1964,8 +1965,6 @@ def ingest_latest_events() -> int:
     """
     Sync events from Horizon/Soroban RPC.
     """
-    from stellar_sdk import SorobanServer
-
     _start = time.monotonic()
     m = _get_metrics()
 
