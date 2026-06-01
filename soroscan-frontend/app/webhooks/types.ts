@@ -16,6 +16,7 @@ export interface Webhook {
   eventTypes: EventType[]
   contractFilter?: string
   status: WebhookStatus
+  isActive: boolean
   createdAt: string
   lastDelivery?: string
   lastStatusCode?: number
@@ -23,6 +24,8 @@ export interface Webhook {
   timeoutSeconds: number
   secret: string
   totalDeliveries: number
+  failureCount?: number
+  lastDeliverySuccess?: boolean
 }
 
 export interface DeliveryLog {
