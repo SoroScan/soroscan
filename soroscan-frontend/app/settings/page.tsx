@@ -3,6 +3,7 @@ import { useState } from "react";
 import ThemeSelector from "./components/ThemeSelector";
 import NotificationPrefs from "./components/NotificationPrefs";
 import APIKeyManager from "./components/APIKeyManager";
+import OrgSettingsExportImport from "./components/OrgSettingsExportImport";
 
 export default function SettingsPage() {
   const [rowsPerPage, setRowsPerPage] = useState<number>(() => {
@@ -114,6 +115,9 @@ export default function SettingsPage() {
 
         {/* API Keys */}
         <APIKeyManager />
+
+        {/* Settings Import / Export */}
+        <OrgSettingsExportImport />
       </div>
     </main>
   );
