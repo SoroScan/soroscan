@@ -75,7 +75,9 @@ export function EventRateMeter({
           />
           {/* Progressive arc */}
           <path
-            d={`M25 5 A20 20 0 0 1 ${25 + 20 * Math.sin((percentage * Math.PI) / 50)} ${25 - 20 * Math.cos((percentage * Math.PI) / 50)}`}
+            d={`M25 5 A20 20 0 0 1 ${
+              25 + 20 * Math.sin((percentage * Math.PI) / 50)
+            } ${25 - 20 * Math.cos((percentage * Math.PI) / 50)}`}
             stroke={getRateColor(rate, maxEventsPerMinute).replace("text-", "stroke-")}
             strokeWidth="4"
             fill="none"

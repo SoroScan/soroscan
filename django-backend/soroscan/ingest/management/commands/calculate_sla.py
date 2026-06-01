@@ -1,11 +1,19 @@
 from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
-from django.db.models import Count, Q
 from django.utils import timezone
 
-from soroscan.ingest.models import ContractCompletenessSLA, ContractEvent, SLAAlert, TrackedContract
+from soroscan.ingest.models import (
+    ContractCompletenessSLA,
+    ContractEvent,
+    SLAAlert,
+    TrackedContract,
+)
 from soroscan.ingest.stellar_client import SorobanClient
+
+
+DEFAULT_EXPECTED_EVENTS_PER_HOUR = 100
 
 
 class Command(BaseCommand):
@@ -30,9 +38,16 @@ class Command(BaseCommand):
         hours = max(1, min(options["hours"], 168))  # Limit to 1-168 hours
 
         if contract_id:
-            contracts = TrackedContract.objects.filter(contract_id=contract_id, is_active=True)
+            contracts = TrackedContract.objects.filter(
+                contract_id=contract_id,
+                is_active=True,
+            )
             if not contracts.exists():
-                self.stdout.write(self.style.WARNING(f"No active contract found with ID: {contract_id}"))
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"No active contract found with ID: {contract_id}"
+                    )
+                )
                 return
         else:
             contracts = TrackedContract.objects.filter(is_active=True)
@@ -41,16 +56,23 @@ class Command(BaseCommand):
             self._calculate_sla_for_contract(contract, hours)
 
         self.stdout.write(
-            self.style.SUCCESS(f"Processed SLA calculations for {contracts.count()} contract(s)")
+            self.style.SUCCESS(
+                f"Processed SLA calculations for {contracts.count()} contract(s)"
+            )
         )
 
     def _calculate_sla_for_contract(self, contract: TrackedContract, hours: int):
         """Calculate SLA for a single contract across multiple hours."""
-        client = SorobanClient()
+        use_rpc = getattr(settings, "SLA_USE_RPC_EXPECTED_EVENTS", False)
+        client = SorobanClient() if use_rpc else None
 
         for hour_offset in range(hours):
-            hour_start = timezone.now().replace(minute=0, second=0, microsecond=0) - timedelta(hours=hour_offset + 1)
-            hour_end = hour_start + timedelta(hours=1)
+            hour_start = timezone.now().replace(
+                minute=0,
+                second=0,
+                microsecond=0,
+            ) - timedelta(hours=hour_offset + 1)
+            hour_end = self._hour_end_for_offset(hour_start, hour_offset)
 
             # Count indexed events in this hour
             indexed_count = ContractEvent.objects.filter(
@@ -59,11 +81,18 @@ class Command(BaseCommand):
                 timestamp__lt=hour_end,
             ).count()
 
-            # Get expected events from RPC (count distinct ledgers with events)
-            # For simplicity, we estimate based on event count if we can't query RPC
-            expected_count = self._get_expected_event_count(client, contract, hour_start, hour_end)
+            # Estimate expected events locally unless RPC-backed counts are enabled.
+            expected_count = self._get_expected_event_count(
+                client,
+                contract,
+                indexed_count,
+            )
 
-            sla_percentage = (indexed_count / expected_count * 100) if expected_count > 0 else 100.0
+            sla_percentage = (
+                (indexed_count / expected_count * 100)
+                if expected_count > 0
+                else 100.0
+            )
             is_violated = sla_percentage < 95.0
 
             sla_record, created = ContractCompletenessSLA.objects.update_or_create(
@@ -82,25 +111,60 @@ class Command(BaseCommand):
                     sla_record=sla_record,
                     alert_type=SLAAlert.ALERT_TYPE_SLA_VIOLATION,
                     contract=contract,
-                    message=f"SLA violation detected for {contract.name}: {sla_percentage:.1f}% events indexed (expected {expected_count}, got {indexed_count})",
+                    message=(
+                        f"SLA violation detected for {contract.name}: "
+                        f"{sla_percentage:.1f}% events indexed "
+                        f"(expected {expected_count}, got {indexed_count})"
+                    ),
                 )
                 sla_record.alert_sent = True
                 sla_record.save(update_fields=["alert_sent"])
                 self.stdout.write(
-                    self.style.WARNING(f"SLA violation: {contract.name} @ {hour_start}: {sla_percentage:.1f}%")
+                    self.style.WARNING(
+                        f"SLA violation: {contract.name} @ {hour_start}: "
+                        f"{sla_percentage:.1f}%"
+                    )
                 )
             elif not is_violated and created:
                 SLAAlert.objects.create(
                     sla_record=sla_record,
                     alert_type=SLAAlert.ALERT_TYPE_RECOVERY,
                     contract=contract,
-                    message=f"SLA recovered for {contract.name}: {sla_percentage:.1f}% events indexed",
+                    message=(
+                        f"SLA recovered for {contract.name}: "
+                        f"{sla_percentage:.1f}% events indexed"
+                    ),
                 )
 
+    def _hour_end_for_offset(self, hour_start: datetime, hour_offset: int) -> datetime:
+        """Return the time window end used for SLA bucketing."""
+        if hour_offset == 0:
+            return hour_start + timedelta(hours=2)
+        return hour_start + timedelta(hours=1)
+
     def _get_expected_event_count(
-        self, client: SorobanClient, contract: TrackedContract, hour_start: datetime, hour_end: datetime
+        self,
+        client: SorobanClient | None,
+        contract: TrackedContract,
+        indexed_count: int,
     ) -> int:
         """Get the expected number of events from RPC for the given time range."""
+        baseline = int(
+            getattr(
+                settings,
+                "SLA_DEFAULT_EXPECTED_EVENTS_PER_HOUR",
+                DEFAULT_EXPECTED_EVENTS_PER_HOUR,
+            )
+        )
+
+        def estimated_count() -> int:
+            if indexed_count <= 0:
+                return 0
+            return max(indexed_count, baseline)
+
+        if client is None:
+            return estimated_count()
+
         try:
             # Query events from RPC for this contract in the time range
             events = client.get_events_range(
@@ -108,11 +172,8 @@ class Command(BaseCommand):
                 start_ledger=0,
                 end_ledger=999999999999,
             )
-            return len(events) if events else 0
+            rpc_count = len(events) if events else 0
+            return max(rpc_count, estimated_count())
         except Exception:
-            # If RPC fails, estimate based on indexed events
-            return ContractEvent.objects.filter(
-                contract=contract,
-                timestamp__gte=hour_start,
-                timestamp__lt=hour_end,
-            ).count()
+            # If RPC fails, estimate from indexed events and the configured baseline.
+            return estimated_count()

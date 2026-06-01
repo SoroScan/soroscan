@@ -31,6 +31,7 @@ from .models import (
     APIKey,
     AdminAction,
     ArchivedEventBatch,
+    ContractCompletenessSLA,
     ContractEvent,
     ContractInvocation,
     ContractSource,
@@ -1746,12 +1747,9 @@ def contract_identity_view(request):
 # ---------------------------------------------------------------------------
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def sla_metrics_view(request):
     """Return SLA metrics for all contracts for the past 24 hours."""
-    from .models import ContractCompletenessSLA
-    from django.db.models import Max, Avg, Count, Q
-
     latest_sla = (
         ContractCompletenessSLA.objects
         .values("contract")

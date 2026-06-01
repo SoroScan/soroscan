@@ -3,7 +3,7 @@ from io import StringIO
 
 from django.test import TestCase, override_settings
 from django.utils import timezone
-from soroscan.ingest.models import ContractCompletenessSLA, ContractEvent, SLAAlert, TrackedContract
+from soroscan.ingest.models import ContractCompletenessSLA, SLAAlert
 from soroscan.ingest.tests.factories import ContractEventFactory, TrackedContractFactory
 
 

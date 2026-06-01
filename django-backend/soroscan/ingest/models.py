@@ -1232,6 +1232,10 @@ class ContractCompletenessSLA(models.Model):
             models.Index(fields=['is_violated', 'hour_start']),
         ]
 
+    def save(self, *args, **kwargs):
+        self.is_violated = self.sla_percentage < 95.0
+        super().save(*args, **kwargs)
+
 
 class SLAAlert(models.Model):
     """
@@ -1240,6 +1244,7 @@ class SLAAlert(models.Model):
     
     ALERT_TYPE_SLA_VIOLATION = 'sla_violation'
     ALERT_TYPE_SLA_RECOVERY = 'sla_recovery'
+    ALERT_TYPE_RECOVERY = ALERT_TYPE_SLA_RECOVERY
     
     ALERT_TYPE_CHOICES = [
         (ALERT_TYPE_SLA_VIOLATION, 'SLA Violation'),

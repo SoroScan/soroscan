@@ -1,5 +1,15 @@
-import { graphqlRequest, gql } from "./graphql";
+import { gql } from "@apollo/client";
+
+import { graphqlRequest } from "./graphql";
 import type { Contract, ContractFormData, BackfillTask } from "./contract-types";
+
+interface WebhookSubscriptionSummary {
+  id: string;
+  contractId: string;
+  eventType: string;
+  targetUrl: string;
+  isActive: boolean;
+}
 
 export const LIST_CONTRACTS_QUERY = `
   query ListContracts {
@@ -80,25 +90,6 @@ export const TRIGGER_BACKFILL_MUTATION = `
       contractId
       status
       message
-    }
-  }
-`;
-
-export const GET_CONTRACT_RATE_QUERY = gql`
-  query GetContractRate($contractId: String!) {
-    contract(id: $contractId) {
-      id
-      maxEventsPerMinute
-      events {
-        totalCount
-      }
-      recentEvents: events(first: 10) {
-        edges {
-          node {
-            timestamp
-          }
-        }
-      }
     }
   }
 `;
