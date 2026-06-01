@@ -12,8 +12,10 @@ import {
   deleteContract,
 } from "@/components/ingest/contract-graphql";
 import type { Contract, ContractFormData } from "@/components/ingest/contract-types";
+import { useOnboarding } from "@/context/OnboardingContext";
 
 export default function ContractsPage() {
+  const { startOnboarding, isActive } = useOnboarding();
   const [contracts, setContracts] = React.useState<Contract[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRegisterModalOpen, setIsRegisterModalOpen] = React.useState(false);
@@ -77,9 +79,16 @@ export default function ContractsPage() {
               Manage tracked contracts and event monitoring
             </p>
           </div>
-          <Button variant="primary" onClick={() => setIsRegisterModalOpen(true)}>
-            Register Contract
-          </Button>
+          <div className="flex items-center gap-3">
+            {!isActive && (
+              <Button variant="secondary" onClick={startOnboarding}>
+                Start Tour
+              </Button>
+            )}
+            <Button data-tour="register-contract" variant="primary" onClick={() => setIsRegisterModalOpen(true)}>
+              Register Contract
+            </Button>
+          </div>
         </div>
 
         {error && (
