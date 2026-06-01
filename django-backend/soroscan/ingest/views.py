@@ -6,13 +6,15 @@ import hmac
 import json
 import logging
 import time
+from datetime import datetime, time as datetime_time
 from datetime import timedelta
 
 from django.conf import settings
 from django.db.models import Count, Max, Min, Q
-from django.db.models.functions import Cast
+from django.db.models.functions import Cast, ExtractHour, ExtractIsoWeekDay
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers, status, viewsets
@@ -1284,6 +1286,125 @@ def contract_event_types_view(request, contract_id: str):
     
     result = get_or_set_json(cache_key, 60, _build)
     return Response(result)
+
+
+def _parse_heatmap_bound(value: str | None, *, end_of_day: bool = False):
+    if not value:
+        return None
+
+    parsed = parse_datetime(value)
+    if parsed is None:
+        parsed_date = parse_date(value)
+        if parsed_date is None:
+            return None
+        parsed = datetime.combine(
+            parsed_date,
+            datetime_time.max if end_of_day else datetime_time.min,
+        )
+
+    if timezone.is_naive(parsed):
+        parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+    return parsed
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def contract_activity_heatmap_view(request, contract_id: str):
+    """Return contract activity as a day-of-week by hour heatmap."""
+    contract = get_object_or_404(TrackedContract, contract_id=contract_id)
+    event_type = request.query_params.get("event_type", "").strip()
+    start_param = request.query_params.get("start")
+    end_param = request.query_params.get("end")
+    start = _parse_heatmap_bound(start_param)
+    end = _parse_heatmap_bound(end_param, end_of_day=True)
+
+    if start_param and start is None:
+        return Response(
+            {"error": "start must be an ISO-8601 datetime or YYYY-MM-DD date"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if end_param and end is None:
+        return Response(
+            {"error": "end must be an ISO-8601 datetime or YYYY-MM-DD date"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if start and end and start > end:
+        return Response(
+            {"error": "start must be before or equal to end"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    cache_key = stable_cache_key(
+        "contract_activity_heatmap",
+        {
+            "contract_id": contract_id,
+            "event_type": event_type,
+            "start": start.isoformat() if start else None,
+            "end": end.isoformat() if end else None,
+        },
+    )
+
+    def _build():
+        events = ContractEvent.objects.filter(contract=contract)
+        if event_type:
+            events = events.filter(event_type=event_type)
+        if start:
+            events = events.filter(timestamp__gte=start)
+        if end:
+            events = events.filter(timestamp__lte=end)
+
+        buckets = (
+            events.annotate(
+                iso_weekday=ExtractIsoWeekDay("timestamp"),
+                hour=ExtractHour("timestamp"),
+            )
+            .values("iso_weekday", "hour")
+            .annotate(count=Count("id"))
+            .order_by("iso_weekday", "hour")
+        )
+
+        matrix = [[0 for _ in range(24)] for _ in range(7)]
+        for bucket in buckets:
+            day_index = int(bucket["iso_weekday"]) - 1
+            hour = int(bucket["hour"])
+            matrix[day_index][hour] = bucket["count"]
+
+        day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        days = [
+            {
+                "day": day_names[index],
+                "iso_weekday": index + 1,
+                "total": sum(row),
+                "hours": [
+                    {"hour": hour, "count": count}
+                    for hour, count in enumerate(row)
+                ],
+            }
+            for index, row in enumerate(matrix)
+        ]
+
+        event_types = list(
+            ContractEvent.objects.filter(contract=contract)
+            .values_list("event_type", flat=True)
+            .distinct()
+            .order_by("event_type")
+        )
+
+        return {
+            "contract_id": contract.contract_id,
+            "name": contract.name,
+            "event_type": event_type or None,
+            "start": start.isoformat() if start else None,
+            "end": end.isoformat() if end else None,
+            "timezone": timezone.get_current_timezone_name(),
+            "total_events": sum(sum(row) for row in matrix),
+            "hours": list(range(24)),
+            "days": days,
+            "matrix": matrix,
+            "event_types": event_types,
+        }
+
+    return Response(get_or_set_json(cache_key, 60, _build))
 
 
 @extend_schema(

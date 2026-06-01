@@ -18,6 +18,7 @@ from .views import (
     organization_cost_breakdown_view,
     WebhookSubscriptionViewSet,
     WebhookReplayViewSet,
+    contract_activity_heatmap_view,
     contract_timeline_view,
     deletion_requests_view,
     deployment_timeline_view,
@@ -39,6 +40,11 @@ router.register(r"teams", TeamViewSet, basename="team")
 
 urlpatterns = [
     path("contracts/<str:contract_id>/timeline/", contract_timeline_view, name="contract-timeline"),
+    path(
+        "contracts/<str:contract_id>/activity-heatmap/",
+        contract_activity_heatmap_view,
+        name="contract-activity-heatmap",
+    ),
     path(
         "contracts/<str:contract_id>/events/explorer/",
         contract_event_explorer_view,
