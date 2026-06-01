@@ -9,12 +9,29 @@ interface EventTableProps {
   events: EventRecord[];
   loading: boolean;
   onEventClick: (event: EventRecord) => void;
+  eventTags: Record<string, string[]>;
+  tagSuggestions: string[];
+  onAddTag: (eventId: string, tag: string) => void;
+  onRemoveTag: (eventId: string, tag: string) => void;
   hasActiveFilters?: boolean;
   onClearFilters?: () => void;
+  showTags?: boolean;
 }
 
-export function EventTable({ events, loading, onEventClick, hasActiveFilters, onClearFilters }: EventTableProps) {
+export function EventTable({
+  events,
+  loading,
+  onEventClick,
+  eventTags = {},
+  tagSuggestions = [],
+  onAddTag = () => {},
+  onRemoveTag = () => {},
+  hasActiveFilters,
+  onClearFilters,
+  showTags = false,
+}: EventTableProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [tagInputs, setTagInputs] = useState<Record<string, string>>({});
 
   const copyToClipboard = async (text: string, id: string) => {
     try {
@@ -48,6 +65,7 @@ export function EventTable({ events, loading, onEventClick, hasActiveFilters, on
               <th>Ledger</th>
               <th>Time</th>
               <th>Transaction</th>
+              {showTags && <th>Tags</th>}
               <th>Actions</th>
             </tr>
           </thead>
@@ -69,6 +87,11 @@ export function EventTable({ events, loading, onEventClick, hasActiveFilters, on
                 <td data-label="Tx">
                   <div className={styles.skeleton} style={{ width: "100px", height: "20px" }} />
                 </td>
+                {showTags && (
+                  <td data-label="Tags">
+                    <div className={styles.skeleton} style={{ width: "120px", height: "24px" }} />
+                  </td>
+                )}
                 <td data-label="Actions">
                   <div className={styles.skeleton} style={{ width: "50px", height: "28px" }} />
                 </td>
@@ -90,13 +113,14 @@ export function EventTable({ events, loading, onEventClick, hasActiveFilters, on
             <th>Ledger</th>
             <th>Time</th>
             <th>Transaction</th>
+            {showTags && <th>Tags</th>}
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           {!events.length ? (
             <tr>
-              <td colSpan={6} className={styles.emptyTable}>
+              <td colSpan={showTags ? 7 : 6} className={styles.emptyTable}>
                 {loading ? (
                   "Loading events..."
                 ) : hasActiveFilters ? (
@@ -212,6 +236,79 @@ export function EventTable({ events, loading, onEventClick, hasActiveFilters, on
                     </button>
                   </div>
                 </td>
+                {showTags && (
+                  <td data-label="Tags">
+                    <div style={{ display: "grid", gap: "0.4rem" }}>
+                      <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
+                        {(eventTags[event.id] ?? []).map((tag) => (
+                          <span key={tag} className={styles.pill} style={{ fontSize: "0.72rem", padding: "0.2rem 0.45rem" }}>
+                            {tag}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onRemoveTag(event.id, tag);
+                              }}
+                              style={{
+                                background: "transparent",
+                                border: 0,
+                                color: "inherit",
+                                cursor: "pointer",
+                                marginLeft: "0.3rem",
+                                padding: 0,
+                              }}
+                              title={`Remove ${tag}`}
+                            >
+                              x
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                      <div style={{ display: "flex", gap: "0.35rem" }}>
+                        <input
+                          className={styles.fieldInput}
+                          list={`event-tag-suggestions-${event.id}`}
+                          value={tagInputs[event.id] ?? ""}
+                          placeholder="add tag"
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setTagInputs((prev) => ({ ...prev, [event.id]: value }));
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const value = tagInputs[event.id] ?? "";
+                              onAddTag(event.id, value);
+                              setTagInputs((prev) => ({ ...prev, [event.id]: "" }));
+                            }
+                          }}
+                          style={{ padding: "0.35rem 0.45rem", fontSize: "0.75rem" }}
+                        />
+                        <button
+                          type="button"
+                          className={styles.btn}
+                          style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem", minWidth: "auto" }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const value = tagInputs[event.id] ?? "";
+                            onAddTag(event.id, value);
+                            setTagInputs((prev) => ({ ...prev, [event.id]: "" }));
+                          }}
+                          title="Add tag"
+                        >
+                          +
+                        </button>
+                      </div>
+                      <datalist id={`event-tag-suggestions-${event.id}`}>
+                        {tagSuggestions.map((tag) => (
+                          <option key={tag} value={tag} />
+                        ))}
+                      </datalist>
+                    </div>
+                  </td>
+                )}
                 <td data-label="Actions">
                   <button
                     type="button"

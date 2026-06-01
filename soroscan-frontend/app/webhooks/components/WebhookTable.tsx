@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { Trash2, FlaskConical } from "lucide-react"
+import { Trash2, FlaskConical, ChevronDown, ChevronUp } from "lucide-react"
 import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
   SortDirectionIndicator,
@@ -49,6 +49,130 @@ function SuccessBar({ rate }: { rate: number }) {
   )
 }
 
+// ── Mobile card for a single webhook ──────────────────────────────────────
+
+function WebhookCard({
+  wh,
+  onDelete,
+  onTest,
+  isTesting,
+  result,
+}: {
+  wh: Webhook
+  onDelete: (id: string) => void
+  onTest: (id: string) => void
+  isTesting: boolean
+  result: { ok: boolean; code: number } | null
+}) {
+  const [expanded, setExpanded] = React.useState(false)
+
+  return (
+    <div className="border border-terminal-green/20 font-terminal-mono" data-testid="webhook-card">
+      {/* Primary row — always visible */}
+      <div className="flex items-center gap-3 p-3">
+        <StatusBadge status={wh.status} />
+
+        <Link
+          href={`/webhooks/${wh.id}`}
+          className="flex-1 text-terminal-cyan hover:text-terminal-green transition-colors text-[11px] truncate"
+        >
+          {wh.url}
+        </Link>
+
+        {/* Touch-friendly expand toggle */}
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          aria-expanded={expanded}
+          aria-label={expanded ? "Collapse details" : "Expand details"}
+          className="min-w-[44px] min-h-[44px] flex items-center justify-center text-terminal-gray hover:text-terminal-green transition-colors"
+        >
+          {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </button>
+      </div>
+
+      {/* Collapsible details */}
+      {expanded && (
+        <div className="border-t border-terminal-green/10 px-3 pb-3 space-y-2 text-[10px]">
+          {/* Event types */}
+          <div className="flex flex-wrap gap-1 pt-2">
+            {wh.eventTypes.slice(0, 5).map((t) => (
+              <span key={t} className="border border-terminal-green/30 px-1 text-terminal-gray">
+                {t === "ALL" ? "ALL_EVENTS" : t}
+              </span>
+            ))}
+            {wh.eventTypes.length > 5 && (
+              <span className="text-terminal-gray/60">+{wh.eventTypes.length - 5}</span>
+            )}
+          </div>
+
+          {/* Success rate */}
+          <div className="flex items-center gap-2">
+            <span className="text-terminal-gray w-20">SUCCESS</span>
+            <SuccessBar rate={wh.successRate} />
+          </div>
+
+          {/* Last delivery */}
+          <div className="flex items-center gap-2">
+            <span className="text-terminal-gray w-20">LAST_DELIVERY</span>
+            <span className="text-terminal-gray">
+              {wh.lastDelivery
+                ? new Date(wh.lastDelivery).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })
+                : "—"}
+            </span>
+            {wh.lastStatusCode && (
+              <span className={`text-[9px] ${wh.lastStatusCode < 300 ? "text-terminal-green" : "text-terminal-danger"}`}>
+                HTTP {wh.lastStatusCode}
+              </span>
+            )}
+          </div>
+
+          {/* Contract filter */}
+          {wh.contractFilter && (
+            <div className="flex items-center gap-2">
+              <span className="text-terminal-gray w-20">CONTRACT</span>
+              <span className="text-terminal-gray/80">{wh.contractFilter}</span>
+            </div>
+          )}
+
+          {/* Test result */}
+          {result && (
+            <div className={`text-[9px] ${result.ok ? "text-terminal-green" : "text-terminal-danger"}`}>
+              {result.ok ? `✓ TEST_OK (${result.code})` : `✗ TEST_FAILED (${result.code})`}
+            </div>
+          )}
+
+          {/* Actions — touch-friendly (min 44px) */}
+          <div className="flex gap-2 pt-1">
+            <Link href={`/webhooks/${wh.id}`} className="flex-1">
+              <Button variant="secondary" size="sm" className="w-full text-[9px] min-h-[44px]">
+                DETAIL
+              </Button>
+            </Link>
+            <button
+              onClick={() => onTest(wh.id)}
+              disabled={isTesting}
+              title="Test webhook"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center border border-terminal-cyan/40 text-terminal-cyan hover:border-terminal-cyan hover:bg-terminal-cyan/10 transition-colors disabled:opacity-50"
+            >
+              <FlaskConical size={14} />
+            </button>
+            <button
+              onClick={() => onDelete(wh.id)}
+              title="Delete webhook"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center border border-terminal-danger/40 text-terminal-danger hover:border-terminal-danger hover:bg-terminal-danger/10 transition-colors"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main component ─────────────────────────────────────────────────────────
+
 export function WebhookTable({ webhooks, onDelete, onTest, testingId, testResult }: WebhookTableProps) {
   const [sortField, setSortField] = React.useState<SortField>("lastDelivery")
   const [sortDir, setSortDir] = React.useState<SortDir>("desc")
@@ -80,140 +204,146 @@ export function WebhookTable({ webhooks, onDelete, onTest, testingId, testResult
   }
 
   return (
-    <div className="overflow-x-auto">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead
-              className="cursor-pointer select-none hover:text-terminal-green transition-colors"
-              onClick={() => toggleSort("status")}
-            >
-              <span className="inline-flex items-center gap-1">
-                STATUS
-                <SortDirectionIndicator active={sortField === "status"} direction={sortDir} />
-              </span>
-            </TableHead>
-            <TableHead
-              className="cursor-pointer select-none hover:text-terminal-green transition-colors"
-              onClick={() => toggleSort("url")}
-            >
-              <span className="inline-flex items-center gap-1">
-                ENDPOINT_URL
-                <SortDirectionIndicator active={sortField === "url"} direction={sortDir} />
-              </span>
-            </TableHead>
-            <TableHead className="hidden md:table-cell">EVENT_TYPES</TableHead>
-            <TableHead
-              className="cursor-pointer select-none hover:text-terminal-green transition-colors"
-              onClick={() => toggleSort("successRate")}
-            >
-              <span className="inline-flex items-center gap-1">
-                SUCCESS
-                <SortDirectionIndicator active={sortField === "successRate"} direction={sortDir} />
-              </span>
-            </TableHead>
-            <TableHead
-              className="cursor-pointer select-none hover:text-terminal-green transition-colors"
-              onClick={() => toggleSort("lastDelivery")}
-            >
-              <span className="inline-flex items-center gap-1">
-                LAST_DELIVERY
-                <SortDirectionIndicator active={sortField === "lastDelivery"} direction={sortDir} />
-              </span>
-            </TableHead>
-            <TableHead>ACTIONS</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {sorted.map((wh) => {
-            const isTesting = testingId === wh.id
-            const result = testResult?.id === wh.id ? testResult : null
-            return (
-              <TableRow key={wh.id}>
-                {/* Status */}
-                <TableCell><StatusBadge status={wh.status} /></TableCell>
+    <>
+      {/* Mobile: stacked cards (hidden on md+) */}
+      <div className="md:hidden space-y-2" data-testid="webhook-mobile-list">
+        {sorted.map((wh) => (
+          <WebhookCard
+            key={wh.id}
+            wh={wh}
+            onDelete={onDelete}
+            onTest={onTest}
+            isTesting={testingId === wh.id}
+            result={testResult?.id === wh.id ? testResult : null}
+          />
+        ))}
+      </div>
 
-                {/* URL */}
-                <TableCell>
-                  <div className="max-w-[180px] sm:max-w-[280px] lg:max-w-none">
-                    <Link
-                      href={`/webhooks/${wh.id}`}
-                      className="text-terminal-cyan hover:text-terminal-green transition-colors text-[11px] block truncate font-terminal-mono"
-                    >
-                      {wh.url}
-                    </Link>
-                    {wh.contractFilter && (
-                      <div className="text-[9px] text-terminal-gray/60 mt-0.5">
-                        CONTRACT: {wh.contractFilter}
-                      </div>
-                    )}
-                    {result && (
-                      <div className={`text-[9px] mt-1 ${result.ok ? "text-terminal-green" : "text-terminal-danger"}`}>
-                        {result.ok ? `✓ TEST_OK (${result.code})` : `✗ TEST_FAILED (${result.code})`}
-                      </div>
-                    )}
-                  </div>
-                </TableCell>
-
-                {/* Event types */}
-                <TableCell className="hidden md:table-cell">
-                  <div className="flex flex-wrap gap-1 max-w-[200px]">
-                    {wh.eventTypes.slice(0, 3).map((t) => (
-                      <span key={t} className="text-[9px] border border-terminal-green/30 px-1 text-terminal-gray">
-                        {t === "ALL" ? "ALL_EVENTS" : t}
-                      </span>
-                    ))}
-                    {wh.eventTypes.length > 3 && (
-                      <span className="text-[9px] text-terminal-gray/60">+{wh.eventTypes.length - 3}</span>
-                    )}
-                  </div>
-                </TableCell>
-
-                {/* Success rate */}
-                <TableCell><SuccessBar rate={wh.successRate} /></TableCell>
-
-                {/* Last delivery */}
-                <TableCell className="text-[11px] whitespace-nowrap text-terminal-gray">
-                  {wh.lastDelivery
-                    ? new Date(wh.lastDelivery).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })
-                    : "—"}
-                  {wh.lastStatusCode && (
-                    <div className={`text-[9px] mt-0.5 ${wh.lastStatusCode < 300 ? "text-terminal-green" : "text-terminal-danger"}`}>
-                      HTTP {wh.lastStatusCode}
+      {/* Desktop: table (hidden below md) */}
+      <div className="hidden md:block overflow-x-auto" data-testid="webhook-desktop-table">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead
+                className="cursor-pointer select-none hover:text-terminal-green transition-colors"
+                onClick={() => toggleSort("status")}
+              >
+                <span className="inline-flex items-center gap-1">
+                  STATUS
+                  <SortDirectionIndicator active={sortField === "status"} direction={sortDir} />
+                </span>
+              </TableHead>
+              <TableHead
+                className="cursor-pointer select-none hover:text-terminal-green transition-colors"
+                onClick={() => toggleSort("url")}
+              >
+                <span className="inline-flex items-center gap-1">
+                  ENDPOINT_URL
+                  <SortDirectionIndicator active={sortField === "url"} direction={sortDir} />
+                </span>
+              </TableHead>
+              <TableHead>EVENT_TYPES</TableHead>
+              <TableHead
+                className="cursor-pointer select-none hover:text-terminal-green transition-colors"
+                onClick={() => toggleSort("successRate")}
+              >
+                <span className="inline-flex items-center gap-1">
+                  SUCCESS
+                  <SortDirectionIndicator active={sortField === "successRate"} direction={sortDir} />
+                </span>
+              </TableHead>
+              <TableHead
+                className="cursor-pointer select-none hover:text-terminal-green transition-colors"
+                onClick={() => toggleSort("lastDelivery")}
+              >
+                <span className="inline-flex items-center gap-1">
+                  LAST_DELIVERY
+                  <SortDirectionIndicator active={sortField === "lastDelivery"} direction={sortDir} />
+                </span>
+              </TableHead>
+              <TableHead>ACTIONS</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {sorted.map((wh) => {
+              const isTesting = testingId === wh.id
+              const result = testResult?.id === wh.id ? testResult : null
+              return (
+                <TableRow key={wh.id}>
+                  <TableCell><StatusBadge status={wh.status} /></TableCell>
+                  <TableCell>
+                    <div className="max-w-[280px] lg:max-w-none">
+                      <Link
+                        href={`/webhooks/${wh.id}`}
+                        className="text-terminal-cyan hover:text-terminal-green transition-colors text-[11px] block truncate font-terminal-mono"
+                      >
+                        {wh.url}
+                      </Link>
+                      {wh.contractFilter && (
+                        <div className="text-[9px] text-terminal-gray/60 mt-0.5">
+                          CONTRACT: {wh.contractFilter}
+                        </div>
+                      )}
+                      {result && (
+                        <div className={`text-[9px] mt-1 ${result.ok ? "text-terminal-green" : "text-terminal-danger"}`}>
+                          {result.ok ? `✓ TEST_OK (${result.code})` : `✗ TEST_FAILED (${result.code})`}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </TableCell>
-
-                {/* Actions */}
-                <TableCell>
-                  <div className="flex items-center gap-1.5">
-                    <Link href={`/webhooks/${wh.id}`}>
-                      <Button variant="secondary" size="sm" className="text-[9px] h-7 px-2 hidden sm:inline-flex">
-                        DETAIL
-                      </Button>
-                    </Link>
-                    <button
-                      onClick={() => onTest(wh.id)}
-                      disabled={isTesting}
-                      title="Test webhook"
-                      className="h-7 w-7 flex items-center justify-center border border-terminal-cyan/40 text-terminal-cyan hover:border-terminal-cyan hover:bg-terminal-cyan/10 transition-colors disabled:opacity-50"
-                    >
-                      <FlaskConical size={12} />
-                    </button>
-                    <button
-                      onClick={() => onDelete(wh.id)}
-                      title="Delete webhook"
-                      className="h-7 w-7 flex items-center justify-center border border-terminal-danger/40 text-terminal-danger hover:border-terminal-danger hover:bg-terminal-danger/10 transition-colors"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
-    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1 max-w-[200px]">
+                      {wh.eventTypes.slice(0, 3).map((t) => (
+                        <span key={t} className="text-[9px] border border-terminal-green/30 px-1 text-terminal-gray">
+                          {t === "ALL" ? "ALL_EVENTS" : t}
+                        </span>
+                      ))}
+                      {wh.eventTypes.length > 3 && (
+                        <span className="text-[9px] text-terminal-gray/60">+{wh.eventTypes.length - 3}</span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell><SuccessBar rate={wh.successRate} /></TableCell>
+                  <TableCell className="text-[11px] whitespace-nowrap text-terminal-gray">
+                    {wh.lastDelivery
+                      ? new Date(wh.lastDelivery).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })
+                      : "—"}
+                    {wh.lastStatusCode && (
+                      <div className={`text-[9px] mt-0.5 ${wh.lastStatusCode < 300 ? "text-terminal-green" : "text-terminal-danger"}`}>
+                        HTTP {wh.lastStatusCode}
+                      </div>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1.5">
+                      <Link href={`/webhooks/${wh.id}`}>
+                        <Button variant="secondary" size="sm" className="text-[9px] h-7 px-2">
+                          DETAIL
+                        </Button>
+                      </Link>
+                      <button
+                        onClick={() => onTest(wh.id)}
+                        disabled={isTesting}
+                        title="Test webhook"
+                        className="h-7 w-7 flex items-center justify-center border border-terminal-cyan/40 text-terminal-cyan hover:border-terminal-cyan hover:bg-terminal-cyan/10 transition-colors disabled:opacity-50"
+                      >
+                        <FlaskConical size={12} />
+                      </button>
+                      <button
+                        onClick={() => onDelete(wh.id)}
+                        title="Delete webhook"
+                        className="h-7 w-7 flex items-center justify-center border border-terminal-danger/40 text-terminal-danger hover:border-terminal-danger hover:bg-terminal-danger/10 transition-colors"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
+      </div>
+    </>
   )
 }

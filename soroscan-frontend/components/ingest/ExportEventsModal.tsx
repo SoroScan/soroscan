@@ -151,6 +151,11 @@ export function ExportEventsModal({
   const [since, setSince] = useState<string>("");
   const [until, setUntil] = useState<string>("");
   const [error, setError] = useState<string>("");
+  const [previewRows, setPreviewRows] = useState<EventRecord[] | null>(null);
+  const [previewEstimate, setPreviewEstimate] = useState<string | null>(null);
+  const [previewMessage, setPreviewMessage] = useState<string>(
+    "Generate a preview to inspect the first rows and file size before download.",
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [progress, setProgress] = useState<ProgressState>({
     message: "Waiting to start export.",
@@ -169,6 +174,7 @@ export function ExportEventsModal({
     setSince(toDateTimeInputValue(initialFilters.since));
     setUntil(toDateTimeInputValue(initialFilters.until));
     setError("");
+    resetPreview();
     setIsSubmitting(false);
     setProgress({ message: "Waiting to start export.", percent: 0 });
   }, [isOpen, initialFilters.since, initialFilters.until]);
@@ -199,6 +205,14 @@ export function ExportEventsModal({
     return null;
   }
 
+  function resetPreview(): void {
+    setPreviewRows(null);
+    setPreviewEstimate(null);
+    setPreviewMessage(
+      "Generate a preview to inspect the first rows and file size before download.",
+    );
+  }
+
   const toggleColumn = (columnKey: string) => {
     setSelectedColumns((current) => {
       const next = new Set(current);
@@ -209,11 +223,67 @@ export function ExportEventsModal({
       }
       return next;
     });
+    resetPreview();
   };
 
   const handleFormatChange = (nextFormat: ExportFormat) => {
     setFormat(nextFormat);
     persistExportFormat(nextFormat);
+    resetPreview();
+  };
+
+  const handlePreview = async () => {
+    if (!selectedColumns.size) {
+      setError("Select at least one column.");
+      return;
+    }
+
+    const validationError = validateDateRange(since, until);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setError("");
+    setIsSubmitting(true);
+    setPreviewMessage("Fetching preview rows...");
+
+    try {
+      const rows = await fetchRowsForExport({
+        contractId,
+        eventTypes: initialFilters.eventTypes,
+        since: since ? new Date(since).toISOString() : null,
+        until: until ? new Date(until).toISOString() : null,
+        onProgress: (message, percent) =>
+          updateProgress(setProgress, message, percent),
+      });
+
+      if (!rows.length) {
+        throw new Error("No events matched the selected filters.");
+      }
+
+      setPreviewRows(rows);
+      setPreviewMessage(`Showing first ${Math.min(10, rows.length)} rows of ${rows.length} events.`);
+
+      const sampleRows = rows.slice(0, 10);
+      const sampleSize = await estimateSerializedSize(
+        sampleRows,
+        Array.from(selectedColumns),
+        format,
+      );
+      setPreviewEstimate(sampleSize);
+      onStatus?.(`Preview created for ${rows.length} events as ${format.toUpperCase()}.`);
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error ? caughtError.message : "Preview failed.";
+      setError(message);
+      setPreviewRows(null);
+      setPreviewEstimate(null);
+      setPreviewMessage("Unable to generate preview.");
+      onStatus?.(message, true);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleSubmit = async () => {
@@ -232,20 +302,26 @@ export function ExportEventsModal({
     setIsSubmitting(true);
 
     try {
-      updateProgress(setProgress, "Fetching events...", 5);
+      const rows =
+        previewRows && previewRows.length
+          ? previewRows
+          : await (async () => {
+              updateProgress(setProgress, "Fetching events...", 5);
+              const fetched = await fetchRowsForExport({
+                contractId,
+                eventTypes: initialFilters.eventTypes,
+                since: since ? new Date(since).toISOString() : null,
+                until: until ? new Date(until).toISOString() : null,
+                onProgress: (message, percent) =>
+                  updateProgress(setProgress, message, percent),
+              });
 
-      const rows = await fetchRowsForExport({
-        contractId,
-        eventTypes: initialFilters.eventTypes,
-        since: since ? new Date(since).toISOString() : null,
-        until: until ? new Date(until).toISOString() : null,
-        onProgress: (message, percent) =>
-          updateProgress(setProgress, message, percent),
-      });
+              if (!fetched.length) {
+                throw new Error("No events matched the selected filters.");
+              }
 
-      if (!rows.length) {
-        throw new Error("No events matched the selected filters.");
-      }
+              return fetched;
+            })();
 
       updateProgress(
         setProgress,
@@ -363,7 +439,10 @@ export function ExportEventsModal({
                 type="datetime-local"
                 className={styles.fieldInput}
                 value={since}
-                onChange={(event) => setSince(event.target.value)}
+                onChange={(event) => {
+                  setSince(event.target.value);
+                  resetPreview();
+                }}
                 disabled={isSubmitting}
               />
             </div>
@@ -376,7 +455,10 @@ export function ExportEventsModal({
                 type="datetime-local"
                 className={styles.fieldInput}
                 value={until}
-                onChange={(event) => setUntil(event.target.value)}
+                onChange={(event) => {
+                  setUntil(event.target.value);
+                  resetPreview();
+                }}
                 disabled={isSubmitting}
               />
             </div>
@@ -398,6 +480,48 @@ export function ExportEventsModal({
             </div>
             <p className={styles.summary}>{progress.message}</p>
           </div>
+
+          <section className={styles.previewSection} aria-label="Export preview">
+            <div className={styles.previewHeader}>
+              <p className={styles.summary}>{previewMessage}</p>
+              {previewEstimate ? (
+                <p className={styles.summary}>
+                  Estimated preview size: {previewEstimate}
+                </p>
+              ) : null}
+            </div>
+
+            {previewRows ? (
+              <div className={styles.previewTableWrap}>
+                <table className={styles.previewTable}>
+                  <thead>
+                    <tr>
+                      {Array.from(selectedColumns).map((columnKey) => {
+                        const column = COLUMN_DEFS.find(
+                          (item) => item.key === columnKey,
+                        );
+                        return (
+                          <th key={columnKey} scope="col">
+                            {column?.label || columnKey}
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {previewRows.slice(0, 10).map((row) => (
+                      <tr key={row.id}>
+                        {Array.from(selectedColumns).map((columnKey) => {
+                          const value = projectRow(row, Array.from(selectedColumns), "csv")[columnKey];
+                          return <td key={columnKey}>{String(value ?? "")}</td>;
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </section>
         </div>
 
         <footer className={styles.exportModalActions}>
@@ -411,13 +535,23 @@ export function ExportEventsModal({
           </button>
           <button
             type="button"
+            className={`${styles.btn} ${styles.secondaryBtn}`}
+            onClick={() => {
+              void handlePreview();
+            }}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? "Working..." : "Generate preview"}
+          </button>
+          <button
+            type="button"
             className={styles.btn}
             onClick={() => {
               void handleSubmit();
             }}
-            disabled={isSubmitting}
+            disabled={isSubmitting || !previewRows?.length}
           >
-            {isSubmitting ? "Exporting..." : "Export"}
+            {isSubmitting ? "Exporting..." : "Download"}
           </button>
         </footer>
       </section>
@@ -743,6 +877,62 @@ function downloadBlob(
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
+}
+
+async function estimateSerializedSize(
+  rows: EventRecord[],
+  selectedColumns: string[],
+  format: ExportFormat,
+): Promise<string> {
+  if (!rows.length) {
+    return "0 bytes";
+  }
+
+  const projectedRows = rows.map((row) =>
+    projectRow(row, selectedColumns, format === "parquet" ? "json" : format),
+  );
+
+  let serialized = "";
+  if (format === "csv") {
+    serialized = buildCsvPreview(projectedRows, selectedColumns);
+  } else {
+    serialized = JSON.stringify(projectedRows, null, 2);
+  }
+
+  return formatBytes(new Blob([serialized]).size);
+}
+
+function buildCsvPreview(
+  rows: Record<string, unknown>[],
+  selectedColumns: string[],
+): string {
+  const header = selectedColumns.join(",");
+  const lines = rows.map((row) =>
+    selectedColumns
+      .map((key) => csvEscape(String(row[key] ?? "")))
+      .join(","),
+  );
+  return `${header}\n${lines.join("\n")}`;
+}
+
+function csvEscape(value: string): string {
+  if (value.includes(",") || value.includes("\n") || value.includes('"')) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+function formatBytes(bytes: number): string {
+  const units = ["bytes", "KB", "MB", "GB"];
+  let value = bytes;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${value.toFixed(1)} ${units[unitIndex]}`;
 }
 
 async function getPapaModule(): Promise<PapaLike> {

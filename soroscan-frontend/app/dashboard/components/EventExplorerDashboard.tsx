@@ -21,6 +21,15 @@ interface Filters {
   since: string;
   until: string;
   searchQuery: string;
+  tags: string[];
+}
+
+type EventTagMap = Record<string, string[]>;
+
+const EVENT_TAGS_STORAGE_KEY = "soroscan:event-tags";
+
+function normalizeTag(tag: string): string {
+  return tag.trim().toLowerCase().replace(/\s+/g, "-");
 }
 
 export function EventExplorerDashboard() {
@@ -32,15 +41,41 @@ export function EventExplorerDashboard() {
     since: "",
     until: "",
     searchQuery: "",
+    tags: [],
   });
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [filteredEvents, setFilteredEvents] = useState<EventRecord[]>([]);
+  const [eventTags, setEventTags] = useState<EventTagMap>({});
   const [currentPage, setCurrentPage] = useState(1);
   const [hasNext, setHasNext] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<EventRecord | null>(null);
   const [totalCount, setTotalCount] = useState(0);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(EVENT_TAGS_STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+
+      const parsed = JSON.parse(raw) as EventTagMap;
+      if (parsed && typeof parsed === "object") {
+        setEventTags(parsed);
+      }
+    } catch (error) {
+      console.error("Failed to load event tags:", error);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(EVENT_TAGS_STORAGE_KEY, JSON.stringify(eventTags));
+    } catch (error) {
+      console.error("Failed to save event tags:", error);
+    }
+  }, [eventTags]);
 
   // Load contracts on mount
   useEffect(() => {
@@ -102,21 +137,74 @@ export function EventExplorerDashboard() {
 
   // Apply search filter client-side
   useEffect(() => {
-    if (!filters.searchQuery.trim()) {
-      setFilteredEvents(events);
-      return;
-    }
-
     const parsed = parseSearchQuery(filters.searchQuery);
+    const filtered = events.filter((event) => {
+      if (!matchesFilters(event, parsed)) {
+        return false;
+      }
 
-    const filtered = events.filter((event) => matchesFilters(event, parsed));
+      if (!filters.tags.length) {
+        return true;
+      }
+
+      const tags = eventTags[event.id] ?? [];
+      return filters.tags.every((tag) => tags.includes(tag));
+    });
     setFilteredEvents(filtered);
-  }, [events, filters.searchQuery]);
+  }, [events, filters.searchQuery, filters.tags, eventTags]);
 
   const handleFilterChange = useCallback((newFilters: Partial<Filters>) => {
     setFilters((prev) => ({ ...prev, ...newFilters }));
     setCurrentPage(1);
   }, []);
+
+  const handleAddTag = useCallback(
+    (eventId: string, tagValue: string) => {
+      const normalized = normalizeTag(tagValue);
+      if (!normalized) {
+        return;
+      }
+
+      setEventTags((prev) => {
+        const current = prev[eventId] ?? [];
+        if (current.includes(normalized)) {
+          return prev;
+        }
+        return { ...prev, [eventId]: [...current, normalized] };
+      });
+      showToast(`Tag '${normalized}' added.`, "success");
+    },
+    [showToast],
+  );
+
+  const handleRemoveTag = useCallback(
+    (eventId: string, tagValue: string) => {
+      setEventTags((prev) => {
+        const current = prev[eventId] ?? [];
+        const next = current.filter((tag) => tag !== tagValue);
+
+        if (next.length === current.length) {
+          return prev;
+        }
+
+        if (!next.length) {
+          const { [eventId]: _, ...rest } = prev;
+          return rest;
+        }
+
+        return { ...prev, [eventId]: next };
+      });
+    },
+    [],
+  );
+
+  const tagSuggestions = Array.from(
+    new Set([
+      ...Object.values(eventTags).flat(),
+      ...events.map((event) => normalizeTag(event.eventType)),
+      ...events.map((event) => normalizeTag(event.contractName || event.contractId)),
+    ]),
+  ).sort();
 
   const handleClearFilters = useCallback(() => {
     setFilters((prev) => ({
@@ -125,14 +213,14 @@ export function EventExplorerDashboard() {
       since: "",
       until: "",
       searchQuery: "",
+      tags: [],
     }));
     setCurrentPage(1);
   }, []);
 
   const hasActiveFilters = Boolean(
-    filters.eventType || filters.since || filters.until || filters.searchQuery
+    filters.eventType || filters.since || filters.until || filters.searchQuery || filters.tags.length
   );
-
   const handleExport = useCallback(
     (format: "csv" | "json") => {
       const dataToExport = filteredEvents;
@@ -209,6 +297,7 @@ export function EventExplorerDashboard() {
           filters={filters}
           onFilterChange={handleFilterChange}
           onExport={handleExport}
+          tagSuggestions={tagSuggestions}
         />
 
         <AdvancedSearch 
@@ -236,6 +325,11 @@ export function EventExplorerDashboard() {
             events={filteredEvents}
             loading={loading}
             onEventClick={setSelectedEvent}
+            eventTags={eventTags}
+            tagSuggestions={tagSuggestions}
+            onAddTag={handleAddTag}
+            onRemoveTag={handleRemoveTag}
+            showTags
             hasActiveFilters={hasActiveFilters}
             onClearFilters={handleClearFilters}
           />

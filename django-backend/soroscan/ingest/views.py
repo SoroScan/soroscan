@@ -9,7 +9,7 @@ import time
 from datetime import timedelta
 
 from django.conf import settings
-from django.db.models import Count, Max, Min, Q
+from django.db.models import Count, Max, Min, Q, Avg
 from django.db.models.functions import Cast
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
@@ -1561,6 +1561,97 @@ def webhook_batch_delivery_status_view(request):
         )
 
     return Response({"deliveries": deliveries})
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def webhook_delivery_metrics_view(request):
+    """
+    GET /api/webhooks/deliveries/metrics/
+
+    Returns webhook delivery health metrics.
+
+    Query params:
+    - subscription_id: optional integer to restrict to a specific subscription
+    - minutes: optional integer for a relative time range (last N minutes)
+    - recent: optional integer number of recent deliveries to include (default 10)
+    """
+    now = timezone.now()
+
+    # Time range: prefer `minutes` when provided, otherwise default to 24 hours
+    minutes = request.query_params.get("minutes")
+    try:
+        minutes = int(minutes) if minutes is not None else None
+    except (TypeError, ValueError):
+        return Response({"detail": "minutes must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if minutes is not None and minutes <= 0:
+        return Response({"detail": "minutes must be > 0."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if minutes is None:
+        start = now - timedelta(hours=24)
+    else:
+        start = now - timedelta(minutes=minutes)
+
+    qs = WebhookDeliveryLog.objects.filter(timestamp__gte=start, timestamp__lte=now)
+
+    subscription_id = request.query_params.get("subscription_id")
+    if subscription_id is not None:
+        try:
+            subpk = int(subscription_id)
+        except (TypeError, ValueError):
+            return Response({"detail": "subscription_id must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
+        qs = qs.filter(subscription_id=subpk)
+
+    # Aggregates
+    total = qs.count()
+    success_count = qs.filter(success=True).count()
+    success_rate = (success_count / total) * 100.0 if total > 0 else None
+    avg_latency = qs.aggregate(avg_latency_ms=Avg("latency_ms"))["avg_latency_ms"]
+
+    # Recent deliveries
+    try:
+        recent_n = int(request.query_params.get("recent", 10))
+    except (TypeError, ValueError):
+        recent_n = 10
+
+    recent_qs = qs.order_by("-timestamp")[: recent_n]
+    recent_deliveries = list(
+        recent_qs.values(
+            "id",
+            "subscription_id",
+            "status_code",
+            "success",
+            "error",
+            "attempt_number",
+            "timestamp",
+        )
+    )
+
+    # Failure breakdown by status_code (including null network errors)
+    failed = qs.filter(success=False)
+    breakdown_qs = (
+        failed.values("status_code")
+        .annotate(count=Count("id"))
+        .order_by("-count")
+    )
+    failure_breakdown = []
+    for row in breakdown_qs:
+        code = row["status_code"]
+        key = "network_error" if code is None else str(code)
+        failure_breakdown.append({"code": key, "count": row["count"]})
+
+    resp = {
+        "total_deliveries": total,
+        "success_count": success_count,
+        "success_rate_percent": success_rate,
+        "avg_latency_ms": avg_latency,
+        "recent_deliveries": recent_deliveries,
+        "failure_breakdown": failure_breakdown,
+        "time_range": {"start": start, "end": now},
+    }
+
+    return Response(resp)
 
 
 # ---------------------------------------------------------------------------
