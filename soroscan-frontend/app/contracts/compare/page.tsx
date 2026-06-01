@@ -10,7 +10,6 @@ import {
 } from "@/components/ingest/contract-graphql";
 import { fetchTimeline } from "@/components/ingest/graphql";
 import type { Contract } from "@/components/ingest/contract-types";
-import type { EventRecord } from "@/components/ingest/types";
 import type { TimelineBucketSize } from "@/components/ingest/types";
 
 function DiffBadge({ a, b }: { a: number; b: number }) {

@@ -56,13 +56,13 @@ export default function WebhookDetailPage() {
   const [timeoutError, setTimeoutError] = React.useState<string | null>(null)
   const [saveMessage, setSaveMessage] = React.useState<string | null>(null)
 
-  React.useEffect(() => {
-    if (webhook) {
-      setTimeoutInput(String(webhook.timeoutSeconds ?? 30))
-      setTimeoutError(null)
-      setSaveMessage(null)
-    }
-  }, [webhook?.id])
+   React.useEffect(() => {
+     if (webhook) {
+       setTimeoutInput(String(webhook.timeoutSeconds ?? 30))
+       setTimeoutError(null)
+       setSaveMessage(null)
+     }
+   }, [webhook])
 
   const parseTimeout = (value: string) => {
     const parsed = Number(value)

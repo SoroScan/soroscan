@@ -188,7 +188,8 @@ export function EventExplorerDashboard() {
         }
 
         if (!next.length) {
-          const { [eventId]: _, ...rest } = prev;
+           // eslint-disable-next-line @typescript-eslint/no-unused-vars
+           const { [eventId]: _, ...rest } = prev;
           return rest;
         }
 

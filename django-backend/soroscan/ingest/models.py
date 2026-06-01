@@ -4,6 +4,7 @@ Database models for SoroScan event indexing.
 import hashlib
 import secrets
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator, RegexValidator
@@ -1202,6 +1203,80 @@ class Invoice(models.Model):
 
     def __str__(self):
         return f"Invoice #{self.invoice_number} ({self.organization.name})"
+
+
+class ContractCompletenessSLA(models.Model):
+    """
+    Tracks event completeness SLA for contracts on an hourly basis.
+    """
+    
+    hour_start = models.DateTimeField(db_index=True, help_text='Start of the SLA hour bucket (UTC)')
+    events_expected = models.PositiveIntegerField(default=0, help_text='Expected events based on RPC data')
+    events_indexed = models.PositiveIntegerField(default=0, help_text='Actually indexed events')
+    sla_percentage = models.FloatField(default=100.0, help_text='Percentage of events indexed')
+    is_violated = models.BooleanField(db_index=True, default=False, help_text='True if SLA < threshold')
+    alert_sent = models.BooleanField(default=False, help_text='Whether an alert was sent for this violation')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    contract = models.ForeignKey(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name='sla_records',
+    )
+
+    class Meta:
+        ordering = ['-hour_start']
+        unique_together = ('contract', 'hour_start')
+        indexes = [
+            models.Index(fields=['contract', 'hour_start']),
+            models.Index(fields=['is_violated', 'hour_start']),
+        ]
+
+
+class SLAAlert(models.Model):
+    """
+    Alerts for SLA violations and recoveries.
+    """
+    
+    ALERT_TYPE_SLA_VIOLATION = 'sla_violation'
+    ALERT_TYPE_SLA_RECOVERY = 'sla_recovery'
+    
+    ALERT_TYPE_CHOICES = [
+        (ALERT_TYPE_SLA_VIOLATION, 'SLA Violation'),
+        (ALERT_TYPE_SLA_RECOVERY, 'SLA Recovery'),
+    ]
+    
+    alert_type = models.CharField(
+        max_length=32,
+        choices=ALERT_TYPE_CHOICES,
+    )
+    message = models.TextField()
+    triggered_at = models.DateTimeField(auto_now_add=True)
+    acknowledged = models.BooleanField(default=False)
+    acknowledged_at = models.DateTimeField(blank=True, null=True)
+    acknowledged_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+    )
+    contract = models.ForeignKey(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name='sla_alerts',
+    )
+    sla_record = models.ForeignKey(
+        ContractCompletenessSLA,
+        on_delete=models.CASCADE,
+        related_name='alerts',
+    )
+
+    class Meta:
+        ordering = ['-triggered_at']
+        indexes = [
+            models.Index(fields=['contract', 'triggered_at']),
+            models.Index(fields=['alert_type', 'triggered_at']),
+        ]
 
 
 # ---------------------------------------------------------------------------

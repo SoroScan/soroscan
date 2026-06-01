@@ -1,8 +1,25 @@
 "use client";
 
 import * as React from "react";
-import { gql, useQuery } from "@apollo/client";
+import { useQuery } from "@apollo/client";
 import { GET_CONTRACT_RATE_QUERY } from "./contract-graphql";
+
+interface RecentEventEdge {
+  node: {
+    timestamp: string;
+  }
+}
+
+interface ContractRateData {
+  contract: {
+    id: string;
+    maxEventsPerMinute: number;
+    events: { totalCount: number };
+    recentEvents: {
+      edges: RecentEventEdge[];
+    };
+  };
+}
 
 interface EventRateMeterProps {
   contractId: string;
@@ -15,7 +32,7 @@ export function EventRateMeter({
   maxRate,
   updateInterval = 10000,
 }: EventRateMeterProps) {
-  const { data, loading, error } = useQuery(GET_CONTRACT_RATE_QUERY, {
+  const { data, loading, error } = useQuery<ContractRateData>(GET_CONTRACT_RATE_QUERY, {
     variables: { contractId },
     pollInterval: updateInterval,
   });
@@ -83,7 +100,7 @@ export function EventRateMeter({
  * @param edges Array of event edges from GraphQL
  * @returns Events per minute (float)
  */
-function calculateRatePerMinute(edges: any[]): number {
+function calculateRatePerMinute(edges: RecentEventEdge[]): number {
   if (edges.length < 2) return 0;
 
   const timestamps = edges
