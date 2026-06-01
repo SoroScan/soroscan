@@ -436,6 +436,51 @@
   margin-top: 0.8rem;
 }
 
+.previewSection {
+  margin-top: 1rem;
+  border: 1px solid rgba(0, 212, 255, 0.18);
+  border-radius: 6px;
+  background: rgba(0, 10, 20, 0.86);
+  padding: 0.85rem;
+}
+
+.previewHeader {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.8rem;
+}
+
+.previewTableWrap {
+  overflow-x: auto;
+  border: 1px solid rgba(0, 212, 255, 0.18);
+  border-radius: 6px;
+}
+
+.previewTable {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 640px;
+}
+
+.previewTable th,
+.previewTable td {
+  text-align: left;
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid rgba(0, 212, 255, 0.1);
+  font-size: 0.82rem;
+}
+
+.previewTable th {
+  color: #c5f8ff;
+  font-weight: 600;
+}
+
+.previewTable tbody tr:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.03);
+}
+
 .progressTrack {
   width: 100%;
   height: 0.55rem;
