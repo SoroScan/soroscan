@@ -132,6 +132,11 @@ class TrackedContractSerializer(serializers.ModelSerializer):
     Used for creating, updating, and returning tracked Soroban smart contracts.
     """
 
+    # Declare these as plain CharField to bypass model-level RegexValidator/UniqueValidator
+    # and choices validation so our validate_* methods control error messages entirely.
+    contract_id = serializers.CharField(validators=[])
+    network = serializers.CharField()
+
     event_count = serializers.SerializerMethodField()
     warnings = serializers.SerializerMethodField()
     team = serializers.PrimaryKeyRelatedField(
