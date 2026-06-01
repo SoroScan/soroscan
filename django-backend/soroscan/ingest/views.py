@@ -1,18 +1,21 @@
 """
 API Views for SoroScan event ingestion.
 """
+import csv
 import hashlib
 import hmac
 import json
 import logging
 import time
-from datetime import timedelta
+from datetime import datetime, time as datetime_time, timedelta
 
 from django.conf import settings
-from django.db.models import Count, Max, Min, Q, Avg
+from django.db.models import Avg, Count, Max, Min, Q, Sum
 from django.db.models.functions import Cast
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers, status, viewsets
@@ -29,6 +32,7 @@ from soroscan.throttles import IngestRateThrottle
 from .cache_utils import cache_result, get_or_set_json, query_cache_ttl, stable_cache_key
 from .models import (
     APIKey,
+    APIUsageLog,
     AdminAction,
     ArchivedEventBatch,
     ContractEvent,
@@ -37,6 +41,7 @@ from .models import (
     ContractVerification,
     OrganizationCostSnapshot,
     OrganizationBudget,
+    Organization,
     IngestError,
     IndexerState,
     Team,
@@ -1340,6 +1345,263 @@ def rate_limit_analytics_view(request):
             "api_keys": results,
         }
     )
+
+
+def _parse_usage_datetime(value: str | None, *, end_of_day: bool = False):
+    if not value:
+        return None
+    parsed = parse_datetime(value)
+    if parsed is None:
+        parsed_date = parse_date(value)
+        if parsed_date is None:
+            return None
+        parsed = datetime.combine(
+            parsed_date,
+            datetime_time.max if end_of_day else datetime_time.min,
+        )
+    if timezone.is_naive(parsed):
+        parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+    return parsed
+
+
+def _accessible_organizations(user):
+    if user.is_staff:
+        return Organization.objects.all()
+    return Organization.objects.filter(Q(owner=user) | Q(memberships__user=user)).distinct()
+
+
+def _usage_time_range(request):
+    start_param = request.query_params.get("start")
+    end_param = request.query_params.get("end")
+    start = _parse_usage_datetime(start_param)
+    end = _parse_usage_datetime(end_param, end_of_day=True)
+
+    if start_param and start is None:
+        return None, None, Response(
+            {"error": "start must be an ISO-8601 datetime or YYYY-MM-DD date"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if end_param and end is None:
+        return None, None, Response(
+            {"error": "end must be an ISO-8601 datetime or YYYY-MM-DD date"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if start is None:
+        try:
+            days = int(request.query_params.get("days", 30))
+        except (TypeError, ValueError):
+            return None, None, Response(
+                {"error": "days must be an integer"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if days <= 0 or days > 366:
+            return None, None, Response(
+                {"error": "days must be between 1 and 366"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        start = timezone.now() - timedelta(days=days)
+
+    if end is None:
+        end = timezone.now()
+
+    if start > end:
+        return None, None, Response(
+            {"error": "start must be before or equal to end"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return start, end, None
+
+
+def _organization_usage_payload(request):
+    organizations = _accessible_organizations(request.user)
+    organization_id = request.query_params.get("organization_id")
+    if organization_id:
+        try:
+            organization_id = int(organization_id)
+        except (TypeError, ValueError):
+            return None, Response(
+                {"error": "organization_id must be an integer"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        organizations = organizations.filter(pk=organization_id)
+        if not organizations.exists():
+            return None, Response(
+                {"error": "organization not found or access denied"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+    start, end, error = _usage_time_range(request)
+    if error:
+        return None, error
+
+    usage = APIUsageLog.objects.filter(
+        organization__in=organizations,
+        timestamp__gte=start,
+        timestamp__lte=end,
+    )
+    webhook_deliveries = WebhookDeliveryLog.objects.filter(
+        subscription__contract__organization__in=organizations,
+        timestamp__gte=start,
+        timestamp__lte=end,
+    )
+
+    endpoint_rows = list(
+        usage.values("endpoint", "method")
+        .annotate(
+            requests=Count("id"),
+            errors=Count("id", filter=Q(status_code__gte=400)),
+            request_bytes=Sum("request_bytes"),
+            response_bytes=Sum("response_bytes"),
+        )
+        .order_by("-requests", "endpoint", "method")
+    )
+    for row in endpoint_rows:
+        row["request_bytes"] = row["request_bytes"] or 0
+        row["response_bytes"] = row["response_bytes"] or 0
+        row["data_transferred_bytes"] = row["request_bytes"] + row["response_bytes"]
+
+    error_rows = list(
+        usage.exclude(error_type="")
+        .values("error_type")
+        .annotate(count=Count("id"))
+        .order_by("-count", "error_type")
+    )
+
+    webhook_rows = list(
+        webhook_deliveries.values(
+            "subscription_id",
+            "subscription__contract__contract_id",
+            "subscription__contract__name",
+        )
+        .annotate(
+            deliveries=Count("id"),
+            successes=Count("id", filter=Q(success=True)),
+            failures=Count("id", filter=Q(success=False)),
+            payload_bytes=Sum("payload_bytes"),
+            avg_latency_ms=Avg("latency_ms"),
+        )
+        .order_by("-deliveries", "subscription_id")
+    )
+    for row in webhook_rows:
+        deliveries = row["deliveries"] or 0
+        successes = row["successes"] or 0
+        row["payload_bytes"] = row["payload_bytes"] or 0
+        row["success_rate_percent"] = round((successes / deliveries) * 100.0, 2) if deliveries else None
+
+    totals = usage.aggregate(
+        requests=Count("id"),
+        request_bytes=Sum("request_bytes"),
+        response_bytes=Sum("response_bytes"),
+        errors=Count("id", filter=Q(status_code__gte=400)),
+    )
+    webhook_totals = webhook_deliveries.aggregate(
+        deliveries=Count("id"),
+        failures=Count("id", filter=Q(success=False)),
+        payload_bytes=Sum("payload_bytes"),
+    )
+    request_bytes = totals["request_bytes"] or 0
+    response_bytes = totals["response_bytes"] or 0
+
+    payload = {
+        "generated_at": timezone.now(),
+        "time_range": {"start": start, "end": end},
+        "organizations": list(organizations.values("id", "name", "slug")),
+        "totals": {
+            "requests": totals["requests"] or 0,
+            "errors": totals["errors"] or 0,
+            "request_bytes": request_bytes,
+            "response_bytes": response_bytes,
+            "data_transferred_bytes": request_bytes + response_bytes,
+            "webhook_deliveries": webhook_totals["deliveries"] or 0,
+            "webhook_failures": webhook_totals["failures"] or 0,
+            "webhook_payload_bytes": webhook_totals["payload_bytes"] or 0,
+        },
+        "requests_per_endpoint": endpoint_rows,
+        "errors_by_type": error_rows,
+        "webhook_deliveries": webhook_rows,
+    }
+    return payload, None
+
+
+def _usage_payload_as_csv(payload):
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = 'attachment; filename="api-usage-analytics.csv"'
+    writer = csv.writer(response)
+
+    writer.writerow(["section", "metric", "value"])
+    for key, value in payload["totals"].items():
+        writer.writerow(["totals", key, value])
+
+    writer.writerow([])
+    writer.writerow(["endpoint", "method", "requests", "errors", "request_bytes", "response_bytes", "data_transferred_bytes"])
+    for row in payload["requests_per_endpoint"]:
+        writer.writerow([
+            row["endpoint"],
+            row["method"],
+            row["requests"],
+            row["errors"],
+            row["request_bytes"],
+            row["response_bytes"],
+            row["data_transferred_bytes"],
+        ])
+
+    writer.writerow([])
+    writer.writerow(["error_type", "count"])
+    for row in payload["errors_by_type"]:
+        writer.writerow([row["error_type"], row["count"]])
+
+    writer.writerow([])
+    writer.writerow(["subscription_id", "contract_id", "contract_name", "deliveries", "successes", "failures", "payload_bytes", "avg_latency_ms", "success_rate_percent"])
+    for row in payload["webhook_deliveries"]:
+        writer.writerow([
+            row["subscription_id"],
+            row["subscription__contract__contract_id"],
+            row["subscription__contract__name"],
+            row["deliveries"],
+            row["successes"],
+            row["failures"],
+            row["payload_bytes"],
+            row["avg_latency_ms"],
+            row["success_rate_percent"],
+        ])
+
+    return response
+
+
+@extend_schema(
+    responses=inline_serializer(
+        name="OrganizationAPIUsageAnalyticsResponse",
+        fields={
+            "generated_at": serializers.DateTimeField(),
+            "time_range": serializers.JSONField(),
+            "organizations": serializers.JSONField(),
+            "totals": serializers.JSONField(),
+            "requests_per_endpoint": serializers.JSONField(),
+            "errors_by_type": serializers.JSONField(),
+            "webhook_deliveries": serializers.JSONField(),
+        },
+    )
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def organization_api_usage_analytics_view(request, format=None):
+    """
+    Return API usage analytics for organizations visible to the current user.
+
+    Query params:
+    - organization_id: optional organization filter
+    - start / end: ISO-8601 datetime or YYYY-MM-DD
+    - days: relative lookback when start is omitted, default 30
+    - format=csv or export=csv: return a CSV export
+    """
+    payload, error = _organization_usage_payload(request)
+    if error:
+        return error
+    if format == "csv" or request.query_params.get("format") == "csv" or request.query_params.get("export") == "csv":
+        return _usage_payload_as_csv(payload)
+    return Response(payload)
 
 
 # ---------------------------------------------------------------------------

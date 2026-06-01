@@ -20,6 +20,7 @@ from soroscan.meta_views import db_pool_stats_view
 from soroscan.ingest.views import (
     audit_trail_view,
     contract_status,
+    organization_api_usage_analytics_view,
     rate_limit_analytics_view,
     webhook_batch_delivery_status_view,
     webhook_delivery_metrics_view,
@@ -45,6 +46,8 @@ urlpatterns = [
     path("api/audit-trail/", audit_trail_view, name="audit-trail"),
     path("api/contracts/status/", contract_status, name="contract-status"),
     path("api/analytics/rate-limits/", rate_limit_analytics_view, name="rate-limit-analytics"),
+    path("api/analytics/api-usage/", organization_api_usage_analytics_view, name="organization-api-usage-analytics"),
+    path("api/analytics/api-usage.csv/", organization_api_usage_analytics_view, {"format": "csv"}, name="organization-api-usage-analytics-csv"),
     path("api/meta/db-pool/", db_pool_stats_view, name="db-pool-stats"),
     path("api/dev/summary/", dev_summary_view, name="dev-summary"),
     path(
@@ -71,4 +74,3 @@ urlpatterns = [
 # Silk profiling UI — available only when ENABLE_SILK is set
 if getattr(settings, "ENABLE_SILK", False):
     urlpatterns += [path("silk/", include("silk.urls", namespace="silk"))]
-

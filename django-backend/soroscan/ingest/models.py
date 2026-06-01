@@ -166,6 +166,51 @@ class OrganizationCostSnapshot(models.Model):
         )
 
 
+class APIUsageLog(models.Model):
+    """Per-request API usage facts used for organization analytics."""
+
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="api_usage_logs",
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="api_usage_logs",
+    )
+    api_key = models.ForeignKey(
+        "APIKey",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="usage_logs",
+    )
+    method = models.CharField(max_length=12)
+    endpoint = models.CharField(max_length=255, db_index=True)
+    path = models.CharField(max_length=512)
+    status_code = models.PositiveSmallIntegerField(db_index=True)
+    request_bytes = models.PositiveIntegerField(default=0)
+    response_bytes = models.PositiveIntegerField(default=0)
+    error_type = models.CharField(max_length=64, blank=True, db_index=True)
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-timestamp"]
+        indexes = [
+            models.Index(fields=["organization", "timestamp"]),
+            models.Index(fields=["organization", "endpoint", "timestamp"]),
+            models.Index(fields=["organization", "error_type", "timestamp"]),
+        ]
+
+    def __str__(self):
+        return f"{self.method} {self.endpoint} -> {self.status_code}"
+
+
 class Team(models.Model):
     """
     Multi-tenant organization: groups users and shared tracked contracts.

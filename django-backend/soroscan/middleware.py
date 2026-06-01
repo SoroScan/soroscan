@@ -58,6 +58,111 @@ class PlatformVersionMiddleware:
         return response
 
 
+class APIUsageAnalyticsMiddleware:
+    """Persist API request usage facts for organization analytics."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+
+        if request.path.startswith(("/api/", "/graphql/")):
+            self._record_usage(request, response)
+
+        return response
+
+    def _record_usage(self, request, response) -> None:
+        try:
+            from soroscan.ingest.models import APIKey, APIUsageLog, OrganizationMembership
+
+            api_key = self._get_api_key(request, APIKey)
+            user = getattr(request, "user", None)
+            if not getattr(user, "is_authenticated", False):
+                user = getattr(api_key, "user", None)
+
+            organization = None
+            if api_key and api_key.team_id:
+                organization = getattr(api_key.team, "organization", None)
+            if organization is None and user is not None:
+                membership = (
+                    OrganizationMembership.objects.select_related("organization")
+                    .filter(user=user)
+                    .order_by("organization_id")
+                    .first()
+                )
+                organization = membership.organization if membership else None
+
+            APIUsageLog.objects.create(
+                organization=organization,
+                user=user,
+                api_key=api_key,
+                method=request.method,
+                endpoint=self._endpoint_name(request),
+                path=request.path[:512],
+                status_code=getattr(response, "status_code", 0) or 0,
+                request_bytes=self._request_bytes(request),
+                response_bytes=self._response_bytes(response),
+                error_type=self._error_type(response),
+            )
+        except Exception:
+            logger.exception("Failed to record API usage analytics")
+
+    @staticmethod
+    def _get_api_key(request, api_key_model):
+        auth = request.META.get("HTTP_AUTHORIZATION", "")
+        key = ""
+        if auth.lower().startswith("apikey "):
+            key = auth[7:].strip()
+        if not key:
+            key = request.GET.get("api_key", "")
+        if not key:
+            return None
+        return (
+            api_key_model.objects.select_related("user", "team", "team__organization")
+            .filter(key=key, is_active=True)
+            .first()
+        )
+
+    @staticmethod
+    def _endpoint_name(request) -> str:
+        match = getattr(request, "resolver_match", None)
+        if match:
+            route = getattr(match, "route", "")
+            if route:
+                return route[:255]
+            if match.view_name:
+                return match.view_name[:255]
+        return request.path[:255]
+
+    @staticmethod
+    def _request_bytes(request) -> int:
+        try:
+            return max(0, int(request.META.get("CONTENT_LENGTH") or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _response_bytes(response) -> int:
+        try:
+            return max(0, int(response.get("Content-Length") or 0))
+        except (TypeError, ValueError):
+            pass
+        if getattr(response, "streaming", False):
+            return 0
+        content = getattr(response, "content", b"")
+        return len(content or b"")
+
+    @staticmethod
+    def _error_type(response) -> str:
+        status_code = getattr(response, "status_code", 0) or 0
+        if status_code < 400:
+            return ""
+        if status_code >= 500:
+            return f"server_error_{status_code}"
+        return f"client_error_{status_code}"
+
+
 class ReverseProxyFixedIPMiddleware:
     """
     Middleware to handle rate limiting behind a reverse proxy.
