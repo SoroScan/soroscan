@@ -6,7 +6,7 @@ import secrets
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator, MaxValueValidator
+from django.core.validators import MinValueValidator, MaxValueValidator, RegexValidator
 from django.db import models
 from django.utils.text import slugify
 
@@ -259,9 +259,15 @@ class TrackedContract(models.Model):
         max_length=56,
         unique=True,
         db_index=True,
+        validators=[
+            RegexValidator(
+                regex=r"^C[A-Z2-7]{55}$",
+                message="Contract address must start with 'C' and be exactly 56 characters using valid Base32 characters (A-Z, 2-7).",
+            )
+        ],
         help_text="Stellar contract address (C...)",
     )
-    name = models.CharField(max_length=100, help_text="Human-readable contract name")
+    name = models.CharField(max_length=100, db_index=True, help_text="Human-readable contract name")
     alias = models.CharField(
         max_length=256,
         blank=True,
@@ -371,7 +377,7 @@ class TrackedContract(models.Model):
         help_text="Custom attributes for storing contract metadata (team, owner, cost center, etc.)",
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -1013,6 +1019,36 @@ class IndexerState(models.Model):
 
     def __str__(self):
         return f"{self.key}: {self.value}"
+
+
+class EventDeduplicationConfig(models.Model):
+    """
+    Per-contract configuration that defines which event fields should be
+    considered when computing the deduplication fingerprint.
+
+    The `fields` JSONField is a list of strings naming top-level keys from
+    the event payload (or special tokens like 'event_type', 'tx_hash',
+    'ledger', 'event_index') that will be used to build the dedup material.
+    """
+
+    contract = models.OneToOneField(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name="dedup_config",
+        help_text="Contract this dedup config applies to",
+    )
+    enabled = models.BooleanField(default=True, help_text="Enable deduplication for this contract")
+    # list of field names to include when computing dedup fingerprint
+    fields = models.JSONField(default=list, blank=True, help_text="List of event fields (or special tokens) to include in dedup key")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Event Deduplication Config"
+        verbose_name_plural = "Event Deduplication Configs"
+
+    def __str__(self):
+        return f"Dedup config for {self.contract.name} (enabled={self.enabled})"
 
 
 # ---------------------------------------------------------------------------

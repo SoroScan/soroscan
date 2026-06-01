@@ -12,6 +12,25 @@ from django.core.exceptions import ImproperlyConfigured
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+
+def _load_software_version() -> str:
+    """
+    Resolve the platform version from VERSION.md, with a safe fallback.
+    """
+    version_file_candidates = [
+        BASE_DIR / "VERSION.md",
+        BASE_DIR.parent / "VERSION.md",
+    ]
+    for candidate in version_file_candidates:
+        try:
+            if candidate.exists():
+                content = candidate.read_text(encoding="utf-8").strip()
+                if content:
+                    return content
+        except OSError:
+            continue
+    return "1.0.0"
+
 # Environment variables
 env = environ.Env(
     DEBUG=(bool, False),
@@ -37,11 +56,26 @@ if not _running_tests:
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = env("SECRET_KEY", default="django-insecure-change-this-in-production")
 
+# Warn on startup if SECRET_KEY is weak or a known default
+_KNOWN_WEAK_KEYS = {
+    "django-insecure-change-this-in-production",
+    "secret",
+    "changeme",
+    "insecure",
+}
+if len(SECRET_KEY) < 50 or SECRET_KEY in _KNOWN_WEAK_KEYS:
+    import logging as _logging
+    _logging.getLogger("soroscan.security").warning(
+        "SECRET_KEY is too short or matches a known default. "
+        "Set a strong, unique SECRET_KEY before deploying to production."
+    )
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env("DEBUG")
 
 ALLOWED_HOSTS = env("ALLOWED_HOSTS")
 FRONTEND_BASE_URL = env("FRONTEND_BASE_URL", default="http://localhost:3000")
+SOFTWARE_VERSION = env("SOFTWARE_VERSION", default=_load_software_version())
 
 # Application definition
 INSTALLED_APPS = [
@@ -70,12 +104,17 @@ ENABLE_SILK = env.bool("ENABLE_SILK", default=False)
 MIDDLEWARE = [
     # PrometheusBeforeMiddleware must be first to capture all requests.
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
+    "soroscan.middleware.RequestBodySizeMiddleware",
+    "soroscan.middleware.MaintenanceModeMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "soroscan.middleware.ReverseProxyFixedIPMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "soroscan.middleware.RequestIdMiddleware",
+    "soroscan.middleware.PlatformVersionMiddleware",
+    "soroscan.perf_logger.SlowQueryLoggerMiddleware",
     "soroscan.middleware.SlowQueryMiddleware",
+    "soroscan.middleware.ApiDeprecationMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -152,16 +191,24 @@ CACHES = {
 QUERY_CACHE_TTL_SECONDS = env.int("QUERY_CACHE_TTL_SECONDS", default=60)
 
 # Rate limiting configuration (via environment variables)
+# To add a new endpoint rate limit:
+# 1. Define a new environment variable here (e.g. ENDPOINT_RATE_LIMIT_MYFEATURE).
+# 2. Add it to the DEFAULT_THROTTLE_RATES dictionary below with a custom scope name.
+# 3. Apply the `DynamicEndpointThrottle` to your ViewSet and map the action in `action_throttle_scopes`,
+#    or set `throttle_scope = "my_scope"` on an APIView.
 RATE_LIMIT_ANON = env("RATE_LIMIT_ANON", default="60/minute")
 RATE_LIMIT_USER = env("RATE_LIMIT_USER", default="300/minute")
 RATE_LIMIT_INGEST = env("RATE_LIMIT_INGEST", default="10/minute")
 RATE_LIMIT_GRAPHQL = env("RATE_LIMIT_GRAPHQL", default="60/minute")
+ENDPOINT_RATE_LIMIT_SEARCH = env("ENDPOINT_RATE_LIMIT_SEARCH", default="30/minute")
+ENDPOINT_RATE_LIMIT_STATS = env("ENDPOINT_RATE_LIMIT_STATS", default="100/minute")
 
 # REST Framework
 REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "soroscan.exceptions.custom_exception_handler",
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "soroscan.authentication.APIKeyAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticatedOrReadOnly",
@@ -175,6 +222,7 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_THROTTLE_CLASSES": [
+        "soroscan.throttles.DynamicEndpointThrottle",
         "soroscan.throttles.APIKeyThrottle",
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
@@ -184,6 +232,8 @@ REST_FRAMEWORK = {
         "user": RATE_LIMIT_USER,
         "ingest": RATE_LIMIT_INGEST,
         "graphql": RATE_LIMIT_GRAPHQL,
+        "events_search": ENDPOINT_RATE_LIMIT_SEARCH,
+        "contract_stats": ENDPOINT_RATE_LIMIT_STATS,
     },
 }
 
@@ -206,8 +256,9 @@ SIMPLE_JWT = {
 }
 
 # CORS
+origins_str = env("ALLOWED_ORIGINS", default="")
+CORS_ALLOWED_ORIGINS = [o.strip() for o in origins_str.split(",") if o.strip()] if origins_str else []
 CORS_ALLOW_ALL_ORIGINS = DEBUG
-CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
 CORS_ALLOW_CREDENTIALS = True  # Required for Apollo Client with credentials: 'include'
 
 # Channels
@@ -273,6 +324,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "ingest.tasks.recompute_call_graph",
         "schedule": 3600,  # hourly
     },
+    "warm-event-count-cache": {
+        "task": "ingest.tasks.warm_event_count_cache",
+        "schedule": 300,  # every 5 minutes
+    },
 }
 
 # Data Retention Configuration
@@ -301,6 +356,9 @@ WEBHOOK_ESCALATION_PAGERDUTY_TARGET = env(
     "WEBHOOK_ESCALATION_PAGERDUTY_TARGET", default=""
 )
 
+# Webhook deduplication window
+WEBHOOK_DEDUP_WINDOW_SECONDS = env.int("WEBHOOK_DEDUP_WINDOW_SECONDS", default=300)
+
 # Dependency change alert deduplication
 DOWNSTREAM_ALERT_DEDUP_SECONDS = env.int("DOWNSTREAM_ALERT_DEDUP_SECONDS", default=3600)
 
@@ -317,6 +375,29 @@ STELLAR_NETWORK_PASSPHRASE = env(
 )
 SOROSCAN_CONTRACT_ID = env("SOROSCAN_CONTRACT_ID", default="")
 INDEXER_SECRET_KEY = env("INDEXER_SECRET_KEY", default="")
+
+# Available Soroban networks exposed via GET /api/ingest/networks/.
+# Override individual RPC URLs via the corresponding env vars if needed.
+SOROBAN_NETWORKS = [
+    {
+        "id": "testnet",
+        "name": "Testnet",
+        "rpc_url": env("TESTNET_RPC_URL", default="https://soroban-testnet.stellar.org"),
+        "network_passphrase": "Test SDF Network ; September 2015",
+    },
+    {
+        "id": "mainnet",
+        "name": "Mainnet",
+        "rpc_url": env("MAINNET_RPC_URL", default="https://mainnet.stellar.validationcloud.io/v1/public"),
+        "network_passphrase": "Public Global Stellar Network ; September 2015",
+    },
+    {
+        "id": "futurenet",
+        "name": "Futurenet",
+        "rpc_url": env("FUTURENET_RPC_URL", default="https://soroban-futurenet.stellar.org"),
+        "network_passphrase": "Test SDF Future Network ; October 2022",
+    },
+]
 
 # ---------------------------------------------------------------------------
 # GraphQL Introspection (security: disable in production)
@@ -367,6 +448,7 @@ LOGGING = {
 # Slow-query logging (Issue: perf monitoring)
 # ---------------------------------------------------------------------------
 LOGGING_SLOW_QUERIES_THRESHOLD_MS = env.int("SLOW_QUERY_THRESHOLD_MS", default=100)
+DATABASE_SLOW_QUERY_THRESHOLD = env.float("DATABASE_SLOW_QUERY_THRESHOLD", default=1.0)
 
 # Ensure log directories exist before configuring handlers
 _LOG_DIR = BASE_DIR / "logs"
@@ -386,6 +468,33 @@ LOGGING["handlers"]["slow_queries"] = {
 LOGGING["loggers"]["soroscan.slow_queries"] = {
     "handlers": ["slow_queries", "console"],
     "level": "WARNING",
+    "propagate": False,
+}
+LOGGING["loggers"]["soroscan.migrate"] = {
+    "handlers": ["console"],
+    "level": "INFO",
+    "propagate": False,
+}
+LOGGING["loggers"]["django.performance.database"] = {
+    "handlers": ["console"],
+    "level": "WARNING",
+    "propagate": False,
+}
+
+# ---------------------------------------------------------------------------
+# Security audit logger — admin login success / failure events
+# ---------------------------------------------------------------------------
+LOGGING["handlers"]["security_audit"] = {
+    "level": "INFO",
+    "class": "logging.handlers.TimedRotatingFileHandler",
+    "filename": str(BASE_DIR / "logs" / "security_audit.log"),
+    "when": "midnight",
+    "backupCount": 30,
+    "formatter": "default",
+}
+LOGGING["loggers"]["soroscan.security_audit"] = {
+    "handlers": ["security_audit", "console"],
+    "level": "INFO",
     "propagate": False,
 }
 
@@ -455,3 +564,15 @@ if SENTRY_DSN:
         send_default_pii=False,
         environment=env("SENTRY_ENVIRONMENT", default="production"),
     )
+
+# --- Request Size Limit (Issue #338) ---
+# Default to 10MB (10 * 1024 * 1024 bytes)
+MAX_REQUEST_BODY_SIZE = env.int("MAX_REQUEST_BODY_SIZE", default=10485760)
+
+# --- API Deprecation (Issue #336) ---
+DEPRECATED_ENDPOINTS = {
+    "/api/audit-trail/": {
+        "sunset": "2026-12-31",
+        "replacement": "/graphql/"
+    }
+}

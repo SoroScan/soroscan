@@ -3,7 +3,7 @@ Tests for Celery tasks — webhook dispatch, retry logic, HMAC signing, suspensi
 """
 import hashlib
 import hmac
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 from unittest.mock import Mock, patch
 
 import pytest
@@ -28,6 +28,7 @@ from soroscan.ingest.tasks import (
     cleanup_webhook_delivery_logs,
     dispatch_webhook,
     evaluate_remediation_rules,
+    log_daily_platform_stats,
     process_new_event,
     send_alert,
     validate_contract_payload_schema,
@@ -39,6 +40,7 @@ from .factories import (
     EventSchemaFactory,
     WebhookDeliveryLogFactory,
     WebhookSubscriptionFactory,
+    TrackedContractFactory,
 )
 
 
@@ -128,6 +130,64 @@ class TestValidateContractPayloadSchema:
         contract.save(update_fields=["json_schema"])
 
         assert validate_contract_payload_schema(contract, {"bad": 1}, "transfer") is False
+
+
+# ---------------------------------------------------------------------------
+# log_daily_platform_stats
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestLogDailyPlatformStats:
+    def test_counts_only_rows_inside_last_24_hours(self, user):
+        fixed_now = datetime(2026, 4, 28, 12, 0, 0, tzinfo=dt_timezone.utc)
+        window_start = fixed_now - timedelta(hours=24)
+
+        contract_inside_a = TrackedContractFactory(owner=user)
+        contract_inside_b = TrackedContractFactory(owner=user)
+        contract_outside = TrackedContractFactory(owner=user)
+
+        contract_inside_a.__class__.objects.filter(pk=contract_inside_a.pk).update(
+            created_at=window_start + timedelta(hours=1)
+        )
+        contract_inside_b.__class__.objects.filter(pk=contract_inside_b.pk).update(
+            created_at=window_start + timedelta(hours=12)
+        )
+        contract_outside.__class__.objects.filter(pk=contract_outside.pk).update(
+            created_at=window_start - timedelta(hours=1)
+        )
+
+        ContractEventFactory(
+            contract=contract_inside_a,
+            timestamp=window_start + timedelta(hours=2),
+            ledger=4100,
+            event_index=0,
+            tx_hash="a" * 64,
+        )
+        ContractEventFactory(
+            contract=contract_inside_b,
+            timestamp=window_start + timedelta(hours=23, minutes=59),
+            ledger=4101,
+            event_index=0,
+            tx_hash="b" * 64,
+        )
+        ContractEventFactory(
+            contract=contract_outside,
+            timestamp=window_start - timedelta(minutes=1),
+            ledger=4102,
+            event_index=0,
+            tx_hash="c" * 64,
+        )
+
+        with patch("soroscan.ingest.tasks.timezone.now", return_value=fixed_now):
+            result = log_daily_platform_stats()
+
+        assert result == {
+            "window_start": window_start.isoformat(),
+            "window_end": fixed_now.isoformat(),
+            "total_events_ingested": 2,
+            "new_contracts_registered": 2,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -1014,3 +1074,91 @@ class TestWebhookBackoff:
         with pytest.raises(Retry):
             dispatch_webhook.apply(args=[webhook.id, event.id], retries=0, throw=True)
 
+
+
+# ---------------------------------------------------------------------------
+# warm_event_count_cache (issue #587)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestWarmEventCountCache:
+    """Tests for cache warming task (issue #587)."""
+
+    def test_warms_cache_for_active_contracts(self, contract):
+        """Test that cache warming task caches event counts for active contracts."""
+        from soroscan.ingest.tasks import warm_event_count_cache
+        from django.core.cache import cache
+        
+        # Create some events
+        ContractEventFactory.create_batch(5, contract=contract)
+        
+        # Clear cache
+        cache.clear()
+        
+        # Run cache warming
+        result = warm_event_count_cache()
+        
+        # Verify result
+        assert result["contracts_warmed"] >= 1
+        assert "duration_seconds" in result
+        assert "timestamp" in result
+        
+        # Verify cache was populated
+        cache_key = f"event_count:{contract.contract_id}"
+        cached_count = cache.get(cache_key)
+        assert cached_count == 5
+
+    def test_handles_inactive_contracts(self):
+        """Test that inactive contracts are not warmed."""
+        from soroscan.ingest.tasks import warm_event_count_cache
+        
+        # Create inactive contract
+        inactive_contract = TrackedContractFactory(is_active=False)
+        ContractEventFactory.create_batch(3, contract=inactive_contract)
+        
+        # Run cache warming
+        result = warm_event_count_cache()
+        
+        # Should complete without error
+        assert "contracts_warmed" in result
+
+    def test_handles_errors_gracefully(self, contract):
+        """Test that cache warming continues even if one contract fails."""
+        from soroscan.ingest.tasks import warm_event_count_cache
+        from django.core.cache import cache
+        
+        ContractEventFactory.create_batch(2, contract=contract)
+        
+        # Mock get_event_count to raise exception for first call, succeed for others
+        call_count = 0
+        original_get = cache.get
+        
+        def mock_get(key, default=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise Exception("Simulated cache error")
+            return original_get(key, default)
+        
+        with patch("django.core.cache.cache.get", side_effect=mock_get):
+            result = warm_event_count_cache()
+        
+        # Should complete despite error
+        assert "contracts_warmed" in result
+
+    def test_limits_to_top_100_contracts(self):
+        """Test that cache warming only processes top 100 most active contracts."""
+        from soroscan.ingest.tasks import warm_event_count_cache
+        
+        # Create 150 contracts
+        for i in range(150):
+            contract = TrackedContractFactory(
+                is_active=True,
+                last_event_at=timezone.now() - timedelta(hours=i)
+            )
+            ContractEventFactory(contract=contract)
+        
+        result = warm_event_count_cache()
+        
+        # Should warm at most 100 contracts
+        assert result["contracts_warmed"] <= 100

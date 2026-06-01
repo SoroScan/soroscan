@@ -15,6 +15,7 @@ from .views import (
     compliance_export_view,
     contract_event_explorer_view,
     contract_event_types_view,
+    contract_identity_view,
     organization_cost_breakdown_view,
     WebhookSubscriptionViewSet,
     WebhookReplayViewSet,
@@ -23,6 +24,7 @@ from .views import (
     deletion_requests_view,
     deployment_timeline_view,
     health_check,
+    networks_view,
     record_event_view,
     restore_archived_events,
     transaction_events_view,
@@ -79,4 +81,6 @@ urlpatterns = [
     ),
     path("deletion-requests/", deletion_requests_view, name="deletion-requests"),
     path("compliance-export/", compliance_export_view, name="compliance-export"),
+    path("networks/", networks_view, name="networks"),
+    path("contract/identity/", contract_identity_view, name="contract-identity"),
 ]

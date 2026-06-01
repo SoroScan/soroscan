@@ -1,0 +1,64 @@
+---
+id: api-reference/versioning-deprecation
+title: API Versioning & Deprecation
+description: Versioning, deprecation headers, and migration guidance for SoroScan APIs.
+sidebar_label: Versioning & Deprecation
+hide_title: false
+---
+
+This page explains how SoroScan communicates API lifecycle changes and deprecation warnings.
+
+## API versioning
+
+The published OpenAPI schema for SoroScan uses version `1.0.0`.
+
+When consuming the API:
+
+- Treat the current API as stable for the published version.
+- Use schema-based documentation to verify request and response shapes.
+- For breaking changes, follow the release notes in `docs/changelog.md`.
+
+## Deprecated REST endpoints
+
+SoroScan supports deprecation headers for REST endpoints when the backend is configured with `DEPRECATED_ENDPOINTS`.
+
+Deprecated responses include:
+
+- `Deprecation: true`
+- `Sunset: <YYYY-MM-DD>`
+- `Link: <replacement-url>; rel="replacement"` (when configured)
+
+### Example
+
+```http
+HTTP/1.1 200 OK
+Deprecation: true
+Sunset: 2026-12-31
+Link: </graphql/>; rel="replacement"
+```
+
+### Current deprecation example
+
+- `GET /api/audit-trail/` is deprecated and scheduled to sunset on `2026-12-31`.
+- Use GraphQL queries such as `searchEvents` or `notifications` as the replacement path.
+
+## GraphQL lifecycle behavior
+
+- GraphQL introspection may be disabled in production using `GRAPHQL_INTROSPECTION_ENABLED=False`.
+- The `/graphql/` endpoint remains the single domain for HTTP queries, mutations, and subscriptions.
+- If introspection is disabled, use server documentation and schema discovery tools.
+
+## Contract deprecation metadata
+
+SoroScan also exposes contract-level deprecation state through data models.
+
+- `deprecationStatus` — indicates the lifecycle state of a tracked contract.
+- `deprecationReason` — optional explanation of why a contract is deprecated or suspended.
+
+These fields can be returned in GraphQL contract payloads and REST contract resources.
+
+## Migration guidance
+
+- Prefer GraphQL for new, expressive queries and nested contract/event combinations.
+- Use REST for administrative workflows, webhook configuration, and health checks.
+- Monitor `Deprecation` and `Sunset` headers from REST responses and migrate before the sunset date.

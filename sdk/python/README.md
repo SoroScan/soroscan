@@ -238,27 +238,75 @@ All response models are Pydantic v2 models with full type safety:
 
 ## Error Handling
 
-The SDK provides specific exception types:
+The SDK provides a typed error hierarchy for handling different error scenarios. You can catch specific error types to handle them appropriately.
 
 ```python
 from soroscan import (
-    SoroScanError,           # Base exception
-    SoroScanAPIError,        # API errors
-    SoroScanAuthError,       # 401/403 errors
-    SoroScanNotFoundError,   # 404 errors
-    SoroScanRateLimitError,  # 429 errors
-    SoroScanValidationError  # 400 errors
+    SoroScanClient,
+    SoroScanRateLimitError,
+    SoroScanValidationError,
+    SoroScanAuthError,
+    SoroScanNotFoundError,
+    SoroScanTimeoutError,
+    SoroScanConnectionError,
 )
 
+client = SoroScanClient(base_url="https://api.soroscan.io", api_key="your-key")
+
 try:
-    events = client.get_events(contract_id="invalid")
-except SoroScanNotFoundError as e:
-    print(f"Contract not found: {e}")
+    events = client.get_events(contract_id="CCAAA...")
 except SoroScanRateLimitError as e:
-    print(f"Rate limited: {e.status_code}")
+    # Handle rate limit
+    print(f"Rate limit: retry after {e.retry_after}s")
+    print(f"Limit: {e.limit}, Remaining: {e.remaining}")
+except SoroScanValidationError as e:
+    # Handle validation error
+    print(f"Invalid field: {e.field}")
+    print(f"Value: {e.value}")
+    print(f"Errors: {e.errors}")
+except SoroScanAuthError as e:
+    # Handle authentication error
+    print(f"Authentication failed: {e.message}")
+except SoroScanNotFoundError as e:
+    # Handle not found error
+    print(f"Resource not found: {e.resource_type} ({e.resource_id})")
+except SoroScanTimeoutError as e:
+    # Handle timeout error
+    print(f"Request timed out after {e.timeout}s")
+except SoroScanConnectionError as e:
+    # Handle connection error
+    print(f"Failed to connect to {e.url}")
 except SoroScanAPIError as e:
-    print(f"API error: {e.response_data}")
+    # Handle generic API error
+    print(f"API error [{e.status_code}] {e.code}: {e.message}")
+except SoroScanError as e:
+    # Handle generic error
+    print(f"Error: {e.message}")
 ```
+
+### Error Types
+
+| Error Type | Status Code | Use Case | Additional Properties |
+|---|---|---|---|
+| `SoroScanRateLimitError` | 429 | Rate limit exceeded | `retry_after`, `limit`, `remaining` |
+| `SoroScanValidationError` | 400 | Request validation failed | `field`, `value`, `errors` |
+| `SoroScanAuthError` | 401/403 | Authentication/authorization failed | - |
+| `SoroScanNotFoundError` | 404 | Resource not found | `resource_type`, `resource_id` |
+| `SoroScanServerError` | 5xx | Server error | - |
+| `SoroScanTimeoutError` | - | Request timed out | `url`, `timeout` |
+| `SoroScanConnectionError` | - | Connection failed | `url` |
+| `SoroScanAPIError` | Other | Generic API error | - |
+
+### Base Error Properties
+
+All error types inherit from `SoroScanError` and include:
+
+| Property | Type | Description |
+|---|---|---|
+| `message` | `str` | Human-readable error message |
+| `status_code` | `int` | HTTP status code (for API errors) |
+| `code` | `str` | Machine-readable error code from the API |
+| `response_data` | `dict` | Optional additional context from the API |
 
 ## Advanced Usage
 

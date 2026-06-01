@@ -5,10 +5,14 @@ from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin.helpers import ActionForm, ACTION_CHECKBOX_NAME
 from django.db.models import Count
-from django.http import HttpResponse
-from django.urls import path
+from django.http import HttpResponse, StreamingHttpResponse
+from django.urls import path, reverse
 from django.utils.html import format_html
+import csv
 import json
+from datetime import datetime
+import requests as http_requests
+import hashlib
 
 from .models import (
     AlertExecution,
@@ -35,6 +39,7 @@ from .models import (
     EventSchema,
     IndexerState,
     IngestError,
+    EventDeduplicationConfig,
     Organization,
     OrganizationBudget,
     OrganizationCostSnapshot,
@@ -192,7 +197,7 @@ class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
     readonly_fields = ["created_at", "updated_at"]
     ordering = ["-created_at", "name"]
     action_form = BackfillActionForm
-    actions = ["backfill_events"]
+    actions = ["backfill_events", "clear_cache"]
     fieldsets = (
         (None, {
             "fields": (
@@ -283,6 +288,22 @@ class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
                 level=messages.SUCCESS,
             )
 
+    @admin.action(description="Clear Redis cache for selected contracts")
+    def clear_cache(self, request, queryset):
+        from .cache_utils import invalidate_contract_query_cache, invalidate_event_count_cache
+
+        cleared = 0
+        for contract in queryset:
+            invalidate_contract_query_cache(contract.contract_id)
+            invalidate_event_count_cache(contract.contract_id)
+            cleared += 1
+
+        self.message_user(
+            request,
+            f"Cache cleared for {cleared} contract(s).",
+            level=messages.SUCCESS,
+        )
+
 
 @admin.register(EventSchema)
 class EventSchemaAdmin(AdminAuditMixin, admin.ModelAdmin):
@@ -365,7 +386,7 @@ class ContractEventAdmin(AdminAuditMixin, admin.ModelAdmin):
     ]
     ordering = ["timestamp"]
     date_hierarchy = "timestamp"
-    actions = ["trigger_reindex"]
+    actions = ["trigger_reindex", "export_events_csv"]
 
     def get_queryset(self, request):
         """Optimize queries with select_related to prevent N+1 issues."""
@@ -444,6 +465,38 @@ class ContractEventAdmin(AdminAuditMixin, admin.ModelAdmin):
                 level=messages.SUCCESS,
             )
 
+    @admin.action(description="Export selected events to CSV")
+    def export_events_csv(self, request, queryset):
+        """
+        Export selected ContractEvent records to CSV using a streaming response.
+        Streams the file to handle large selections efficiently.
+        """
+        class Echo:
+            """An object that implements just the write method of the file-like interface."""
+            def write(self, value):
+                return value
+
+        def stream_csv():
+            pseudo_buffer = Echo()
+            writer = csv.writer(pseudo_buffer)
+            # Yield header
+            yield writer.writerow(["ID", "Contract Address", "Event Type", "Timestamp"])
+            
+            # Fetch events efficiently
+            events = queryset.select_related("contract").iterator(chunk_size=2000)
+            for event in events:
+                yield writer.writerow([
+                    event.id,
+                    event.contract.contract_id,
+                    event.event_type,
+                    event.timestamp.isoformat() if event.timestamp else "",
+                ])
+
+        filename = f"contract_events_{datetime.now().strftime('%Y%m%d')}.csv"
+        response = StreamingHttpResponse(stream_csv(), content_type="text/csv")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
     # ------------------------------------------------------------------
     # Slow query report — accessible at /admin/ingest/contractevent/slow-query-report/
     # ------------------------------------------------------------------
@@ -498,6 +551,7 @@ class ContractEventAdmin(AdminAuditMixin, admin.ModelAdmin):
 @admin.register(WebhookSubscription)
 class WebhookSubscriptionAdmin(AdminAuditMixin, admin.ModelAdmin):
     """Admin interface for webhook subscriptions with delivery status display."""
+    change_form_template = "admin/ingest/webhooksubscription/change_form.html"
     list_display = [
         "target_url",
         "contract_name",
@@ -546,7 +600,6 @@ class WebhookSubscriptionAdmin(AdminAuditMixin, admin.ModelAdmin):
         js = ("ingest/admin_event_type_autocomplete.js",)
 
     def get_urls(self):
-        from django.urls import path
         urls = super().get_urls()
         custom_urls = [
             path(
@@ -554,8 +607,63 @@ class WebhookSubscriptionAdmin(AdminAuditMixin, admin.ModelAdmin):
                 self.admin_site.admin_view(self.event_types_api),
                 name="webhooksubscription_event_types",
             ),
+            path(
+                "<int:pk>/ping/",
+                self.admin_site.admin_view(self.ping_webhook),
+                name="webhooksubscription_ping",
+            ),
         ]
         return custom_urls + urls
+
+    def ping_webhook(self, request, pk):
+        import hashlib
+        import hmac
+        from django.shortcuts import redirect
+        from django.utils import timezone
+
+        webhook = WebhookSubscription.objects.get(pk=pk)
+        test_payload = {
+            "event_type": "ping",
+            "payload": {"message": "This is a test ping from SoroScan admin"},
+            "contract_id": webhook.contract.contract_id,
+            "timestamp": timezone.now().isoformat(),
+        }
+        payload_bytes = json.dumps(test_payload, sort_keys=True).encode("utf-8")
+        algorithm = (webhook.signature_algorithm or WebhookSubscription.SIGNATURE_SHA256).lower()
+        digestmod = hashlib.sha1 if algorithm == WebhookSubscription.SIGNATURE_SHA1 else hashlib.sha256
+        prefix = "sha1" if algorithm == WebhookSubscription.SIGNATURE_SHA1 else "sha256"
+        sig_hex = hmac.new(
+            webhook.secret.encode("utf-8"),
+            msg=payload_bytes,
+            digestmod=digestmod,
+        ).hexdigest()
+        headers = {
+            "Content-Type": "application/json",
+            "X-SoroScan-Signature": f"{prefix}={sig_hex}",
+            "X-SoroScan-Timestamp": timezone.now().isoformat(),
+        }
+        try:
+            response = http_requests.post(
+                webhook.target_url,
+                data=payload_bytes,
+                headers=headers,
+                timeout=10,
+            )
+            response.raise_for_status()
+            self.message_user(
+                request,
+                f"Test ping sent successfully to {webhook.target_url} (HTTP {response.status_code}).",
+                messages.SUCCESS,
+            )
+        except http_requests.RequestException as exc:
+            self.message_user(
+                request,
+                f"Test ping to {webhook.target_url} failed: {exc}",
+                messages.ERROR,
+            )
+        return redirect(
+            reverse("admin:ingest_webhooksubscription_change", args=[pk])
+        )
 
     def event_types_api(self, request):
         from django.http import JsonResponse
@@ -1213,3 +1321,52 @@ class ContractABIVersionAdmin(admin.ModelAdmin):
     list_filter = ["has_breaking_changes", "created_at"]
     search_fields = ["contract__contract_id", "contract__name"]
     readonly_fields = ["created_at"]
+
+
+@admin.register(EventDeduplicationConfig)
+class EventDeduplicationConfigAdmin(AdminAuditMixin, admin.ModelAdmin):
+    list_display = ["contract", "enabled", "updated_at"]
+    search_fields = ["contract__name", "contract__contract_id"]
+    readonly_fields = ["created_at", "updated_at"]
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "test/<int:contract_id>/",
+                self.admin_site.admin_view(self.test_dedup_view),
+                name="soroscan_dedup_test",
+            ),
+        ]
+        return custom + urls
+
+    def test_dedup_view(self, request, contract_id):
+        try:
+            contract = TrackedContract.objects.get(pk=contract_id)
+        except TrackedContract.DoesNotExist:
+            return HttpResponse(json.dumps({"error": "contract not found"}), content_type="application/json", status=404)
+
+        try:
+            body = request.body.decode("utf-8") if request.body else "{}"
+            payload = json.loads(body)
+        except Exception:
+            payload = {}
+
+        config = getattr(contract, "dedup_config", None)
+        if not config or not config.enabled:
+            return HttpResponse(json.dumps({"dedup_enabled": False}), content_type="application/json")
+
+        material = {}
+        for f in config.fields:
+            if f in ("event_type", "ledger", "event_index", "tx_hash"):
+                material[f] = payload.get(f)
+            else:
+                material[f] = payload.get("payload", {}).get(f)
+
+        dedup_material = json.dumps(material, sort_keys=True, default=str)
+        dedup_hash = hashlib.sha256(dedup_material.encode("utf-8")).hexdigest()
+
+        return HttpResponse(
+            json.dumps({"dedup_hash": dedup_hash, "material": material}),
+            content_type="application/json",
+        )

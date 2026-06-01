@@ -35,6 +35,7 @@ from .cache_utils import (
     get_cached_decoded_payload,
     set_cached_decoded_payload,
     invalidate_decoded_payload_cache,
+    get_cached_contract,
     _SENTINEL,
 )
 from .models import (
@@ -800,6 +801,31 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
         )
         return False
 
+    # Deduplicate identical webhook deliveries to prevent floods
+    dedup_window = int(getattr(settings, "WEBHOOK_DEDUP_WINDOW_SECONDS", 300))
+    dedup_material = json.dumps(
+        {
+            "subscription_id": subscription_id,
+            "contract_id": event.contract.contract_id,
+            "event_type": event.event_type,
+            "ledger": event.ledger,
+            "event_index": event.event_index,
+            "payload": event.payload,
+        },
+        sort_keys=True,
+    )
+    dedup_hash = hashlib.sha256(dedup_material.encode("utf-8")).hexdigest()
+    dedup_key = f"soroscan:webhooks:dedup:{subscription_id}:{dedup_hash}"
+    if not cache.add(dedup_key, "1", timeout=dedup_window):
+        logger.info(
+            "Deduplicated webhook delivery for subscription=%s event=%s",
+            subscription_id,
+            event_id,
+            extra={"webhook_id": subscription_id, "event_id": event_id},
+        )
+        m.webhook_deduplicated_total.inc()
+        return True  # Consider deduplicated delivery as successful
+
     event_data = {
         "contract_id": event.contract.contract_id,
         "event_type": event.event_type,
@@ -1132,6 +1158,57 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
         time.monotonic() - _start
     )
     return False
+
+
+@shared_task(name="ingest.tasks.ping_webhook", bind=True)
+def ping_webhook(self, subscription_id: int) -> dict:
+    """
+    Send a minimal ping payload to a webhook endpoint to verify it is reachable.
+
+    Returns a dict with ``success`` (bool) and either ``status_code`` (int) on
+    a network response or ``error`` (str) on a connection failure.
+    """
+    try:
+        webhook = WebhookSubscription.objects.get(id=subscription_id)
+    except WebhookSubscription.DoesNotExist:
+        logger.warning(
+            "Webhook subscription %s not found for ping",
+            subscription_id,
+            extra={"webhook_id": subscription_id},
+        )
+        return {"success": False, "error": "Subscription not found"}
+
+    payload = {"type": "ping", "timestamp": timezone.now().isoformat()}
+    payload_bytes = json.dumps(payload, sort_keys=True).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "X-SoroScan-Event": "ping",
+    }
+
+    try:
+        response = requests.post(
+            webhook.target_url,
+            data=payload_bytes,
+            headers=headers,
+            timeout=webhook.timeout_seconds,
+        )
+        success = response.status_code == 200
+        logger.info(
+            "Ping webhook %s -> %s (HTTP %d)",
+            subscription_id,
+            "success" if success else "failure",
+            response.status_code,
+            extra={"webhook_id": subscription_id, "status_code": response.status_code},
+        )
+        return {"success": success, "status_code": response.status_code}
+    except requests.RequestException as exc:
+        logger.warning(
+            "Ping to webhook %s failed: %s",
+            subscription_id,
+            exc,
+            extra={"webhook_id": subscription_id},
+        )
+        return {"success": False, "error": str(exc)}
 
 
 # ---------------------------------------------------------------------------
@@ -1614,9 +1691,9 @@ def analyze_contract_dependencies() -> dict[str, int]:
 
     for invocation in invocations:
         # Check if caller is a tracked contract
-        try:
-            caller_contract = TrackedContract.objects.get(contract_id=invocation.caller)
-        except TrackedContract.DoesNotExist:
+        caller_contract = get_cached_contract(invocation.caller)
+        if not caller_contract:
+            raise TrackedContract.DoesNotExist()
             # Caller is a contract but not tracked by us — skip
             continue
 
@@ -1731,7 +1808,7 @@ def recompute_call_graph(contract_id: str | None = None) -> bool:
     # Update cache
     root_contract = None
     if contract_id:
-        root_contract = TrackedContract.objects.filter(contract_id=contract_id).first()
+        root_contract = get_cached_contract(contract_id)
 
     CallGraph.objects.update_or_create(
         contract=root_contract,
@@ -1770,7 +1847,9 @@ def assess_vulnerability_impact(contract_id: str) -> dict[str, Any]:
     Returns downstream impacted contracts, cycle participation, and risk score.
     """
     try:
-        root_contract = TrackedContract.objects.get(contract_id=contract_id)
+        root_contract = get_cached_contract(contract_id)
+        if not root_contract:
+            raise TrackedContract.DoesNotExist()
     except TrackedContract.DoesNotExist:
         return {
             "contract_id": contract_id,
@@ -1850,7 +1929,7 @@ def alert_downstream_contract_change(contract_id: str, change_type: str = "modif
     """
     from .services.notifications import create_and_push
 
-    changed_contract = TrackedContract.objects.filter(contract_id=contract_id).first()
+    changed_contract = get_cached_contract(contract_id)
     if not changed_contract:
         return 0
 
@@ -1930,7 +2009,9 @@ def ingest_latest_events() -> int:
         for fallback_event_index, event in enumerate(events_response.events):
             scanned_ledgers.add(getattr(event, "ledger", 0))
             try:
-                contract = TrackedContract.objects.get(contract_id=event.contract_id)
+                contract = get_cached_contract(event.contract_id)
+                if not contract:
+                    raise TrackedContract.DoesNotExist()
             except TrackedContract.DoesNotExist:
                 m.events_skipped_total.labels(
                     contract_id=_short_contract_id(
@@ -2172,6 +2253,99 @@ def aggregate_event_statistics() -> dict[str, Any]:
     }
 
 
+@shared_task(name="ingest.tasks.warm_event_count_cache")
+def warm_event_count_cache() -> dict[str, Any]:
+    """
+    Periodically warm cache with frequently accessed contract event counts (issue #587).
+    
+    This task proactively caches event counts for active contracts to improve
+    cache hit rates and reduce database load for frequently accessed data.
+    """
+    _start = time.monotonic()
+    from .cache_utils import get_event_count
+    
+    # Get all active contracts ordered by last activity (most recent first)
+    active_contracts = TrackedContract.objects.filter(
+        is_active=True
+    ).order_by('-last_event_at')[:100]  # Warm top 100 most active contracts
+    
+    warmed_count = 0
+    for contract in active_contracts:
+        try:
+            # Call get_event_count which will cache the result
+            count = get_event_count(contract.contract_id)
+            warmed_count += 1
+            logger.debug(
+                "Warmed cache for contract %s: %d events",
+                contract.contract_id,
+                count,
+                extra={"contract_id": contract.contract_id, "event_count": count},
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to warm cache for contract %s: %s",
+                contract.contract_id,
+                exc,
+                extra={"contract_id": contract.contract_id},
+            )
+    
+    elapsed = time.monotonic() - _start
+    logger.info(
+        "Cache warming completed: %d contracts processed in %.2fs",
+        warmed_count,
+        elapsed,
+        extra={"contracts_warmed": warmed_count, "duration_seconds": round(elapsed, 3)},
+    )
+    
+    m = _get_metrics()
+    m.task_duration_seconds.labels(task_name="warm_event_count_cache").observe(elapsed)
+    
+    return {
+        "contracts_warmed": warmed_count,
+        "duration_seconds": round(elapsed, 3),
+        "timestamp": timezone.now().isoformat(),
+    }
+
+
+@shared_task(name="ingest.tasks.log_daily_platform_stats")
+def log_daily_platform_stats() -> dict[str, Any]:
+    """
+    Log platform usage stats for the last 24 hours.
+    """
+    window_end = timezone.now()
+    window_start = window_end - timedelta(hours=24)
+
+    total_events = ContractEvent.objects.filter(
+        timestamp__gte=window_start,
+        timestamp__lt=window_end,
+    ).count()
+    new_contracts = TrackedContract.objects.filter(
+        created_at__gte=window_start,
+        created_at__lt=window_end,
+    ).count()
+
+    logger.info(
+        "Daily platform stats for %s to %s: %d events ingested, %d contracts registered",
+        window_start.isoformat(),
+        window_end.isoformat(),
+        total_events,
+        new_contracts,
+        extra={
+            "window_start": window_start.isoformat(),
+            "window_end": window_end.isoformat(),
+            "total_events_ingested": total_events,
+            "new_contracts_registered": new_contracts,
+        },
+    )
+
+    return {
+        "window_start": window_start.isoformat(),
+        "window_end": window_end.isoformat(),
+        "total_events_ingested": total_events,
+        "new_contracts_registered": new_contracts,
+    }
+
+
 @shared_task(name="ingest.tasks.reconcile_event_completeness")
 def reconcile_event_completeness() -> dict[str, Any]:
     """
@@ -2241,7 +2415,9 @@ def backfill_contract_events(
         raise ValueError("Invalid ledger range provided")
 
     try:
-        contract = TrackedContract.objects.get(contract_id=contract_id)
+        contract = get_cached_contract(contract_id)
+        if not contract:
+            raise TrackedContract.DoesNotExist()
     except TrackedContract.DoesNotExist as exc:
         raise ValueError(f"Tracked contract not found: {contract_id}") from exc
 
@@ -2992,7 +3168,7 @@ def _resolve_contract_for_rule(rule: RemediationRule) -> TrackedContract | None:
     contract_id = (rule.condition or {}).get("contract_id")
     if not contract_id:
         return None
-    return TrackedContract.objects.filter(contract_id=contract_id).first()
+    return get_cached_contract(contract_id)
 
 
 def _detect_anomaly(

@@ -17,6 +17,7 @@ import type {
   UpdateWebhookParams,
   Webhook,
   WebhookListResponse,
+  PaginatedResponse,
 } from "./types.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -286,5 +287,185 @@ export class SoroScanClient {
       "DELETE",
       `/v1/webhooks/${encodeURIComponent(webhookId)}`
     );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pagination helpers — issue #483
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A stateful cursor-based paginator that wraps any SoroScan list method.
+ *
+ * Provides `hasNextPage()`, `nextPage()`, `previousPage()`, and `goToPage(n)`
+ * so callers never have to manage cursors manually.
+ *
+ * @example
+ * const paginator = new Paginator(
+ *   (params) => client.getEvents(params),
+ *   { contractId: 'CCAAA...', first: 20 }
+ * );
+ *
+ * // Load first page
+ * const page1 = await paginator.nextPage();
+ *
+ * if (paginator.hasNextPage()) {
+ *   const page2 = await paginator.nextPage();
+ * }
+ *
+ * // Jump to a specific page (1-indexed)
+ * const page5 = await paginator.goToPage(5);
+ *
+ * // Go back
+ * const page4 = await paginator.previousPage();
+ */
+export class Paginator<T, P extends { first?: number; after?: string; before?: string }> {
+  readonly #fetcher: (params: P) => Promise<PaginatedResponse<T>>;
+  readonly #baseParams: P;
+  readonly #pageSize: number;
+
+  #currentPage: PaginatedResponse<T> | null = null;
+  /** Cursor history: index 0 = before page 1, index n = endCursor of page n */
+  #cursorHistory: Array<string | null> = [null];
+  #currentIndex = 0;
+
+  constructor(
+    fetcher: (params: P) => Promise<PaginatedResponse<T>>,
+    baseParams: P = {} as P,
+    pageSize = 20
+  ) {
+    this.#fetcher = fetcher;
+    this.#baseParams = baseParams;
+    this.#pageSize = baseParams.first ?? pageSize;
+  }
+
+  // ─── State queries ──────────────────────────────────────────────────────────
+
+  /**
+   * Returns `true` if there is a next page available.
+   * Always `true` before the first fetch (no data loaded yet).
+   */
+  hasNextPage(): boolean {
+    if (this.#currentPage === null) return true;
+    return this.#currentPage.pageInfo.hasNextPage;
+  }
+
+  /**
+   * Returns `true` if there is a previous page available.
+   */
+  hasPreviousPage(): boolean {
+    return this.#currentIndex > 1;
+  }
+
+  /**
+   * The 1-indexed number of the page currently loaded, or `0` if no page has
+   * been fetched yet.
+   */
+  get currentPageNumber(): number {
+    return this.#currentIndex;
+  }
+
+  /**
+   * The most recently fetched page, or `null` before the first fetch.
+   */
+  get currentPage(): PaginatedResponse<T> | null {
+    return this.#currentPage;
+  }
+
+  // ─── Navigation ─────────────────────────────────────────────────────────────
+
+  /**
+   * Fetch the next page and return it.
+   * Throws if there is no next page.
+   */
+  async nextPage(): Promise<PaginatedResponse<T>> {
+    if (this.#currentPage !== null && !this.#currentPage.pageInfo.hasNextPage) {
+      throw new Error("Paginator: no next page available");
+    }
+
+    const afterCursor = this.#cursorHistory[this.#currentIndex] ?? undefined;
+    const result = await this.#fetcher({
+      ...this.#baseParams,
+      first: this.#pageSize,
+      after: afterCursor,
+    } as P);
+
+    this.#currentIndex += 1;
+    // Record the end cursor for this page so we can navigate forward again
+    this.#cursorHistory[this.#currentIndex] = result.pageInfo.endCursor;
+    this.#currentPage = result;
+    return result;
+  }
+
+  /**
+   * Fetch the previous page and return it.
+   * Throws if already on the first page.
+   */
+  async previousPage(): Promise<PaginatedResponse<T>> {
+    if (!this.hasPreviousPage()) {
+      throw new Error("Paginator: already on the first page");
+    }
+
+    this.#currentIndex -= 1;
+    const afterCursor = this.#cursorHistory[this.#currentIndex - 1] ?? undefined;
+    const result = await this.#fetcher({
+      ...this.#baseParams,
+      first: this.#pageSize,
+      after: afterCursor,
+    } as P);
+
+    this.#currentPage = result;
+    return result;
+  }
+
+  /**
+   * Jump to a specific 1-indexed page number.
+   *
+   * Pages already visited are reached via the cached cursor history.
+   * Pages beyond the current furthest-fetched page are fetched sequentially
+   * until the target is reached.
+   *
+   * @param pageNumber - 1-indexed target page (must be ≥ 1)
+   */
+  async goToPage(pageNumber: number): Promise<PaginatedResponse<T>> {
+    if (pageNumber < 1) {
+      throw new Error("Paginator: pageNumber must be ≥ 1");
+    }
+
+    if (pageNumber <= this.#currentIndex) {
+      // Navigate backwards using cached cursors
+      this.#currentIndex = pageNumber;
+      const afterCursor =
+        this.#cursorHistory[this.#currentIndex - 1] ?? undefined;
+      const result = await this.#fetcher({
+        ...this.#baseParams,
+        first: this.#pageSize,
+        after: afterCursor,
+      } as P);
+      this.#currentPage = result;
+      return result;
+    }
+
+    // Navigate forward, fetching pages we haven't seen yet
+    while (this.#currentIndex < pageNumber) {
+      if (this.#currentPage !== null && !this.#currentPage.pageInfo.hasNextPage) {
+        throw new Error(
+          `Paginator: page ${pageNumber} does not exist (only ${this.#currentIndex} pages available)`
+        );
+      }
+      await this.nextPage();
+    }
+
+    return this.#currentPage!;
+  }
+
+  /**
+   * Reset the paginator back to its initial state.
+   * The next call to `nextPage()` will fetch page 1 again.
+   */
+  reset(): void {
+    this.#currentPage = null;
+    this.#cursorHistory = [null];
+    this.#currentIndex = 0;
   }
 }

@@ -1,0 +1,107 @@
+---
+id: api-reference/api-reference-guide
+title: SoroScan REST API Guide
+description: Getting started with the SoroScan REST API, authentication, and core resource patterns.
+sidebar_label: REST API Guide
+hide_title: false
+---
+
+The SoroScan REST API is the primary way to discover indexed Soroban contract activity, manage contract registrations, and configure webhook notifications.
+
+## Base URL
+
+Use the API root path beneath your SoroScan deployment:
+
+- `https://api.example.com/api/`
+- `http://localhost:8000/api/`
+
+> Tip: Use `{{baseUrl}}` in examples and tooling to keep requests portable across environments.
+
+## Authentication
+
+Most SoroScan endpoints require JWT bearer authentication.
+
+### Obtain tokens
+
+Use the token endpoint to get an access token and refresh token:
+
+```bash
+curl -X POST "{{baseUrl}}/api/token/" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "<email-or-username>",
+    "password": "<password>"
+  }'
+```
+
+### Use the access token
+
+Include the access token in every protected request:
+
+```bash
+curl -H "Authorization: Bearer <access-token>" \
+  "{{baseUrl}}/api/ingest/contracts/"
+```
+
+### Refresh tokens
+
+Refresh an expired access token with:
+
+```bash
+curl -X POST "{{baseUrl}}/api/token/refresh/" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "refresh": "<refresh-token>"
+  }'
+```
+
+## Core REST resources
+
+### Contracts
+
+- `GET /api/ingest/contracts/` — list tracked contracts
+- `POST /api/ingest/contracts/` — create a new tracked contract
+- `GET /api/ingest/contracts/{id}/` — get contract details
+- `PUT /api/ingest/contracts/{id}/` — replace contract metadata
+- `PATCH /api/ingest/contracts/{id}/` — update contract metadata
+- `DELETE /api/ingest/contracts/{id}/` — remove a tracked contract
+
+### Events
+
+- `GET /api/ingest/events/` — list events with filtering and pagination
+- `GET /api/ingest/events/{id}/` — get a single event by ID
+- `GET /api/ingest/events/search/` — full-text and field-level event search
+- `POST /api/ingest/events/{id}/restore_archive/` — restore archived events
+
+### Webhooks
+
+- `GET /api/ingest/webhooks/` — list webhook subscriptions
+- `POST /api/ingest/webhooks/` — create a webhook subscription
+- `GET /api/ingest/webhooks/{id}/` — retrieve webhook details
+- `PATCH /api/ingest/webhooks/{id}/` — update a webhook
+- `DELETE /api/ingest/webhooks/{id}/` — delete a webhook
+- `POST /api/ingest/webhooks/dry_run/` — test webhook delivery without sending real notifications
+- `POST /api/ingest/webhooks/{id}/test/` — trigger a webhook test
+
+### Diagnostics and analytics
+
+- `GET /api/ingest/health/` — service health check
+- `GET /api/ready/` — readiness probe
+- `GET /api/analytics/rate-limits/` — API key usage analytics
+- `GET /api/contracts/status/` — overall contract indexing status
+
+## API documentation and schema
+
+SoroScan offers auto-generated REST reference via the backend:
+
+- Swagger UI: `{{baseUrl}}/api/docs/`
+- ReDoc: `{{baseUrl}}/api/redoc/`
+- OpenAPI schema: `{{baseUrl}}/api/schema/`
+
+For a browsable API reference within this site, open the **API Endpoints** section and search by method name or path.
+
+## Migration tips
+
+- Prefer GraphQL for rich contract and event queries when available.
+- Use REST for lightweight resource management and webhook configuration.
+- If an endpoint is deprecated, check the response headers for `Deprecation` and `Sunset` values.
