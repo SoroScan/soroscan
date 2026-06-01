@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode, useRef } from 'react';
 import type { WebhookSubscription, TestResponse, HistoryEntry } from './types';
 import { DEFAULT_PAYLOAD } from './types';
 
@@ -24,10 +24,12 @@ interface WebhookTesterContextType {
   // Send
   isSending: boolean;
   sendTest: () => Promise<void>;
+  retryLastRequest: () => Promise<void>;
 
   // Response
   response: TestResponse | null;
   sendError: string | null;
+  requestHeaders: Record<string, string>;
 
   // History
   history: HistoryEntry[];
@@ -55,6 +57,8 @@ export function WebhookTesterProvider({ children }: { children: ReactNode }) {
   const [response, setResponse] = useState<TestResponse | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [requestHeaders, setRequestHeaders] = useState<Record<string, string>>({});
+  const lastRequestRef = useRef<{ webhook: WebhookSubscription; payload: string } | null>(null);
 
   // Retry interval state
   const [retryInterval, setRetryIntervalState] = useState(60);
@@ -86,10 +90,6 @@ export function WebhookTesterProvider({ children }: { children: ReactNode }) {
     setSendError(null);
     setRetrySaveSuccess(false);
     if (w) {
-      // Sync retry interval from the selected webhook
-      setRetryIntervalState(w.retry_interval_seconds ?? 60);
-      setRetryIntervalError(null);
-      // Pre-fill contract_id in payload
       try {
         const parsed = JSON.parse(payload);
         parsed.contract_id = w.contract_id;
@@ -111,13 +111,10 @@ export function WebhookTesterProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const sendTest = useCallback(async () => {
-    if (!selectedWebhook) return;
-
-    // Validate JSON
+  const performSend = useCallback(async (webhook: WebhookSubscription, payloadStr: string) => {
     let parsedPayload: unknown;
     try {
-      parsedPayload = JSON.parse(payload);
+      parsedPayload = JSON.parse(payloadStr);
     } catch (e) {
       setPayloadError(e instanceof Error ? e.message : 'Invalid JSON');
       return;
@@ -128,13 +125,15 @@ export function WebhookTesterProvider({ children }: { children: ReactNode }) {
     setSendError(null);
 
     const start = performance.now();
+    const headers = { 'Content-Type': 'application/json' };
+    setRequestHeaders(headers);
 
     try {
       const res = await fetch(
-        `${BASE_URL}/api/ingest/webhooks/${selectedWebhook.id}/test/`,
+        `${BASE_URL}/api/ingest/webhooks/${webhook.id}/test/`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify(parsedPayload),
         }
       );
@@ -160,28 +159,42 @@ export function WebhookTesterProvider({ children }: { children: ReactNode }) {
       const entry: HistoryEntry = {
         id: crypto.randomUUID(),
         timestamp: new Date(),
-        webhookId: selectedWebhook.id,
-        targetUrl: selectedWebhook.target_url,
-        payload,
+        webhookId: webhook.id,
+        targetUrl: webhook.target_url,
+        payload: payloadStr,
         response: testResponse,
+        requestHeaders: headers,
       };
       setHistory(prev => [entry, ...prev].slice(0, 50));
+      lastRequestRef.current = { webhook, payload: payloadStr };
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Network error';
       setSendError(msg);
       const entry: HistoryEntry = {
         id: crypto.randomUUID(),
         timestamp: new Date(),
-        webhookId: selectedWebhook.id,
-        targetUrl: selectedWebhook.target_url,
-        payload,
+        webhookId: webhook.id,
+        targetUrl: webhook.target_url,
+        payload: payloadStr,
         error: msg,
+        requestHeaders: headers,
       };
       setHistory(prev => [entry, ...prev].slice(0, 50));
     } finally {
       setIsSending(false);
     }
-  }, [selectedWebhook, payload]);
+  }, []);
+
+  const sendTest = useCallback(async () => {
+    if (!selectedWebhook) return;
+    await performSend(selectedWebhook, payload);
+  }, [selectedWebhook, payload, performSend]);
+
+  const retryLastRequest = useCallback(async () => {
+    if (!lastRequestRef.current) return;
+    const { webhook, payload: lastPayload } = lastRequestRef.current;
+    await performSend(webhook, lastPayload);
+  }, [performSend]);
 
   const clearHistory = useCallback(() => setHistory([]), []);
 
@@ -231,6 +244,7 @@ export function WebhookTesterProvider({ children }: { children: ReactNode }) {
     setPayloadError(null);
     setResponse(entry.response ?? null);
     setSendError(entry.error ?? null);
+    setRequestHeaders(entry.requestHeaders ?? {});
     const wh = webhooks.find(w => w.id === entry.webhookId);
     if (wh) setSelectedWebhookState(wh);
   }, [webhooks]);
@@ -240,8 +254,8 @@ export function WebhookTesterProvider({ children }: { children: ReactNode }) {
       webhooks, isLoadingWebhooks, fetchWebhooks,
       selectedWebhook, setSelectedWebhook,
       payload, setPayload, payloadError,
-      isSending, sendTest,
-      response, sendError,
+      isSending, sendTest, retryLastRequest,
+      response, sendError, requestHeaders,
       history, clearHistory, selectHistoryEntry,
       retryInterval, setRetryInterval, retryIntervalError,
       isSavingRetryInterval, saveRetryInterval, retrySaveSuccess,

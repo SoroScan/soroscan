@@ -17,17 +17,19 @@ function generateKey(): string {
 
 export default function APIKeyManager() {
   const [keys, setKeys] = useState<APIKey[]>(() => {
-    if (typeof window === "undefined") return [];
-    const saved = localStorage.getItem("apiKeys");
-    return saved ? JSON.parse(saved) : [];
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("apiKeys");
+      if (saved) {
+        try {
+          return JSON.parse(saved) as APIKey[];
+        } catch {
+          return [];
+        }
+      }
+    }
+    return [];
   });
   const [copied, setCopied] = useState<string | null>(null);
-
-  // Commented out useEffect to avoid localStorage dependency
-  // useEffect(() => {
-  //   const saved = localStorage.getItem("apiKeys");
-  //   if (saved) setKeys(JSON.parse(saved));
-  // }, []);
 
   const saveKeys = (newKeys: APIKey[]) => {
     setKeys(newKeys);
@@ -38,7 +40,11 @@ export default function APIKeyManager() {
     const newKey: APIKey = {
       id: Date.now().toString(),
       key: generateKey(),
-      createdAt: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+      createdAt: new Date().toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }),
     };
     saveKeys([...keys, newKey]);
   };
@@ -50,51 +56,55 @@ export default function APIKeyManager() {
   const handleCopy = (key: string) => {
     navigator.clipboard.writeText(key);
     setCopied(key);
-    setTimeout(() => setCopied(null), 2000);
+    window.setTimeout(() => setCopied(null), 2000);
   };
 
   return (
-    <div className="border border-green-500/30 rounded p-4 mb-4">
-      <h2 className="text-green-400 font-mono text-sm mb-3">[ API KEYS ]</h2>
-      <button
-        onClick={handleGenerate}
-        className="mb-4 px-4 py-2 border border-green-400 rounded font-mono text-sm text-green-400 hover:bg-green-400/10 transition-colors"
-      >
-        + Generate New Key
-      </button>
-      {keys.length === 0 ? (
-        <p className="font-mono text-sm text-green-700">No API keys yet.</p>
-      ) : (
-        <div className="space-y-2">
-          <div className="grid grid-cols-3 font-mono text-xs text-green-600 pb-1 border-b border-green-500/20">
-            <span>KEY</span>
-            <span>CREATED</span>
-            <span>ACTIONS</span>
-          </div>
-          {keys.map((k) => (
-            <div key={k.id} className="grid grid-cols-3 font-mono text-sm items-center">
-              <span className="text-green-300 truncate pr-2">
-                {k.key.slice(0, 16)}...
-              </span>
-              <span className="text-green-600 text-xs">{k.createdAt}</span>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleCopy(k.key)}
-                  className="text-xs text-green-400 hover:text-green-300 border border-green-500/30 px-2 py-1 rounded"
-                >
-                  {copied === k.key ? "✓" : "COPY"}
-                </button>
-                <button
-                  onClick={() => handleRevoke(k.id)}
-                  className="text-xs text-red-500 hover:text-red-400 border border-red-500/30 px-2 py-1 rounded"
-                >
-                  DEL
-                </button>
-              </div>
+    <div className="border border-green-500/30 rounded-xl bg-[#08102a]/80 p-5">
+      <h2 className="text-green-400 text-sm font-mono mb-4">[ API KEYS ]</h2>
+      <div className="space-y-4">
+        <button
+          onClick={handleGenerate}
+          className="w-full rounded-xl border border-green-400 px-4 py-2 text-sm font-mono text-green-400 hover:bg-green-400/10 transition-colors"
+        >
+          + Generate New Key
+        </button>
+
+        {keys.length === 0 ? (
+          <p className="text-green-600 text-sm">No API keys yet.</p>
+        ) : (
+          <div className="space-y-3">
+            <div className="grid grid-cols-[1.8fr_0.8fr_1fr] gap-3 rounded-xl border border-green-500/10 bg-[#09132f]/80 px-4 py-3 text-xs text-green-500 uppercase tracking-[0.15em]">
+              <span>Key</span>
+              <span>Created</span>
+              <span>Actions</span>
             </div>
-          ))}
-        </div>
-      )}
+            {keys.map((key) => (
+              <div
+                key={key.id}
+                className="grid grid-cols-[1.8fr_0.8fr_1fr] gap-3 items-center rounded-xl border border-green-500/10 bg-[#08162f]/80 px-4 py-3 text-sm text-green-300"
+              >
+                <span className="truncate">{key.key.slice(0, 16)}...</span>
+                <span className="text-green-500 text-xs">{key.createdAt}</span>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => handleCopy(key.key)}
+                    className="rounded-lg border border-green-500/30 px-3 py-1 text-xs text-green-400 hover:text-green-300"
+                  >
+                    {copied === key.key ? "✓" : "COPY"}
+                  </button>
+                  <button
+                    onClick={() => handleRevoke(key.id)}
+                    className="rounded-lg border border-red-500/30 px-3 py-1 text-xs text-red-400 hover:border-red-400"
+                  >
+                    DEL
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

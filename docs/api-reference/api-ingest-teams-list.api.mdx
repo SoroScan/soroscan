@@ -1,0 +1,73 @@
+---
+id: api-ingest-teams-list
+title: "api_ingest_teams_list"
+description: "Teams: multi-tenant organization of contracts and members."
+sidebar_label: "api_ingest_teams_list"
+hide_title: true
+hide_table_of_contents: true
+api: eJzlVc1u20YQfpXBoAcbpSTb7aEhUBQ+uEGKADEqBQHiqMaIHJHrkLvM7tCWIhDoQ/QJ+yTFLCnZspQCvvTSE7m78/PNN38bdA17EuPsmxxTpMbcGltwkFthqsNtZYJggjmHzJtG5TDFmT6lULeVmJGwJSvgfEHWfI2mwC0hc1Y8ZRKAbA411wv2YfzJfrIjeH01g0m0P4G///wL4i9IyZC13rMVaAN7WHDlbBFAnCpdv5vua2WeSRgoqsNJPDrVylzNASivjT19rrkxeTcZ0PRmKM+BeocnUQecrdanmGBDnmoW9gHTmw1aqhlTdD5nb2yBCXr+0hrPOaZLqgInaJSdLy379QFnH0qTlbA0XOUgTv3BQ8kWtuZi+J5DW0kYY4IhK7kmTDco60b9Boleuy7ZQWmo4BfCuARVAtsqA/BgpDQ2um6oMJaE8wEEBJajOIwVLthj180TFCqUHK0bnCcYOGu9kXXk6+5BLlspMb2Zq6jn0DgbOKiti7Mz/WiRsBX9paapTBbLZ3IXFOvm0Ldb3HEmeyHfYOZa299F8hRH47WsxfTOeoHDCBLkFdVNxZieX/zQJWh5JYeMJ2jbqqKFyolvOcGl8zUJpth689QKliJNOplQY8bD5dj5YkJZhBAmvyj5P/+InULke+Pa8B/4u1B/W3Ye3ZH3pAVihOtwjOTDpoeTb/b86RimVVuACUCtuBGFYArLOTg7dKpW035iTH40K54pf2erdR++5iWW+yFPNa3esi20xs4vfuoSDFVbHBPct6idLcJeo/rjZkSjr5ejj2ejV7fz779Tqnq4+S0dLYZdMnISHomp+RBy96xCHw0mGvQQ0YBX28hIzKdyjJ2qb2+ut22pT291GMfn/dToUMCapXQ6wwuWOLyUFtTamPQTfZiA+NimU+2vPhW7Zt0FrLW17X89L5h8TE//8+uWht8+zKJ/Y5cuqg/Ip867aUYWLq/fYIL37EOP9nx8Nj47KK/fr6YzFYXcZW3NVvpNsnQetpYSIJgKVxX1dwuyEGrysls2YGzOK/bj2GEuSE1xkAzzkhoDPRfDyjm23Z5Mpf/LohsyLrySSVORsUpf6yslo6+jfsJrkpU9VVEnmKBWb+mCqMhms6DA733VdXrdLyDdBLkJOs4eF9Q3CX/pljyK/DOv9/f0PVUtxz5JXgLmxbvyX9AMq/oRyVwP3vRj/mbeJVgy5ewjYb3OZZZxI0+0DnakWtn1/eurGSZI+138rGuj9e38t+sntjebXmLmPrPtOtwCFz1jN++67h/G5oLi
+sidebar_class_name: "get api-method"
+info_path: api-reference/soroscan-api
+custom_edit_url: null
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"api_ingest_teams_list"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"get"}
+  path={"/api/ingest/teams/"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+Teams: multi-tenant organization of contracts and members.
+
+- GET /teams/ — teams the current user belongs to
+- POST /teams/ — create a team (creator becomes admin)
+- POST /teams/\{id\}/members/ — add a user (admin only)
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./api-ingest-teams-list.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./api-ingest-teams-list.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./api-ingest-teams-list.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

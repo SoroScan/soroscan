@@ -1,0 +1,45 @@
+---
+id: api-reference/postman
+title: Postman Collection
+description: Import the SoroScan Postman collection to test REST and GraphQL APIs.
+sidebar_label: Postman Collection
+hide_title: false
+---
+
+Import the Postman collection to quickly run authenticated requests against the SoroScan API.
+
+## Import steps
+
+1. Download or reference the collection file:
+   - `docs/api-reference/SoroScan.postman_collection.json`
+2. Open Postman and choose `Import`.
+3. Add environment variables:
+   - `baseUrl` — API root, for example `http://localhost:8000`
+   - `accessToken` — JWT access token from `POST {{baseUrl}}/api/token/`
+   - `contractId` — sample contract ID for query examples
+4. Run the included requests.
+
+## Included requests
+
+- `Authenticate` — obtain an access token from `/api/token/`
+- `List Contracts` — GET `/api/ingest/contracts/`
+- `List Events` — GET `/api/ingest/events/`
+- `Search Events` — GET `/api/ingest/events/search/`
+- `Create Webhook` — POST `/api/ingest/webhooks/`
+- `GraphQL Query` — POST `/graphql/`
+
+## GraphQL requests in Postman
+
+The collection includes a GraphQL request that sends a query payload to `/graphql/`.
+
+Set `Content-Type: application/json` and include the bearer token in the `Authorization` header:
+
+```http
+Authorization: Bearer {{accessToken}}
+```
+
+## Troubleshooting
+
+- If a request fails with `401`, refresh `{{accessToken}}`.
+- If a request fails with `429`, reduce request frequency and retry.
+- For GraphQL, ensure the JSON body contains a `query` string and optional `variables` object.

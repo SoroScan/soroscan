@@ -20,6 +20,13 @@ export interface TestResponse {
   headers: Record<string, string>;
   body: unknown;
   time: number;
+  timings?: {
+    dns?: number;
+    tcp?: number;
+    tls?: number;
+    firstByte?: number;
+    download?: number;
+  };
 }
 
 export interface HistoryEntry {
@@ -30,6 +37,7 @@ export interface HistoryEntry {
   payload: string;
   response?: TestResponse;
   error?: string;
+  requestHeaders?: Record<string, string>;
 }
 
 export const DEFAULT_PAYLOAD = JSON.stringify(
