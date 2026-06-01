@@ -29,7 +29,7 @@ export default function NotificationPrefs() {
   };
 
   return (
-    <div className="border border-green-500/30 rounded p-4 mb-4">
+    <div className="rounded-2xl border border-green-500/30 bg-[#081026]/70 p-4 mb-4">
       <h2 className="text-green-400 font-mono text-sm mb-3">[ NOTIFICATIONS ]</h2>
       <div className="space-y-3">
         {([
@@ -37,14 +37,18 @@ export default function NotificationPrefs() {
           { key: "inApp", label: "In-App Notifications" },
           { key: "webhook", label: "Webhook" },
         ] as const).map(({ key, label }) => (
-          <div key={key} className="flex items-center justify-between">
+          <div
+            key={key}
+            className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
+          >
             <span className="font-mono text-sm text-green-300">{label}</span>
             <button
+              aria-pressed={prefs[key]}
               onClick={() => toggle(key)}
-              className={`w-12 h-6 rounded-full border transition-colors font-mono text-xs ${
+              className={`min-w-[72px] rounded-full border px-3 py-2 text-xs font-mono transition-colors ${
                 prefs[key]
                   ? "border-green-400 bg-green-400/20 text-green-400"
-                  : "border-green-500/30 text-green-700"
+                  : "border-green-500/30 text-green-700 hover:border-green-400"
               }`}
             >
               {prefs[key] ? "ON" : "OFF"}
@@ -57,12 +61,12 @@ export default function NotificationPrefs() {
             placeholder="https://your-webhook-url.com"
             value={prefs.webhookUrl}
             onChange={(e) => setPrefs((p) => ({ ...p, webhookUrl: e.target.value }))}
-            className="w-full bg-transparent border border-green-500/30 rounded px-3 py-2 font-mono text-sm text-green-300 placeholder-green-700 focus:outline-none focus:border-green-400"
+            className="w-full rounded border border-green-500/30 bg-transparent px-3 py-2 text-sm text-green-300 placeholder-green-700 focus:outline-none focus:border-green-400"
           />
         )}
         <button
           onClick={handleSave}
-          className="w-full py-2 border border-green-500/30 rounded font-mono text-sm text-green-400 hover:border-green-400 hover:bg-green-400/10 transition-colors"
+          className="w-full rounded-md border border-green-500/30 bg-transparent px-4 py-2 text-sm text-green-400 transition-colors hover:border-green-400 hover:bg-green-400/10"
         >
           {saved ? "✓ SAVED" : "SAVE PREFERENCES"}
         </button>

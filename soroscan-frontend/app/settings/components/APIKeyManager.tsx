@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 
 type APIKey = {
   id: string;
@@ -22,6 +23,8 @@ export default function APIKeyManager() {
     return saved ? JSON.parse(saved) : [];
   });
   const [copied, setCopied] = useState<string | null>(null);
+  const [confirmingKey, setConfirmingKey] = useState<string | null>(null);
+  const [isRevoking, setIsRevoking] = useState(false);
 
   // Commented out useEffect to avoid localStorage dependency
   // useEffect(() => {
@@ -38,13 +41,24 @@ export default function APIKeyManager() {
     const newKey: APIKey = {
       id: Date.now().toString(),
       key: generateKey(),
-      createdAt: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+      createdAt: new Date().toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }),
     };
     saveKeys([...keys, newKey]);
   };
 
-  const handleRevoke = (id: string) => {
-    saveKeys(keys.filter((k) => k.id !== id));
+  const requestRevoke = (id: string) => setConfirmingKey(id);
+
+  const handleConfirmRevoke = () => {
+    if (!confirmingKey) return;
+    setIsRevoking(true);
+    const nextKeys = keys.filter((k) => k.id !== confirmingKey);
+    saveKeys(nextKeys);
+    setConfirmingKey(null);
+    setIsRevoking(false);
   };
 
   const handleCopy = (key: string) => {
@@ -54,47 +68,58 @@ export default function APIKeyManager() {
   };
 
   return (
-    <div className="border border-green-500/30 rounded p-4 mb-4">
+    <div className="border border-green-500/30 rounded p-4 mb-4 bg-[#081026]/70">
       <h2 className="text-green-400 font-mono text-sm mb-3">[ API KEYS ]</h2>
       <button
         onClick={handleGenerate}
-        className="mb-4 px-4 py-2 border border-green-400 rounded font-mono text-sm text-green-400 hover:bg-green-400/10 transition-colors"
+        className="mb-4 w-full rounded-md border border-green-400 px-4 py-2 font-mono text-sm text-green-400 transition-colors hover:bg-green-400/10 sm:w-auto"
       >
         + Generate New Key
       </button>
       {keys.length === 0 ? (
         <p className="font-mono text-sm text-green-700">No API keys yet.</p>
       ) : (
-        <div className="space-y-2">
-          <div className="grid grid-cols-3 font-mono text-xs text-green-600 pb-1 border-b border-green-500/20">
+        <div className="space-y-3">
+          <div className="hidden grid-cols-[1.6fr_1fr_auto] items-center gap-3 font-mono text-xs text-green-600 pb-1 border-b border-green-500/20 sm:grid">
             <span>KEY</span>
             <span>CREATED</span>
-            <span>ACTIONS</span>
+            <span className="text-right">ACTIONS</span>
           </div>
           {keys.map((k) => (
-            <div key={k.id} className="grid grid-cols-3 font-mono text-sm items-center">
-              <span className="text-green-300 truncate pr-2">
-                {k.key.slice(0, 16)}...
-              </span>
-              <span className="text-green-600 text-xs">{k.createdAt}</span>
-              <div className="flex gap-2">
+            <div
+              key={k.id}
+              className="grid gap-3 rounded border border-green-500/20 p-3 bg-[#091430]/80 sm:grid-cols-[1.6fr_1fr_auto] sm:items-center"
+            >
+              <div className="text-green-300 text-sm truncate">{k.key.slice(0, 16)}…</div>
+              <div className="text-green-600 text-xs">{k.createdAt}</div>
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 <button
                   onClick={() => handleCopy(k.key)}
-                  className="text-xs text-green-400 hover:text-green-300 border border-green-500/30 px-2 py-1 rounded"
+                  className="min-w-[72px] rounded border border-green-500/30 bg-transparent px-3 py-2 text-xs text-green-400 transition-colors hover:border-green-400 hover:text-green-300"
                 >
-                  {copied === k.key ? "✓" : "COPY"}
+                  {copied === k.key ? "✓ COPIED" : "COPY"}
                 </button>
                 <button
-                  onClick={() => handleRevoke(k.id)}
-                  className="text-xs text-red-500 hover:text-red-400 border border-red-500/30 px-2 py-1 rounded"
+                  onClick={() => requestRevoke(k.id)}
+                  className="min-w-[72px] rounded border border-red-500/30 bg-transparent px-3 py-2 text-xs text-red-500 transition-colors hover:border-red-400 hover:text-red-400"
                 >
-                  DEL
+                  REVOKE
                 </button>
               </div>
             </div>
           ))}
         </div>
       )}
+      <ConfirmationDialog
+        open={confirmingKey !== null}
+        title="Revoke API key?"
+        description="Revoked keys are permanently deleted and cannot be recovered."
+        confirmText="Revoke"
+        cancelText="Cancel"
+        onConfirm={handleConfirmRevoke}
+        onCancel={() => setConfirmingKey(null)}
+        loading={isRevoking}
+      />
     </div>
   );
 }
