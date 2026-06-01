@@ -10,6 +10,8 @@ export interface WebhookSubscription {
   created_at: string;
   last_triggered: string | null;
   failure_count: number;
+  timeout_seconds: number;
+  retry_interval_seconds: number;
 }
 
 export interface TestResponse {

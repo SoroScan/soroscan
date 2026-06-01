@@ -3,6 +3,7 @@
 import React, { useRef } from 'react';
 import { useWebhookTester } from '../context';
 import { DEFAULT_PAYLOAD } from '../types';
+import { RetryIntervalInput } from './RetryIntervalInput';
 
 // Minimal syntax highlighting for JSON in a textarea overlay approach
 function highlight(json: string): string {
@@ -138,6 +139,9 @@ export function PayloadEditor() {
           )}
         </button>
       </div>
+
+      {/* Retry interval configuration */}
+      <RetryIntervalInput />
     </div>
   );
 }

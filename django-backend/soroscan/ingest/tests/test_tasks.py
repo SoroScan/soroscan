@@ -478,6 +478,102 @@ class TestDispatchWebhookTimeout:
 
 
 @pytest.mark.django_db
+class TestRetryIntervalSeconds:
+    """Tests for the configurable retry_interval_seconds field."""
+
+    def test_default_retry_interval_is_60(self, webhook):
+        """Verify default retry_interval_seconds is 60."""
+        assert webhook.retry_interval_seconds == 60
+
+    def test_retry_interval_field_validates_min_max(self, contract):
+        """Verify MinValueValidator(10) and MaxValueValidator(3600)."""
+        from django.core.exceptions import ValidationError
+
+        # Valid: 10
+        webhook = WebhookSubscription(
+            contract=contract,
+            target_url="https://example.com/webhook",
+            secret="test-secret-hex",
+            retry_interval_seconds=10,
+        )
+        webhook.full_clean()  # Should not raise
+
+        # Valid: 3600
+        webhook.retry_interval_seconds = 3600
+        webhook.full_clean()  # Should not raise
+
+        # Invalid: 9
+        webhook.retry_interval_seconds = 9
+        with pytest.raises(ValidationError):
+            webhook.full_clean()
+
+        # Invalid: 3601
+        webhook.retry_interval_seconds = 3601
+        with pytest.raises(ValidationError):
+            webhook.full_clean()
+
+    @responses.activate
+    def test_retry_uses_subscription_retry_interval(self, webhook, event):
+        """Verify that self.retry is called with countdown=retry_interval_seconds on 5xx."""
+        webhook.retry_interval_seconds = 120
+        webhook.save()
+
+        responses.add(responses.POST, webhook.target_url, status=500)
+
+        with pytest.raises(Retry) as exc_info:
+            dispatch_webhook.apply(args=[webhook.id, event.id], throw=True)
+
+        assert exc_info.value.when == 120
+
+    @responses.activate
+    def test_retry_interval_used_for_network_errors(self, webhook, event):
+        """Verify that network errors also use retry_interval_seconds as countdown."""
+        webhook.retry_interval_seconds = 90
+        webhook.save()
+
+        responses.add(
+            responses.POST, webhook.target_url,
+            body=requests.exceptions.ConnectionError("Connection refused"),
+        )
+
+        with pytest.raises(Retry) as exc_info:
+            dispatch_webhook.apply(args=[webhook.id, event.id], throw=True)
+
+        assert exc_info.value.when == 90
+
+    @responses.activate
+    def test_429_retry_after_header_overrides_interval(self, webhook, event):
+        """Retry-After header takes precedence over retry_interval_seconds for 429."""
+        webhook.retry_interval_seconds = 90
+        webhook.save()
+
+        responses.add(
+            responses.POST, webhook.target_url,
+            status=429,
+            headers={"Retry-After": "300"},
+        )
+
+        with pytest.raises(Retry) as exc_info:
+            dispatch_webhook.apply(args=[webhook.id, event.id], throw=True)
+
+        # Retry-After wins
+        assert exc_info.value.when == 300
+
+    @responses.activate
+    def test_429_without_retry_after_uses_interval(self, webhook, event):
+        """When no Retry-After header, retry_interval_seconds is used for 429."""
+        webhook.retry_interval_seconds = 150
+        webhook.save()
+
+        responses.add(responses.POST, webhook.target_url, status=429)
+
+        with pytest.raises(Retry) as exc_info:
+            dispatch_webhook.apply(args=[webhook.id, event.id], throw=True)
+
+        assert exc_info.value.when == 150
+
+
+@pytest.mark.django_db
 class TestProcessNewEvent:
     @responses.activate
     def test_process_event_dispatches_to_matching_webhooks(self, contract):

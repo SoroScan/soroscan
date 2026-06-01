@@ -440,9 +440,6 @@ def validate_event_payload(
 @shared_task(
     name="ingest.tasks.dispatch_webhook",
     bind=True,
-    autoretry_for=(requests.exceptions.RequestException,),
-    retry_backoff=True,
-    retry_backoff_max=600,
     max_retries=5,
 )
 def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
@@ -543,6 +540,9 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
                     countdown = int(retry_after)
                 except (ValueError, TypeError):
                     pass
+            # Fall back to the subscription's configured retry interval
+            if countdown is None:
+                countdown = webhook.retry_interval_seconds
 
             raise self.retry(
                 exc=requests.HTTPError("Rate limited (429)", response=response),
@@ -575,7 +575,10 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
 
         _on_delivery_failure(webhook, self)
         m.webhook_deliveries_total.labels(status="failure").inc()
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as exc:
+            raise self.retry(exc=exc, countdown=webhook.retry_interval_seconds)
 
     except requests.exceptions.Timeout:
         # Log timeout as 504 Gateway Timeout
@@ -592,7 +595,7 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
             webhook.timeout_seconds,
             extra={"webhook_id": subscription_id},
         )
-        raise
+        raise self.retry(exc=exc, countdown=webhook.retry_interval_seconds)
 
     except requests.RequestException as exc:
         if not attempt_logged:
@@ -612,7 +615,7 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
             exc,
             extra={"webhook_id": subscription_id},
         )
-        raise
+        raise self.retry(exc=exc, countdown=webhook.retry_interval_seconds)
 
     m.webhook_delivery_duration_seconds.observe(time.monotonic() - _start)
     m.task_duration_seconds.labels(task_name="dispatch_webhook").observe(

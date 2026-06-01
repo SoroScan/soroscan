@@ -531,6 +531,11 @@ class WebhookSubscription(models.Model):
         validators=[MinValueValidator(1), MaxValueValidator(60)],
         help_text="Timeout for webhook dispatch in seconds (1-60, default: 10)",
     )
+    retry_interval_seconds = models.IntegerField(
+        default=60,
+        validators=[MinValueValidator(10), MaxValueValidator(3600)],
+        help_text="Minimum interval between retry attempts in seconds (10-3600, default: 60)",
+    )
 
     class Meta:
         ordering = ["-created_at"]

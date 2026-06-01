@@ -33,6 +33,14 @@ interface WebhookTesterContextType {
   history: HistoryEntry[];
   clearHistory: () => void;
   selectHistoryEntry: (entry: HistoryEntry) => void;
+
+  // Retry interval
+  retryInterval: number;
+  setRetryInterval: (v: number) => void;
+  retryIntervalError: string | null;
+  isSavingRetryInterval: boolean;
+  saveRetryInterval: () => Promise<void>;
+  retrySaveSuccess: boolean;
 }
 
 const WebhookTesterContext = createContext<WebhookTesterContextType | undefined>(undefined);
@@ -47,6 +55,12 @@ export function WebhookTesterProvider({ children }: { children: ReactNode }) {
   const [response, setResponse] = useState<TestResponse | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+
+  // Retry interval state
+  const [retryInterval, setRetryIntervalState] = useState(60);
+  const [retryIntervalError, setRetryIntervalError] = useState<string | null>(null);
+  const [isSavingRetryInterval, setIsSavingRetryInterval] = useState(false);
+  const [retrySaveSuccess, setRetrySaveSuccess] = useState(false);
 
   const fetchWebhooks = useCallback(async () => {
     setIsLoadingWebhooks(true);
@@ -70,7 +84,11 @@ export function WebhookTesterProvider({ children }: { children: ReactNode }) {
     setSelectedWebhookState(w);
     setResponse(null);
     setSendError(null);
+    setRetrySaveSuccess(false);
     if (w) {
+      // Sync retry interval from the selected webhook
+      setRetryIntervalState(w.retry_interval_seconds ?? 60);
+      setRetryIntervalError(null);
       // Pre-fill contract_id in payload
       try {
         const parsed = JSON.parse(payload);
@@ -167,6 +185,47 @@ export function WebhookTesterProvider({ children }: { children: ReactNode }) {
 
   const clearHistory = useCallback(() => setHistory([]), []);
 
+  const setRetryInterval = useCallback((v: number) => {
+    setRetryIntervalState(v);
+    if (v < 10 || v > 3600) {
+      setRetryIntervalError('Must be between 10 and 3600 seconds');
+    } else {
+      setRetryIntervalError(null);
+    }
+    setRetrySaveSuccess(false);
+  }, []);
+
+  const saveRetryInterval = useCallback(async () => {
+    if (!selectedWebhook) return;
+    if (retryInterval < 10 || retryInterval > 3600) {
+      setRetryIntervalError('Must be between 10 and 3600 seconds');
+      return;
+    }
+    setIsSavingRetryInterval(true);
+    setRetrySaveSuccess(false);
+    try {
+      const res = await fetch(
+        `${BASE_URL}/api/ingest/webhooks/${selectedWebhook.id}/`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ retry_interval_seconds: retryInterval }),
+        }
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const updated: WebhookSubscription = await res.json();
+      // Update the webhook in the list and selected state
+      setWebhooks(prev => prev.map(w => w.id === updated.id ? updated : w));
+      setSelectedWebhookState(updated);
+      setRetrySaveSuccess(true);
+      setTimeout(() => setRetrySaveSuccess(false), 3000);
+    } catch (err) {
+      setRetryIntervalError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setIsSavingRetryInterval(false);
+    }
+  }, [selectedWebhook, retryInterval]);
+
   const selectHistoryEntry = useCallback((entry: HistoryEntry) => {
     setPayloadState(entry.payload);
     setPayloadError(null);
@@ -184,6 +243,8 @@ export function WebhookTesterProvider({ children }: { children: ReactNode }) {
       isSending, sendTest,
       response, sendError,
       history, clearHistory, selectHistoryEntry,
+      retryInterval, setRetryInterval, retryIntervalError,
+      isSavingRetryInterval, saveRetryInterval, retrySaveSuccess,
     }}>
       {children}
     </WebhookTesterContext.Provider>
