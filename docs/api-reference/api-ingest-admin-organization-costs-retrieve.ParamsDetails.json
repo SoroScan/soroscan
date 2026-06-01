@@ -1,0 +1,1 @@
+{"parameters":[{"in":"query","name":"month","schema":{"type":"string","minLength":1}},{"in":"query","name":"organization_id","schema":{"type":"integer"}}]}

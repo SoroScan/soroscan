@@ -4,6 +4,7 @@ import { useState } from "react";
 import { formatDateTime } from "@/components/ingest/formatters";
 import type { EventRecord } from "@/components/ingest/types";
 import styles from "@/components/ingest/ingest-terminal.module.css";
+import { JsonHighlight } from "./JsonHighlight";
 
 interface EventDetailModalProps {
   event: EventRecord;
@@ -12,6 +13,10 @@ interface EventDetailModalProps {
 
 export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
   const [copied, setCopied] = useState<string | null>(null);
+  const [payloadView, setPayloadView] = useState<"json" | "hex">("json");
+
+  const payloadJson = JSON.stringify(event.payload, null, 2);
+  const payloadHex = toHex(payloadJson);
 
   const copyToClipboard = async (text: string, label: string) => {
     try {
@@ -46,6 +51,30 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
 
         <div className={styles.exportModalBody}>
           <div style={{ display: "grid", gap: "1rem" }}>
+            <section
+              style={{
+                border: "1px solid rgba(0, 212, 255, 0.2)",
+                borderRadius: "6px",
+                padding: "0.75rem",
+                display: "grid",
+                gap: "0.55rem",
+              }}
+            >
+              <h3 style={{ margin: 0, color: "#00d4ff", fontSize: "0.9rem" }}>Metadata</h3>
+              <div
+                style={{
+                  display: "grid",
+                  gap: "0.55rem",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                }}
+              >
+                <MetaBadge label="Timestamp" value={formatDateTime(event.timestamp)} />
+                <MetaBadge label="Ledger" value={event.ledger.toString()} />
+                <MetaBadge label="Event Index" value={event.eventIndex.toString()} />
+                <MetaBadge label="Event Type" value={event.eventType} />
+              </div>
+            </section>
+
             <DetailRow
               label="Event ID"
               value={event.id}
@@ -64,14 +93,6 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
               <DetailRow label="Contract Name" value={event.contractName} />
             )}
             
-            <DetailRow label="Event Type" value={event.eventType} />
-            
-            <DetailRow label="Ledger Sequence" value={event.ledger.toString()} />
-            
-            <DetailRow label="Event Index" value={event.eventIndex.toString()} />
-            
-            <DetailRow label="Timestamp" value={formatDateTime(event.timestamp)} />
-            
             <DetailRow
               label="Transaction Hash"
               value={event.txHash}
@@ -82,38 +103,57 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
             <div>
               <div
                 style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
                   marginBottom: "0.5rem",
                 }}
               >
                 <label className={styles.fieldLabel}>Payload</label>
-                <button
-                  type="button"
-                  className={styles.btn}
-                  style={{ padding: "0.3rem 0.6rem", fontSize: "0.75rem" }}
-                  onClick={() =>
-                    copyToClipboard(JSON.stringify(event.payload, null, 2), "payload")
-                  }
-                >
-                  {copied === "payload" ? "Copied!" : "Copy"}
-                </button>
+                <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className={`${styles.btn} ${payloadView === "json" ? "" : styles.secondaryBtn}`}
+                    style={{ padding: "0.25rem 0.55rem", fontSize: "0.75rem", minWidth: "auto" }}
+                    onClick={() => setPayloadView("json")}
+                  >
+                    JSON
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.btn} ${payloadView === "hex" ? "" : styles.secondaryBtn}`}
+                    style={{ padding: "0.25rem 0.55rem", fontSize: "0.75rem", minWidth: "auto" }}
+                    onClick={() => setPayloadView("hex")}
+                  >
+                    HEX
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.btn}
+                    style={{ padding: "0.25rem 0.55rem", fontSize: "0.75rem", minWidth: "auto" }}
+                    onClick={() => copyToClipboard(payloadView === "json" ? payloadJson : payloadHex, "payload")}
+                  >
+                    {copied === "payload" ? "Copied!" : "Copy Payload"}
+                  </button>
+                </div>
               </div>
-              <pre
-                style={{
-                  background: "rgba(0, 0, 0, 0.3)",
-                  border: "1px solid rgba(0, 212, 255, 0.3)",
-                  padding: "0.75rem",
-                  borderRadius: "4px",
-                  overflow: "auto",
-                  maxHeight: "300px",
-                  fontSize: "0.8rem",
-                  color: "#00d4ff",
-                }}
-              >
-                {JSON.stringify(event.payload, null, 2)}
-              </pre>
+              {payloadView === "json" ? (
+                <JsonHighlight data={event.payload} theme="dark" maxHeight="300px" />
+              ) : (
+                <pre
+                  style={{
+                    background: "rgba(0, 0, 0, 0.3)",
+                    border: "1px solid rgba(0, 212, 255, 0.3)",
+                    padding: "0.75rem",
+                    borderRadius: "4px",
+                    overflow: "auto",
+                    maxHeight: "300px",
+                    fontSize: "0.78rem",
+                    color: "#ffd27d",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {payloadHex}
+                </pre>
+              )}
             </div>
 
             {event.payloadHash && (
@@ -144,6 +184,34 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
             Close
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function toHex(input: string): string {
+  const bytes = new TextEncoder().encode(input);
+  return Array.from(bytes)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join(" ");
+}
+
+function MetaBadge({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <label className={styles.fieldLabel}>{label}</label>
+      <div
+        style={{
+          border: "1px solid rgba(123, 168, 181, 0.25)",
+          borderRadius: "4px",
+          background: "rgba(0, 0, 0, 0.25)",
+          color: "#d6f7ff",
+          padding: "0.4rem",
+          fontSize: "0.78rem",
+          wordBreak: "break-word",
+        }}
+      >
+        {value}
       </div>
     </div>
   );

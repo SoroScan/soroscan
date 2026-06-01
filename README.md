@@ -239,6 +239,16 @@ Edit `k8s/ingress.yaml`:
 # Apply all manifests
 kubectl apply -f k8s/
 
+## Deployment Docs
+
+For complete production deployment and operations guidance, see the `docs/deployment` section:
+
+- Local Docker Compose: [docs/deployment/docker-compose](docs/deployment/docker-compose)
+- Kubernetes (Helm + Terraform): [docs/deployment/kubernetes](docs/deployment/kubernetes)
+- AWS EKS example: [docs/deployment/aws](docs/deployment/aws)
+- Monitoring, backups, runbooks and troubleshooting: [docs/deployment/monitoring](docs/deployment/monitoring)
+
+
 # Verify deployment
 kubectl get pods -n soroscan
 kubectl get svc -n soroscan
@@ -329,3 +339,12 @@ kubectl scale deployment/soroscan-worker --replicas=3 -n soroscan
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
+
+---
+
+## 📚 Additional Documentation
+
+- [CELERY.md](CELERY.md) — Celery worker queues, concurrency settings, and deployment examples
+- [Architecture Overview](docs/architecture/README.md) — end-to-end system design, data flows, component interaction, and deployment architecture
+- [Architecture Decision Records](docs/architecture/adr.md) — rationale for core technology and design choices
+- [DATABASE_TUNING.md](DATABASE_TUNING.md) — Recommended configuration settings for high-volume write workloads and indexing optimizations.

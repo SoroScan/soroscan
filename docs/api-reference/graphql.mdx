@@ -1,0 +1,201 @@
+---
+id: api-reference/graphql
+title: GraphQL API Reference
+description: Query contract events and manage Soroscan data using the GraphQL endpoint.
+sidebar_label: GraphQL Reference
+hide_title: false
+---
+
+The SoroScan GraphQL API provides a flexible way to fetch indexed contract events, contract metadata, and real-time notifications.
+
+## GraphQL endpoint
+
+- HTTP endpoint: `{{baseUrl}}/graphql/`
+- WebSocket endpoint: `ws://<host>/graphql/` or `wss://<host>/graphql/`
+
+> Note: Strawberry GraphQL uses the same `/graphql/` route for both HTTP queries and WebSocket subscriptions.
+
+## Authentication
+
+Protected queries, mutations, and subscriptions require a JWT bearer token.
+
+```http
+Authorization: Bearer <access-token>
+```
+
+## Introspection and playground
+
+- `GET {{baseUrl}}/graphql/` opens the interactive GraphQL playground when enabled.
+- Production deployments may disable introspection using `GRAPHQL_INTROSPECTION_ENABLED=False`.
+
+## Common queries
+
+### Fetch tracked contracts
+
+```graphql
+query GetTrackedContracts {
+  contracts(isActive: true) {
+    id
+    contractId
+    name
+    alias
+    description
+    isActive
+    lastEventAt
+  }
+}
+```
+
+### Query contract events
+
+```graphql
+query ContractEvents($contractId: String!, $first: Int!) {
+  events(contractId: $contractId, first: $first) {
+    edges {
+      node {
+        id
+        eventType
+        payload
+        decodedPayload
+        timestamp
+        txHash
+      }
+      cursor
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    totalCount
+  }
+}
+```
+
+### Search within events
+
+```graphql
+query SearchEvents($query: EventSearchQuery!) {
+  searchEvents(query: $query) {
+    id
+    contractId
+    eventType
+    payload
+    ledger
+    timestamp
+    txHash
+    relevanceScore
+  }
+}
+```
+
+## Mutations
+
+### Register a new contract
+
+```graphql
+mutation RegisterContract {
+  registerContract(
+    contractId: "CABC123...",
+    name: "My Contract",
+    description: "Index events for my Soroban contract"
+  ) {
+    id
+    contractId
+    name
+    description
+  }
+}
+```
+
+### Update contract metadata
+
+```graphql
+mutation UpdateContract {
+  updateContract(
+    contractId: "CABC123...",
+    name: "Updated Contract Name",
+    alias: "my-contract",
+    eventFilterType: "include",
+    eventFilterList: ["transfer", "mint"]
+  ) {
+    contractId
+    name
+    alias
+    eventFilterType
+    eventFilterList
+  }
+}
+```
+
+### Set contract metadata
+
+```graphql
+mutation SetContractMetadata {
+  setContractMetadata(
+    contractId: "CABC123...",
+    name: "My Contract",
+    description: "Metadata description",
+    tags: ["token", "finance"],
+    documentationUrl: "https://docs.example.com",
+    githubRepo: "https://github.com/example/repo",
+    teamEmail: "team@example.com"
+  ) {
+    name
+    description
+    tags
+    documentationUrl
+    githubRepo
+    teamEmail
+  }
+}
+```
+
+## Subscriptions
+
+Use GraphQL subscriptions to stream real-time notifications and contract events.
+
+### Subscribe to notifications
+
+```graphql
+subscription Notifications {
+  notifications {
+    id
+    notificationType
+    title
+    message
+    link
+    createdAt
+  }
+}
+```
+
+### Subscribe to contract events
+
+```graphql
+subscription ContractEvents {
+  contractEvents(contractId: "CABC123...") {
+    id
+    eventType
+    payload
+    timestamp
+    txHash
+  }
+}
+```
+
+## HTTP request example
+
+```bash
+curl -X POST "{{baseUrl}}/graphql/" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <access-token>" \
+  -d '{
+    "query": "query { contracts(isActive: true) { contractId name } }"
+  }'
+```
+
+## Notes
+
+- Use `first`/`after` for cursor-based pagination on `events`.
+- When introspection is disabled, use backend documentation or generated schema tools to discover field names.
+- Real-time subscriptions require a GraphQL WS-compatible client.

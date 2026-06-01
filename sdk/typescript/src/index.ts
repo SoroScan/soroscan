@@ -1,4 +1,4 @@
-export { SoroScanClient, SoroScanError } from "./client.js";
+export { SoroScanClient, SoroScanError, Paginator } from "./client.js";
 export type {
   // Config
   SoroScanClientConfig,
