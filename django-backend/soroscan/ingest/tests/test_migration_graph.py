@@ -21,7 +21,7 @@ def test_single_leaf_node():
     """
     Assert the ingest migration graph has exactly one leaf node.
 
-    The current leaf is '0042_add_invoice_model'
+    The current leaf is '0043_merge_0042_add_invoice_model_0042_blacklistedcontract'
     """
     loader = MigrationLoader(None, ignore_no_migrations=True)
 
@@ -31,9 +31,10 @@ def test_single_leaf_node():
     assert len(leaf_nodes) == 1, (
         f"Expected 1 leaf node for 'ingest', found {len(leaf_nodes)}: {leaf_nodes}"
     )
-    # After adding invoice and SLA tracking models the expected single leaf is 0042.
-    assert leaf_nodes[0][1] == "0042_add_invoice_model", (
-        "Expected leaf node '0042_add_invoice_model', "
+    # The 0043 merge migration joins the invoice/SLA and blacklist branches.
+    expected_leaf = "0043_merge_0042_add_invoice_model_0042_blacklistedcontract"
+    assert leaf_nodes[0][1] == expected_leaf, (
+        f"Expected leaf node '{expected_leaf}', "
         f"got '{leaf_nodes[0][1]}'"
     )
 
