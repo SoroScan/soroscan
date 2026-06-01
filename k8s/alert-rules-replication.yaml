@@ -1,0 +1,98 @@
+"""
+Prometheus alert rules for SoroScan replication monitoring.
+
+These rules are used by Prometheus AlertManager to trigger alerts
+when replication lag exceeds defined thresholds.
+
+Usage:
+  Add to prometheus.yml under rule_files:
+    - '/etc/prometheus/alert-rules-replication.yml'
+"""
+
+groups:
+  - name: soroscan-replication
+    interval: 30s
+    rules:
+      # Alert when replication lag exceeds warning threshold
+      - alert: ReplicationLagWarning
+        expr: soroscan_replication_lag_seconds > 5
+        for: 2m
+        labels:
+          severity: warning
+          service: soroscan
+          component: replication
+        annotations:
+          summary: "Replication lag warning for {{ $labels.region }}"
+          description: |
+            Replication lag has exceeded the warning threshold.
+            Current lag: {{ $value | humanize }}s
+            Region: {{ $labels.region }}
+            Threshold: 5s
+
+      # Alert when replication lag exceeds critical threshold
+      - alert: ReplicationLagCritical
+        expr: soroscan_replication_lag_seconds > 10
+        for: 1m
+        labels:
+          severity: critical
+          service: soroscan
+          component: replication
+        annotations:
+          summary: "Critical replication lag detected for {{ $labels.region }}"
+          description: |
+            Replication lag has exceeded the critical threshold.
+            Immediate action required!
+            Current lag: {{ $value | humanize }}s
+            Region: {{ $labels.region }}
+            Threshold: 10s
+          runbook_url: "https://soroscan.example.com/docs/runbooks/replication-lag/"
+
+      # Alert when replication becomes unhealthy
+      - alert: ReplicationUnhealthy
+        expr: soroscan_replication_status == 0
+        for: 3m
+        labels:
+          severity: critical
+          service: soroscan
+          component: replication
+        annotations:
+          summary: "Replication unhealthy for {{ $labels.region }}"
+          description: |
+            Database replication health status is unhealthy.
+            This indicates the replica may be significantly lagged or disconnected.
+            Region: {{ $labels.region }}
+            Please investigate immediately.
+
+      # Alert when replication lag checks are failing
+      - alert: ReplicationLagChecksFailing
+        expr: |
+          rate(soroscan_replication_lag_checks_total{status="failed"}[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: soroscan
+          component: replication
+        annotations:
+          summary: "Replication lag monitoring checks are failing for {{ $labels.region }}"
+          description: |
+            Unable to measure replication lag in the last 5 minutes.
+            This could indicate a connectivity issue to the databases.
+            Region: {{ $labels.region }}
+            Please check database connectivity and logs.
+
+      # Alert on excessive replication alerts
+      - alert: ExcessiveReplicationAlerts
+        expr: |
+          increase(soroscan_replication_alerts_total{severity="critical"}[15m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          service: soroscan
+          component: replication
+        annotations:
+          summary: "Multiple replication alerts triggered for {{ $labels.region }}"
+          description: |
+            More than 5 critical replication alerts in the last 15 minutes.
+            This indicates ongoing replication issues.
+            Region: {{ $labels.region }}
+            Check replication lag dashboard for details.

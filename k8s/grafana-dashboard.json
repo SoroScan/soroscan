@@ -10,9 +10,24 @@
     }
   ],
   "__requires": [
-    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "9.0.0" },
-    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" },
-    { "type": "panel", "id": "timeseries", "name": "Time series", "version": "" },
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "9.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    },
+    {
+      "type": "panel",
+      "id": "timeseries",
+      "name": "Time series",
+      "version": ""
+    },
     { "type": "panel", "id": "stat", "name": "Stat", "version": "" },
     { "type": "panel", "id": "table", "name": "Table", "version": "" }
   ],
@@ -134,13 +149,20 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" },
-        "thresholds": { "mode": "absolute", "steps": [
-          { "color": "green", "value": null },
-          { "color": "yellow", "value": 10 },
-          { "color": "red", "value": 50 }
-        ] }
-      } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 10 },
+              { "color": "red", "value": 50 }
+            ]
+          }
+        }
+      },
       "gridPos": { "h": 4, "w": 6, "x": 0, "y": 25 },
       "id": 6,
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
@@ -187,16 +209,106 @@
       ],
       "title": "DB Errors/s",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 38 },
+      "id": 104,
+      "title": "Replication Monitoring",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 10 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 39 },
+      "id": 9,
+      "targets": [
+        {
+          "expr": "soroscan_replication_lag_seconds",
+          "legendFormat": "Lag ({{region}})"
+        }
+      ],
+      "title": "Replication Lag Over Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "green", "value": 10 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 39 },
+      "id": 10,
+      "options": { "orientation": "auto" },
+      "targets": [
+        {
+          "expr": "soroscan_replication_lag_seconds",
+          "legendFormat": "{{region}}"
+        }
+      ],
+      "title": "Current Replication Lag",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 47 },
+      "id": 11,
+      "targets": [
+        {
+          "expr": "soroscan_replication_status{region=~\".*\"}",
+          "legendFormat": "Status: {{region}}"
+        }
+      ],
+      "title": "Replication Health Status (1=Healthy, 0=Unhealthy)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 47 },
+      "id": 12,
+      "targets": [
+        {
+          "expr": "increase(soroscan_replication_alerts_total[5m])",
+          "legendFormat": "{{severity}} alerts ({{region}})"
+        }
+      ],
+      "title": "Replication Alerts (Last 5m)",
+      "type": "timeseries"
     }
   ],
   "refresh": "30s",
   "schemaVersion": 37,
-  "tags": ["soroscan", "performance"],
+  "tags": ["soroscan", "performance", "replication"],
   "templating": { "list": [] },
   "time": { "from": "now-1h", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
   "title": "SoroScan Performance",
   "uid": "soroscan-perf-v1",
-  "version": 1
+  "version": 2
 }

@@ -3663,3 +3663,142 @@ def detect_contract_upgrades() -> dict[str, Any]:
             ).update(valid_to_ledger=ledger - 1)
 
     return summary
+
+
+# ---------------------------------------------------------------------------
+# Issue #537: Multi-Region Replication Monitoring
+# ---------------------------------------------------------------------------
+
+
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60,
+    soft_time_limit=30,
+    time_limit=45,
+)
+def monitor_replication_lag(self) -> dict[str, Any]:
+    """
+    Monitor replication lag between primary and replica databases.
+
+    This task:
+    1. Measures current replication lag
+    2. Updates Prometheus metrics
+    3. Generates alerts if lag exceeds thresholds
+    4. Logs results for monitoring
+
+    Returns dict with lag measurement and alert status.
+    """
+    from soroscan.ingest.replication import get_monitor
+    from soroscan.ingest import metrics
+
+    region = getattr(settings, "REGION_NAME", "primary")
+
+    try:
+        monitor = get_monitor()
+
+        # Measure replication lag using LSN method (fast)
+        lag_seconds = monitor.measure_lag()
+
+        # Update metrics
+        metrics.replication_lag_checks_total.labels(
+            region=region, status="success"
+        ).inc()
+
+        result = {
+            "region": region,
+            "lag_seconds": lag_seconds,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+        if lag_seconds is not None:
+            # Update lag gauge
+            metrics.replication_lag_seconds.labels(region=region).set(lag_seconds)
+
+            # Determine and set health status
+            lag_threshold = getattr(settings, "REPLICATION_LAG_THRESHOLD_SECONDS", 5.0)
+            is_healthy = lag_seconds < lag_threshold
+            metrics.replication_status_gauge.labels(region=region).set(1 if is_healthy else 0)
+
+            result["is_healthy"] = is_healthy
+            result["lag_threshold"] = lag_threshold
+
+            # Check for alerts
+            alert_info = monitor.check_and_alert(lag_seconds)
+            if alert_info:
+                severity = alert_info["severity"]
+                metrics.replication_alerts_total.labels(
+                    region=region, severity=severity
+                ).inc()
+                result["alert"] = alert_info
+                logger.warning(
+                    f"Replication lag alert [{severity}]: {alert_info['message']}"
+                )
+
+            logger.info(
+                f"Replication lag measured: {lag_seconds:.3f}s (threshold: {lag_threshold}s)"
+            )
+        else:
+            metrics.replication_status_gauge.labels(region=region).set(0)
+            result["error"] = "Could not measure replication lag"
+            logger.warning("Replication lag measurement failed")
+
+        return result
+
+    except Exception as exc:
+        logger.error(f"Error in replication lag monitoring: {exc}", exc_info=True)
+        metrics.replication_lag_checks_total.labels(
+            region=region, status="failed"
+        ).inc()
+
+        # Retry with exponential backoff
+        raise self.retry(exc=exc)
+
+
+@shared_task(
+    bind=True,
+    max_retries=2,
+    default_retry_delay=30,
+    soft_time_limit=60,
+    time_limit=90,
+)
+def check_replica_health(self) -> dict[str, Any]:
+    """
+    Check comprehensive health status of replica database.
+
+    This task:
+    1. Retrieves replica status information
+    2. Validates replica is in standby mode
+    3. Checks if replay LSN is advancing
+    4. Updates health metrics
+
+    Returns replica health status information.
+    """
+    from soroscan.ingest.replication import get_monitor
+
+    region = getattr(settings, "REGION_NAME", "primary")
+
+    try:
+        monitor = get_monitor()
+        replica_status = monitor.get_replica_status()
+
+        result = {
+            "region": region,
+            "timestamp": datetime.utcnow().isoformat(),
+            "replica_status": replica_status,
+        }
+
+        if replica_status:
+            is_standby = replica_status.get("is_standby", False)
+            result["is_standby"] = is_standby
+
+            if is_standby:
+                logger.info("Replica is in standby mode and healthy")
+            else:
+                logger.warning("Replica is not in standby mode (may have promoted)")
+
+        return result
+
+    except Exception as exc:
+        logger.error(f"Error checking replica health: {exc}", exc_info=True)
+        raise self.retry(exc=exc)

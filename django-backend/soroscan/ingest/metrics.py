@@ -38,6 +38,11 @@ __all__ = [
     "ledger_gaps_total",
     "missing_events_total",
     "event_ingestion_rate_gauge",
+    # replication monitoring
+    "replication_lag_seconds",
+    "replication_lag_checks_total",
+    "replication_status_gauge",
+    "replication_alerts_total",
 ]
 
 
@@ -271,3 +276,36 @@ event_ingestion_rate_gauge = _get_or_create(
     "soroscan_event_ingestion_rate",
     "Current event ingestion rate in events per second",
 )
+
+# ---------------------------------------------------------------------------
+# Replication monitoring metrics (Issue #537)
+# ---------------------------------------------------------------------------
+
+replication_lag_seconds = _get_or_create(
+    Gauge,
+    "soroscan_replication_lag_seconds",
+    "Current replication lag between primary and replica databases in seconds",
+    ["region"],
+)
+
+replication_lag_checks_total = _get_or_create(
+    Counter,
+    "soroscan_replication_lag_checks_total",
+    "Total number of replication lag checks performed",
+    ["region", "status"],
+)
+
+replication_status_gauge = _get_or_create(
+    Gauge,
+    "soroscan_replication_status",
+    "Replication status: 1 = healthy, 0 = unhealthy/lagging",
+    ["region"],
+)
+
+replication_alerts_total = _get_or_create(
+    Counter,
+    "soroscan_replication_alerts_total",
+    "Total number of replication alerts triggered",
+    ["region", "severity"],
+)
+
