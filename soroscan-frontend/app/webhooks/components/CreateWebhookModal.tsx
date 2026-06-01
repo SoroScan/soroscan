@@ -69,7 +69,7 @@ export function CreateWebhookModal({ isOpen, onClose, onCreate }: CreateWebhookM
       })
       const result = await response.json()
       setTestResult(result.data?.testWebhookUrl || { success: false, error: "Unknown error" })
-    } catch (e) {
+    } catch (_e) {
       setTestResult({ success: false, error: "Failed to test connection" })
     } finally {
       setTesting(false)
