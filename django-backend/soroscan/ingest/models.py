@@ -583,6 +583,11 @@ class ContractEvent(models.Model):
         related_name="events",
         help_text="The contract that emitted this event",
     )
+    contract_address = models.CharField(
+        max_length=56,
+        db_index=True,
+        help_text="Denormalized contract address for faster queries",
+    )
     event_type = models.CharField(
         max_length=100,
         db_index=True,
@@ -682,6 +687,9 @@ class ContractEvent(models.Model):
         if not self.payload_hash and self.payload:
             payload_bytes = str(self.payload).encode("utf-8")
             self.payload_hash = hashlib.sha256(payload_bytes).hexdigest()
+        # Auto-set denormalized contract_address from contract
+        if self.contract:
+            self.contract_address = self.contract.contract_id
         super().save(*args, **kwargs)
 
 
