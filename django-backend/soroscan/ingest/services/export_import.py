@@ -42,7 +42,7 @@ CHUNK_SIZE = 500  # rows per DB query batch
 
 def _event_to_dict(event: ContractEvent) -> dict:
     return {
-        "contract_id": event.contract.contract_id,
+        "contract_id": event.contract_address,
         "event_type": event.event_type,
         "schema_version": event.schema_version,
         "validation_status": event.validation_status,
@@ -63,7 +63,7 @@ def _iter_events(contract_id: str, start_ledger: int | None, end_ledger: int | N
     """Yield events in (ledger, event_index) order using pk-based pagination to avoid loading all rows."""
     qs = (
         ContractEvent.objects
-        .filter(contract__contract_id=contract_id)
+        .filter(contract_address=contract_id)
         .select_related("contract")
         .order_by("ledger", "event_index", "pk")
     )
@@ -83,7 +83,7 @@ def _iter_events(contract_id: str, start_ledger: int | None, end_ledger: int | N
 
 
 def _count_events(contract_id: str, start_ledger: int | None, end_ledger: int | None) -> int:
-    qs = ContractEvent.objects.filter(contract__contract_id=contract_id)
+    qs = ContractEvent.objects.filter(contract_address=contract_id)
     if start_ledger is not None:
         qs = qs.filter(ledger__gte=start_ledger)
     if end_ledger is not None:
