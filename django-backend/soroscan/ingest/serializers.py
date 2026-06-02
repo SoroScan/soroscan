@@ -222,7 +222,7 @@ class ContractEventSerializer(serializers.ModelSerializer):
     Provides read-only details of an indexed event from the Soroban network.
     """
 
-    contract_id = serializers.CharField(source="contract.contract_id", read_only=True)
+    contract_id = serializers.CharField(source="contract_address", read_only=True)
     contract_name = serializers.CharField(source="contract.name", read_only=True)
     transaction_id = serializers.CharField(source="tx_hash", read_only=True)
 
@@ -231,6 +231,7 @@ class ContractEventSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "contract_id",
+            "contract_address",
             "contract_name",
             "event_type",
             "payload",
@@ -249,6 +250,7 @@ class ContractEventSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "contract_id",
+            "contract_address",
             "contract_name",
             "event_type",
             "payload",
@@ -466,7 +468,7 @@ class EventSearchSerializer(serializers.ModelSerializer):
     Includes a ``relevance_score`` placeholder for future ranking support.
     """
 
-    contract_id = serializers.CharField(source="contract.contract_id", read_only=True)
+    contract_id = serializers.CharField(source="contract_address", read_only=True)
     contract_name = serializers.CharField(source="contract.name", read_only=True)
     transaction_id = serializers.CharField(source="tx_hash", read_only=True)
     relevance_score = serializers.SerializerMethodField()
@@ -476,6 +478,7 @@ class EventSearchSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "contract_id",
+            "contract_address",
             "contract_name",
             "event_type",
             "payload",
