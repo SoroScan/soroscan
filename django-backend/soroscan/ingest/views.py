@@ -313,6 +313,7 @@ class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ContractEventSerializer
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_fields = [
+        "contract_address",
         "contract__contract_id",
         "event_type",
         "ledger",
@@ -372,7 +373,7 @@ class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
         # --- contract / event_type pre-filters --------------------------------
         contract_id = request.GET.get("contract_id")
         if contract_id:
-            qs = qs.filter(contract__contract_id=contract_id)
+            qs = qs.filter(contract_address=contract_id)
 
         event_type = request.GET.get("event_type")
         if event_type:
