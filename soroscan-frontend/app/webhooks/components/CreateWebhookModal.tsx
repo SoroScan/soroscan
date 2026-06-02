@@ -147,7 +147,10 @@ export function CreateWebhookModal({ isOpen, onClose, onCreate }: CreateWebhookM
               onBlur={() => setTimeoutTouched(true)}
               aria-invalid={!!timeoutError}
             />
-            <div className="flex flex-wrap gap-2 mt-2">
+            <p className="text-[9px] text-terminal-gray/60 ml-1 mt-2">
+              Maximum time to wait for webhook response. If your endpoint is slow, increase this. Shorter timeouts are faster but may miss responses.
+            </p>
+            <div className="flex flex-wrap gap-2 mt-3">
               {[10, 20, 30, 45, 60].map((value) => (
                 <button
                   key={value}
