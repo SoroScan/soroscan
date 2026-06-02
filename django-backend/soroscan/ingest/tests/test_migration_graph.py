@@ -21,7 +21,7 @@ def test_single_leaf_node():
     """
     Assert the ingest migration graph has exactly one leaf node.
 
-    The current leaf is '0042_blacklistedcontract'
+    The current leaf is '0043_add_contractevent_contract_address'
     """
     loader = MigrationLoader(None, ignore_no_migrations=True)
 
@@ -31,9 +31,9 @@ def test_single_leaf_node():
     assert len(leaf_nodes) == 1, (
         f"Expected 1 leaf node for 'ingest', found {len(leaf_nodes)}: {leaf_nodes}"
     )
-    # After adding BlacklistedContract the expected single leaf is 0042
-    assert leaf_nodes[0][1] == "0042_blacklistedcontract", (
-        "Expected leaf node '0042_blacklistedcontract', "
+    # After adding ContractEvent.contract_address the expected single leaf is 0043
+    assert leaf_nodes[0][1] == "0043_add_contractevent_contract_address", (
+        "Expected leaf node '0043_add_contractevent_contract_address', "
         f"got '{leaf_nodes[0][1]}'"
     )
 
