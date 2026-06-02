@@ -1,18 +1,53 @@
 """
 Health check endpoints for Kubernetes liveness/readiness probes.
 """
+import time
+
 from django.core.cache import cache
 from django.db import connection
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
+from celery.exceptions import TimeoutError
+
+from soroscan.celery import app
+
+WORKER_HEALTH_TIMEOUT_SECONDS = 2
+
+
+PROCESS_START_TIME = time.monotonic()
+
+
+def format_uptime(seconds: int) -> str:
+    """Format uptime seconds as DH:M:S."""
+    days, remainder = divmod(seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    return f"{days}D:{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def get_uptime_payload() -> dict:
+    """Return machine-readable and human-readable uptime values."""
+    uptime_seconds = max(0, int(time.monotonic() - PROCESS_START_TIME))
+
+    return {
+        "uptime_seconds": uptime_seconds,
+        "uptime": format_uptime(uptime_seconds),
+    }
+
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def health_view(request):
     """Liveness probe - app is running."""
-    return Response({"status": "ok"})
+    return Response(
+        {
+            "status": "ok",
+            **get_uptime_payload(),
+        }
+    )
 
 
 @api_view(["GET"])
@@ -38,3 +73,27 @@ def readiness_view(request):
         return Response({"status": "not_ready", "errors": errors}, status=503)
 
     return Response({"status": "ready"})
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def worker_health_view(request):
+    """Worker health probe - checks Celery workers are responding."""
+    try:
+        inspector = app.control.inspect(timeout=WORKER_HEALTH_TIMEOUT_SECONDS)
+        worker_status = inspector.ping()
+
+        if not worker_status:
+            raise Exception("no worker responded")
+
+        return Response({"status": "healthy", "workers": worker_status})
+    except TimeoutError:
+        return Response(
+            {"status": "unhealthy", "error": "worker ping timeout"},
+            status=503,
+        )
+    except Exception as exc:
+        return Response(
+            {"status": "unhealthy", "error": str(exc)},
+            status=503,
+        )
