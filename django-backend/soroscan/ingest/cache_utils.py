@@ -80,7 +80,7 @@ def get_event_count(contract_id: str) -> int:
     if count is None:
         cache_misses_total.labels(cache_type="event_count").inc()
         from .models import ContractEvent
-        count = ContractEvent.objects.filter(contract__contract_id=contract_id).count()
+        count = ContractEvent.objects.filter(contract_address=contract_id).count()
         cache.set(key, count, 300)  # 5 min TTL
     else:
         cache_hits_total.labels(cache_type="event_count").inc()
