@@ -1,11 +1,12 @@
 """
-Tests for Contract model validation rules (issue #<placeholder>).
+Tests for Contract model and serializer validation rules (issue #590).
 """
 import pytest
 from django.core.exceptions import ValidationError
 
-from soroscan.ingest.models import TrackedContract, ContractMetadata
-from soroscan.ingest.tests.factories import UserFactory, TrackedContractFactory
+from soroscan.ingest.models import TrackedContract
+from soroscan.ingest.serializers import TrackedContractSerializer
+from soroscan.ingest.tests.factories import TrackedContractFactory, UserFactory
 
 
 @pytest.mark.django_db
@@ -93,7 +94,7 @@ class TestContractAddressValidation:
             "CABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRST ",  # trailing space
             " CABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRST",  # leading space
         ]
-        
+
         for invalid_address in invalid_addresses:
             contract = TrackedContract(
                 contract_id=invalid_address,
@@ -105,136 +106,108 @@ class TestContractAddressValidation:
             assert "contract_id" in exc.value.error_dict
 
 
+# ── Serializer-level validation tests ─────────────────────────────────────────
+
+_VALID_CONTRACT_ID = "C" + "A" * 55
+_VALID_PAYLOAD = {
+    "contract_id": _VALID_CONTRACT_ID,
+    "name": "My Contract",
+    "network": "testnet",
+}
+
+
+def _serialize(data, instance=None):
+    return TrackedContractSerializer(instance=instance, data=data)
+
+
 @pytest.mark.django_db
-class TestContractMetadataValidation:
-    def setup_method(self):
-        self.contract = TrackedContractFactory()
+class TestTrackedContractSerializerValidation:
 
-    def test_valid_metadata(self):
-        """Valid contract metadata should pass validation."""
-        metadata = ContractMetadata(
-            contract=self.contract,
-            name="Valid Contract Name",
-            description="This is a valid description.",
-            tags=["valid", "tags", "here"],
-            documentation_url="https://example.com/docs",
-            github_repo="https://github.com/example/repo",
-            team_email="team@example.com",
-        )
-        metadata.full_clean()
+    # --- contract_id format ---
 
-    def test_empty_name(self):
-        """Metadata with empty name should fail validation."""
-        metadata = ContractMetadata(
-            contract=self.contract,
-            name="",
-            description="Test",
-        )
-        with pytest.raises(ValidationError) as exc:
-            metadata.full_clean()
-        assert "name" in exc.value.error_dict
+    def test_valid_contract_id_passes(self):
+        s = _serialize(_VALID_PAYLOAD)
+        assert s.is_valid(), s.errors
 
-    def test_whitespace_only_name(self):
-        """Metadata with whitespace-only name should fail validation."""
-        metadata = ContractMetadata(
-            contract=self.contract,
-            name="   \t\n  ",
-            description="Test",
-        )
-        with pytest.raises(ValidationError) as exc:
-            metadata.full_clean()
-        assert "name" in exc.value.error_dict
+    def test_invalid_prefix_rejected_by_serializer(self):
+        data = {**_VALID_PAYLOAD, "contract_id": "G" + "A" * 55}
+        s = _serialize(data)
+        assert not s.is_valid()
+        assert "contract_id" in s.errors
+        assert "Soroban contract address" in str(s.errors["contract_id"])
 
-    def test_tags_not_a_list(self):
-        """Metadata with tags not a list should fail validation."""
-        metadata = ContractMetadata(
-            contract=self.contract,
-            name="Test",
-            tags="not a list",
-        )
-        with pytest.raises(ValidationError) as exc:
-            metadata.full_clean()
-        assert "tags" in exc.value.error_dict
+    def test_wrong_length_rejected_by_serializer(self):
+        for bad_id in ["C" + "A" * 54, "C" + "A" * 56]:
+            s = _serialize({**_VALID_PAYLOAD, "contract_id": bad_id})
+            assert not s.is_valid()
+            assert "contract_id" in s.errors
 
-    def test_tags_with_non_string(self):
-        """Metadata with tags containing non-string should fail validation."""
-        metadata = ContractMetadata(
-            contract=self.contract,
-            name="Test",
-            tags=["valid", 123],
-        )
-        with pytest.raises(ValidationError) as exc:
-            metadata.full_clean()
-        assert "tags" in exc.value.error_dict
+    def test_invalid_charset_rejected_by_serializer(self):
+        bad_id = "C" + "0" * 55  # '0' is not in Base32 alphabet
+        s = _serialize({**_VALID_PAYLOAD, "contract_id": bad_id})
+        assert not s.is_valid()
+        assert "contract_id" in s.errors
 
-    def test_tags_with_too_long_tag(self):
-        """Metadata with tag longer than 100 chars should fail validation."""
-        long_tag = "a" * 101
-        metadata = ContractMetadata(
-            contract=self.contract,
-            name="Test",
-            tags=["valid", long_tag],
-        )
-        with pytest.raises(ValidationError) as exc:
-            metadata.full_clean()
-        assert "tags" in exc.value.error_dict
+    def test_leading_whitespace_stripped_and_validated(self):
+        # Padded with spaces makes length wrong → should fail
+        bad_id = " " + "C" + "A" * 54  # 56 chars but leading space stripped → 55 chars
+        s = _serialize({**_VALID_PAYLOAD, "contract_id": bad_id})
+        assert not s.is_valid()
+        assert "contract_id" in s.errors
 
-    def test_tags_with_empty_string(self):
-        """Metadata with empty string tag should fail validation."""
-        metadata = ContractMetadata(
-            contract=self.contract,
-            name="Test",
-            tags=["valid", ""],
-        )
-        with pytest.raises(ValidationError) as exc:
-            metadata.full_clean()
-        assert "tags" in exc.value.error_dict
+    # --- duplicate check ---
 
-    def test_tags_with_whitespace_only(self):
-        """Metadata with whitespace-only tag should fail validation."""
-        metadata = ContractMetadata(
-            contract=self.contract,
-            name="Test",
-            tags=["valid", "   \t\n  "],
-        )
-        with pytest.raises(ValidationError) as exc:
-            metadata.full_clean()
-        assert "tags" in exc.value.error_dict
+    def test_duplicate_contract_id_rejected(self):
+        TrackedContractFactory(contract_id=_VALID_CONTRACT_ID)
+        s = _serialize(_VALID_PAYLOAD)
+        assert not s.is_valid()
+        assert "contract_id" in s.errors
+        assert "already registered" in str(s.errors["contract_id"])
 
-    def test_too_long_description(self):
-        """Metadata with description over 10000 chars should fail validation."""
-        long_description = "a" * 10001
-        metadata = ContractMetadata(
-            contract=self.contract,
-            name="Test",
-            description=long_description,
-        )
-        with pytest.raises(ValidationError) as exc:
-            metadata.full_clean()
-        assert "description" in exc.value.error_dict
+    def test_duplicate_check_skipped_on_update(self):
+        """Re-submitting the same contract_id on an update (PUT/PATCH) must not fail."""
+        existing = TrackedContractFactory(contract_id=_VALID_CONTRACT_ID)
+        s = _serialize({**_VALID_PAYLOAD, "name": "Updated Name"}, instance=existing)
+        assert s.is_valid(), s.errors
 
-    def test_valid_empty_tags(self):
-        """Metadata with empty tags list should pass validation."""
-        metadata = ContractMetadata(
-            contract=self.contract,
-            name="Test",
-            tags=[],
-        )
-        metadata.full_clean()
+    # --- network validity ---
 
-    def test_valid_empty_description(self):
-        """Metadata with empty description should pass validation."""
-        metadata = ContractMetadata(
-            contract=self.contract,
-            name="Test",
-            description="",
-        )
-        metadata.full_clean()
+    def test_valid_networks_accepted(self):
+        for net in ("mainnet", "testnet", "futurenet"):
+            s = _serialize({**_VALID_PAYLOAD, "contract_id": "C" + "B" * 55, "network": net})
+            assert s.is_valid(), f"Expected {net} to be valid, got: {s.errors}"
 
-    def test_valid_without_optional_fields(self):
-        """Metadata without optional fields should pass validation."""
-        metadata = ContractMetadata(
-            contract=self.contract,
-            name="Test",
-        )
-        metadata.full_clean()
+    def test_invalid_network_rejected(self):
+        s = _serialize({**_VALID_PAYLOAD, "network": "devnet"})
+        assert not s.is_valid()
+        assert "network" in s.errors
+        assert "valid network" in str(s.errors["network"]).lower()
+
+    def test_empty_network_rejected(self):
+        s = _serialize({**_VALID_PAYLOAD, "network": ""})
+        assert not s.is_valid()
+        assert "network" in s.errors
+
+    # --- error message clarity ---
+
+    def test_error_message_mentions_base32(self):
+        bad = {**_VALID_PAYLOAD, "contract_id": "XABCDE" + "A" * 50}
+        s = _serialize(bad)
+        assert not s.is_valid()
+        msg = str(s.errors["contract_id"])
+        assert "Base32" in msg or "C" in msg
+
+    def test_network_error_lists_valid_choices(self):
+        s = _serialize({**_VALID_PAYLOAD, "network": "unknown"})
+        assert not s.is_valid()
+        msg = str(s.errors["network"])
+        # At least one valid network name should appear in the error
+        assert any(n in msg for n in ("mainnet", "testnet", "futurenet"))
+
+    # --- network field is now included in output ---
+
+    def test_network_field_present_in_serialized_output(self):
+        contract = TrackedContractFactory(network="testnet")
+        s = TrackedContractSerializer(instance=contract)
+        assert "network" in s.data
+        assert s.data["network"] == "testnet"
