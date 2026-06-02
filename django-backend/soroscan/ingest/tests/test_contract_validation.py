@@ -4,8 +4,8 @@ Tests for Contract model validation rules (issue #<placeholder>).
 import pytest
 from django.core.exceptions import ValidationError
 
-from soroscan.ingest.models import TrackedContract
-from soroscan.ingest.tests.factories import UserFactory
+from soroscan.ingest.models import TrackedContract, ContractMetadata
+from soroscan.ingest.tests.factories import UserFactory, TrackedContractFactory
 
 
 @pytest.mark.django_db
@@ -103,3 +103,138 @@ class TestContractAddressValidation:
             with pytest.raises(ValidationError) as exc:
                 contract.full_clean()
             assert "contract_id" in exc.value.error_dict
+
+
+@pytest.mark.django_db
+class TestContractMetadataValidation:
+    def setup_method(self):
+        self.contract = TrackedContractFactory()
+
+    def test_valid_metadata(self):
+        """Valid contract metadata should pass validation."""
+        metadata = ContractMetadata(
+            contract=self.contract,
+            name="Valid Contract Name",
+            description="This is a valid description.",
+            tags=["valid", "tags", "here"],
+            documentation_url="https://example.com/docs",
+            github_repo="https://github.com/example/repo",
+            team_email="team@example.com",
+        )
+        metadata.full_clean()
+
+    def test_empty_name(self):
+        """Metadata with empty name should fail validation."""
+        metadata = ContractMetadata(
+            contract=self.contract,
+            name="",
+            description="Test",
+        )
+        with pytest.raises(ValidationError) as exc:
+            metadata.full_clean()
+        assert "name" in exc.value.error_dict
+
+    def test_whitespace_only_name(self):
+        """Metadata with whitespace-only name should fail validation."""
+        metadata = ContractMetadata(
+            contract=self.contract,
+            name="   \t\n  ",
+            description="Test",
+        )
+        with pytest.raises(ValidationError) as exc:
+            metadata.full_clean()
+        assert "name" in exc.value.error_dict
+
+    def test_tags_not_a_list(self):
+        """Metadata with tags not a list should fail validation."""
+        metadata = ContractMetadata(
+            contract=self.contract,
+            name="Test",
+            tags="not a list",
+        )
+        with pytest.raises(ValidationError) as exc:
+            metadata.full_clean()
+        assert "tags" in exc.value.error_dict
+
+    def test_tags_with_non_string(self):
+        """Metadata with tags containing non-string should fail validation."""
+        metadata = ContractMetadata(
+            contract=self.contract,
+            name="Test",
+            tags=["valid", 123],
+        )
+        with pytest.raises(ValidationError) as exc:
+            metadata.full_clean()
+        assert "tags" in exc.value.error_dict
+
+    def test_tags_with_too_long_tag(self):
+        """Metadata with tag longer than 100 chars should fail validation."""
+        long_tag = "a" * 101
+        metadata = ContractMetadata(
+            contract=self.contract,
+            name="Test",
+            tags=["valid", long_tag],
+        )
+        with pytest.raises(ValidationError) as exc:
+            metadata.full_clean()
+        assert "tags" in exc.value.error_dict
+
+    def test_tags_with_empty_string(self):
+        """Metadata with empty string tag should fail validation."""
+        metadata = ContractMetadata(
+            contract=self.contract,
+            name="Test",
+            tags=["valid", ""],
+        )
+        with pytest.raises(ValidationError) as exc:
+            metadata.full_clean()
+        assert "tags" in exc.value.error_dict
+
+    def test_tags_with_whitespace_only(self):
+        """Metadata with whitespace-only tag should fail validation."""
+        metadata = ContractMetadata(
+            contract=self.contract,
+            name="Test",
+            tags=["valid", "   \t\n  "],
+        )
+        with pytest.raises(ValidationError) as exc:
+            metadata.full_clean()
+        assert "tags" in exc.value.error_dict
+
+    def test_too_long_description(self):
+        """Metadata with description over 10000 chars should fail validation."""
+        long_description = "a" * 10001
+        metadata = ContractMetadata(
+            contract=self.contract,
+            name="Test",
+            description=long_description,
+        )
+        with pytest.raises(ValidationError) as exc:
+            metadata.full_clean()
+        assert "description" in exc.value.error_dict
+
+    def test_valid_empty_tags(self):
+        """Metadata with empty tags list should pass validation."""
+        metadata = ContractMetadata(
+            contract=self.contract,
+            name="Test",
+            tags=[],
+        )
+        metadata.full_clean()
+
+    def test_valid_empty_description(self):
+        """Metadata with empty description should pass validation."""
+        metadata = ContractMetadata(
+            contract=self.contract,
+            name="Test",
+            description="",
+        )
+        metadata.full_clean()
+
+    def test_valid_without_optional_fields(self):
+        """Metadata without optional fields should pass validation."""
+        metadata = ContractMetadata(
+            contract=self.contract,
+            name="Test",
+        )
+        metadata.full_clean()

@@ -1795,6 +1795,36 @@ class ContractMetadata(models.Model):
         verbose_name = "Contract Metadata"
         verbose_name_plural = "Contract Metadata"
 
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        errors = {}
+        
+        # Validate name is not empty or just whitespace
+        if not self.name or not self.name.strip():
+            errors["name"] = "Name cannot be empty or just whitespace."
+        
+        # Validate tags is a list of strings
+        if not isinstance(self.tags, list):
+            errors["tags"] = "Tags must be a list of strings."
+        else:
+            for i, tag in enumerate(self.tags):
+                if not isinstance(tag, str):
+                    errors["tags"] = f"All tags must be strings. Tag at index {i} is not a string."
+                    break
+                if len(tag) > 100:
+                    errors["tags"] = f"Tag at index {i} is too long (max 100 characters)."
+                    break
+                if not tag.strip():
+                    errors["tags"] = f"Tag at index {i} cannot be empty or just whitespace."
+                    break
+        
+        # Validate description length (optional, but reasonable limit)
+        if len(self.description) > 10000:
+            errors["description"] = "Description is too long (max 10000 characters)."
+        
+        if errors:
+            raise ValidationError(errors)
+
     def __str__(self):
         return f"Metadata({self.contract.contract_id[:8]}...)"
 
