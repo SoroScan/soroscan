@@ -329,6 +329,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "ingest.tasks.warm_event_count_cache",
         "schedule": 300,  # every 5 minutes
     },
+    "calculate-hourly-sla-metrics": {
+        "task": "soroscan.ingest.sla_tasks.calculate_hourly_sla_metrics",
+        "schedule": 3600,  # hourly
+    },
 }
 
 # Data Retention Configuration

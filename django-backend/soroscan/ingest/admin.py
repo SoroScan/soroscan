@@ -1370,3 +1370,82 @@ class EventDeduplicationConfigAdmin(AdminAuditMixin, admin.ModelAdmin):
             json.dumps({"dedup_hash": dedup_hash, "material": material}),
             content_type="application/json",
         )
+
+
+# SLA Tracking Admin Classes
+# Import models from sla_models (will be added to apps)
+try:
+    from .sla_models import (
+        EventCompletenessMetric,
+        SLAViolation,
+        SLAConfiguration,
+    )
+
+    @admin.register(EventCompletenessMetric)
+    class EventCompletenessMetricAdmin(admin.ModelAdmin):
+        list_display = [
+            "contract",
+            "hour",
+            "completeness_percent",
+            "total_emitted",
+            "total_indexed",
+            "sla_breached",
+        ]
+        list_filter = ["sla_breached", "hour", "contract"]
+        search_fields = ["contract__name"]
+        readonly_fields = ["completeness_percent", "missing_events", "created_at", "updated_at"]
+        ordering = ["-hour"]
+
+    @admin.register(SLAViolation)
+    class SLAViolationAdmin(admin.ModelAdmin):
+        list_display = [
+            "contract",
+            "violation_hour",
+            "status",
+            "severity",
+            "actual_completeness_percent",
+            "events_missing",
+            "alert_sent",
+        ]
+        list_filter = ["status", "severity", "violation_hour"]
+        search_fields = ["contract__name"]
+        readonly_fields = ["created_at"]
+        actions = ["mark_resolved", "send_alert"]
+
+        def mark_resolved(self, request, queryset):
+            from django.utils import timezone
+            count = queryset.update(
+                status="resolved",
+                resolved_at=timezone.now(),
+            )
+            self.message_user(request, f"{count} violations marked as resolved.")
+
+        mark_resolved.short_description = "Mark selected violations as resolved"
+
+        def send_alert(self, request, queryset):
+            from .sla_tasks import send_sla_violation_alert
+            count = 0
+            for violation in queryset:
+                if not violation.alert_sent:
+                    send_sla_violation_alert.delay(violation.id)
+                    count += 1
+            self.message_user(request, f"Alert sent for {count} violations.")
+
+        send_alert.short_description = "Send alert for violations"
+
+    @admin.register(SLAConfiguration)
+    class SLAConfigurationAdmin(admin.ModelAdmin):
+        list_display = [
+            "contract",
+            "completeness_threshold_percent",
+            "calculation_window_hours",
+            "alert_on_violation",
+            "is_enabled",
+        ]
+        list_filter = ["is_enabled", "alert_on_violation"]
+        search_fields = ["contract__name"]
+        readonly_fields = ["created_at", "updated_at"]
+
+except ImportError:
+    # SLA models not yet installed
+    pass
