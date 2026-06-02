@@ -152,10 +152,11 @@ class EventType:
     schema_version: auto
     validation_status: auto
     signature_status: auto
+    contract_address: auto
 
     @strawberry.field
     def contract_id(self) -> str:
-        return self.contract.contract_id
+        return self.contract_address
 
     @strawberry.field
     def contract_name(self) -> str:
@@ -504,7 +505,7 @@ class Query:
         qs = ContractEvent.objects.select_related("contract").order_by("id")
 
         if contract_id:
-            qs = qs.filter(contract__contract_id=contract_id)
+            qs = qs.filter(contract_address=contract_id)
         if event_type:
             qs = qs.filter(event_type=event_type)
         if signature_status is not None:
@@ -594,7 +595,7 @@ class Query:
         qs = ContractEvent.objects.select_related("contract").all()
 
         if query.contract_id:
-            qs = qs.filter(contract__contract_id=query.contract_id)
+            qs = qs.filter(contract_address=query.contract_id)
         if query.event_type:
             qs = qs.filter(event_type=query.event_type)
 
@@ -696,7 +697,7 @@ class Query:
     def event_types(self, contract_id: str) -> list[str]:
         """Get all unique event types for a contract."""
         return list(
-            ContractEvent.objects.filter(contract__contract_id=contract_id)
+            ContractEvent.objects.filter(contract_address=contract_id)
             .values_list("event_type", flat=True)
             .distinct()
         )
@@ -1124,7 +1125,7 @@ class Subscription:
                     @database_sync_to_async
                     def get_event():
                         return ContractEvent.objects.select_related("contract").get(
-                            contract__contract_id=event_data.get("contract_id"),
+                            contract_address=event_data.get("contract_id"),
                             ledger=event_data.get("ledger"),
                             event_index=event_data.get("event_index", 0)
                         )
