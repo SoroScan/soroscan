@@ -410,6 +410,9 @@ GRAPHQL_INTROSPECTION_ENABLED = env.bool(
     default=DEBUG,
 )
 
+# Ed25519 seed (32 bytes hex) for webhook X-Signature headers.
+WEBHOOK_ED25519_SIGNING_SEED = env("WEBHOOK_ED25519_SIGNING_SEED", default="")
+
 # Prometheus
 # Expose the /metrics endpoint without authentication.
 # The URL is registered in urls.py via django_prometheus.urls.
