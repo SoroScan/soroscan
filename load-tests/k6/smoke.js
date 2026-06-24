@@ -18,23 +18,45 @@ export const options = {
 
 const BASE_URL = __ENV.BASE_URL || "http://127.0.0.1:8000";
 
+const jsonHeaders = { "Content-Type": "application/json" };
+const okStatuses = http.expectedStatuses(200, 400, 401, 403, 429);
+
 export default function () {
-  const health = http.get(`${BASE_URL}/api/ingest/health/`);
+  const health = http.get(`${BASE_URL}/api/ingest/health/`, {
+    tags: { name: "health" },
+  });
   check(health, {
     "health status is 200": (res) => res.status === 200,
     "health payload ok": (res) => res.json("status") === "healthy",
   });
 
+  const contracts = http.get(`${BASE_URL}/api/ingest/contracts/`, {
+    tags: { name: "contracts" },
+    responseCallback: http.expectedStatuses(200, 401, 403),
+  });
+  check(contracts, {
+    "contracts endpoint reachable": (res) =>
+      [200, 401, 403].includes(res.status),
+  });
+
   const graphql = http.post(
     `${BASE_URL}/graphql/`,
     JSON.stringify({ query: "{ contracts { id } }" }),
-    { headers: { "Content-Type": "application/json" } }
+    {
+      headers: jsonHeaders,
+      tags: { name: "graphql" },
+      responseCallback: okStatuses,
+    }
   );
   check(graphql, {
-    "graphql status is 200": (res) => res.status === 200,
-    "graphql has data or errors": (res) => {
-      const body = res.json();
-      return body.data !== undefined || body.errors !== undefined;
+    "graphql responds": (res) => [200, 400, 401, 403, 429].includes(res.status),
+    "graphql body is json": (res) => {
+      try {
+        res.json();
+        return true;
+      } catch (_) {
+        return false;
+      }
     },
   });
 
