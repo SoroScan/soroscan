@@ -30,7 +30,7 @@ from django.core.cache import cache
 from django.db.models import Count, F, Max, Min
 from django.utils import timezone
 
-from soroscan.circuit_breaker import execute_with_circuit_breaker
+from soroscan.webhook_signing import build_x_signature_header
 
 from .cache_utils import (
     invalidate_event_count_cache,
@@ -863,6 +863,13 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
         "X-SoroScan-Signature": _build_webhook_signature_header(webhook, payload_bytes),
         "X-SoroScan-Timestamp": timezone.now().isoformat(),
     }
+    try:
+        headers["X-Signature"] = build_x_signature_header(payload_bytes)
+    except ValueError:
+        logger.warning(
+            "Skipping Ed25519 webhook signature; WEBHOOK_ED25519_SIGNING_SEED not set",
+            extra={"webhook_id": webhook.id},
+        )
 
     attempt_number = self.request.retries + 1
     attempt_logged = False
