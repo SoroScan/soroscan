@@ -30,6 +30,7 @@ from django.core.cache import cache
 from django.db.models import Count, F, Max, Min
 from django.utils import timezone
 
+from soroscan.circuit_breaker import execute_with_circuit_breaker
 from soroscan.webhook_signing import build_x_signature_header
 
 from .cache_utils import (
