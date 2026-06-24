@@ -18,7 +18,6 @@ from graphql import (
     OperationDefinitionNode,
     parse,
 )
-from graphql.error import GraphQLError
 
 # Arguments that scale list-fetch cost.
 _LIST_SIZE_ARGS = frozenset({"first", "last", "limit", "take"})
