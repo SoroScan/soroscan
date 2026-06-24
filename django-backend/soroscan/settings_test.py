@@ -174,6 +174,7 @@ EVENT_STREAMING = {
 
 # GraphQL Introspection — enabled in tests/dev
 GRAPHQL_INTROSPECTION_ENABLED = True
+GRAPHQL_MAX_COMPLEXITY = 1000
 
 # Logging
 LOGGING = {
