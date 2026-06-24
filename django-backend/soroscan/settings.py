@@ -410,6 +410,9 @@ GRAPHQL_INTROSPECTION_ENABLED = env.bool(
     default=DEBUG,
 )
 
+# Maximum allowed GraphQL query complexity score (see soroscan.graphql_complexity).
+GRAPHQL_MAX_COMPLEXITY = env.int("GRAPHQL_MAX_COMPLEXITY", default=1000)
+
 # Ed25519 seed (32 bytes hex) for webhook X-Signature headers.
 WEBHOOK_ED25519_SIGNING_SEED = env("WEBHOOK_ED25519_SIGNING_SEED", default="")
 
