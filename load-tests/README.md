@@ -13,7 +13,7 @@ SoroScan uses [k6](https://k6.io/) to simulate realistic API traffic and surface
 # From repo root with API on localhost:8000
 k6 run load-tests/k6/smoke.js
 
-# Scenario suite with JSON report output
+# Full workflow scenarios (contracts + GraphQL) for staging or local profiling
 mkdir -p load-tests/results
 K6_REPORT_PATH=load-tests/results/scenarios-summary.json \
   k6 run load-tests/k6/scenarios.js
@@ -30,7 +30,7 @@ K6_REPORT_PATH=load-tests/results/scenarios-summary.json \
 
 ## CI
 
-The `Load Tests` GitHub Actions workflow runs the smoke script against a temporary Django server on every push/PR to `main`.
+The `Load Tests` GitHub Actions workflow runs the smoke script (health + readiness probes) against a temporary Django server on every push/PR to `main`. Use `scenarios.js` locally for GraphQL and contract list workflows.
 
 ## Reports
 
