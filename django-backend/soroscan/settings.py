@@ -410,6 +410,9 @@ GRAPHQL_INTROSPECTION_ENABLED = env.bool(
     default=DEBUG,
 )
 
+# Maximum allowed GraphQL query complexity score (see soroscan.graphql_complexity).
+GRAPHQL_MAX_COMPLEXITY = env.int("GRAPHQL_MAX_COMPLEXITY", default=1000)
+
 # Circuit breaker thresholds for external RPC/Horizon calls.
 CIRCUIT_BREAKER_FAILURE_THRESHOLD = env.int("CIRCUIT_BREAKER_FAILURE_THRESHOLD", default=5)
 CIRCUIT_BREAKER_RECOVERY_TIMEOUT = env.float("CIRCUIT_BREAKER_RECOVERY_TIMEOUT", default=30.0)
