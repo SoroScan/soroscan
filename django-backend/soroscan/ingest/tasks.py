@@ -30,7 +30,7 @@ from django.core.cache import cache
 from django.db.models import Count, F, Max, Min
 from django.utils import timezone
 
-from soroscan.circuit_breaker import CircuitBreakerOpen, execute_with_circuit_breaker
+from soroscan.circuit_breaker import execute_with_circuit_breaker
 
 from .cache_utils import (
     invalidate_event_count_cache,
