@@ -410,6 +410,10 @@ GRAPHQL_INTROSPECTION_ENABLED = env.bool(
     default=DEBUG,
 )
 
+# Circuit breaker thresholds for external RPC/Horizon calls.
+CIRCUIT_BREAKER_FAILURE_THRESHOLD = env.int("CIRCUIT_BREAKER_FAILURE_THRESHOLD", default=5)
+CIRCUIT_BREAKER_RECOVERY_TIMEOUT = env.float("CIRCUIT_BREAKER_RECOVERY_TIMEOUT", default=30.0)
+
 # Prometheus
 # Expose the /metrics endpoint without authentication.
 # The URL is registered in urls.py via django_prometheus.urls.

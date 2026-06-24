@@ -30,6 +30,8 @@ from django.core.cache import cache
 from django.db.models import Count, F, Max, Min
 from django.utils import timezone
 
+from soroscan.circuit_breaker import CircuitBreakerOpen, execute_with_circuit_breaker
+
 from .cache_utils import (
     invalidate_event_count_cache,
     get_cached_decoded_payload,
@@ -2001,7 +2003,9 @@ def ingest_latest_events() -> int:
             logger.info("No active contracts to index", extra={})
             return 0
 
-        events_response = server.get_events(
+        events_response = execute_with_circuit_breaker(
+            "horizon",
+            server.get_events,
             start_ledger=int(cursor) if cursor.isdigit() else None,
             filters=[
                 {
