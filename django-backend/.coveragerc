@@ -1,15 +1,44 @@
 [run]
+source = soroscan
+branch = True
 omit =
     soroscan/settings.py
     soroscan/settings_test.py
     soroscan/wsgi.py
     soroscan/asgi.py
     soroscan/ingest/migrations/*
+    */manage.py
+    conftest.py
 
 [report]
+fail_under = 80
+show_missing = True
+skip_covered = False
 omit =
     soroscan/settings.py
     soroscan/settings_test.py
     soroscan/wsgi.py
     soroscan/asgi.py
     soroscan/ingest/migrations/*
+    */manage.py
+    conftest.py
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    def __str__
+    raise AssertionError
+    raise NotImplementedError
+    if TYPE_CHECKING:
+    if __name__ == .__main__.:
+    @(abc\.)?abstractmethod
+
+[html]
+directory = htmlcov
+title = SoroScan Backend Coverage
+
+[xml]
+output = coverage.xml
+
+[json]
+output = coverage.json
+pretty_print = True

@@ -25,13 +25,27 @@ class Organization(models.Model):
     )
     settings = models.JSONField(default=dict, blank=True)
     quota = models.PositiveIntegerField(default=0, help_text="Optional monthly event quota")
+    cors_origins = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="CORS allowed origins for this organization (list of strings)",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["name"]
 
+    def clean(self):
+        super().clean()
+        if not isinstance(self.cors_origins, list):
+            raise ValidationError({"cors_origins": "CORS origins must be a list."})
+        for origin in self.cors_origins:
+            if not isinstance(origin, str):
+                raise ValidationError({"cors_origins": "Each CORS origin must be a string."})
+
     def save(self, *args, **kwargs):
+        self.clean()
         if not self.slug:
             base = slugify(self.name) or "organization"
             slug = base

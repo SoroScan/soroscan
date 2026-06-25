@@ -50,3 +50,19 @@ def invalidate_contract_on_update(sender, instance, **kwargs):
     """Invalidate the Redis cache for a TrackedContract when it is modified or deleted."""
     if instance.contract_id:
         invalidate_cached_contract(instance.contract_id)
+
+
+from corsheaders.signals import check_request_enabled
+
+@receiver(check_request_enabled)
+def check_organization_cors_origins(sender, request, **kwargs):
+    origin = request.META.get("HTTP_ORIGIN")
+    if not origin:
+        return False
+    from .models import Organization
+    all_origins = Organization.objects.values_list("cors_origins", flat=True)
+    for origins in all_origins:
+        if isinstance(origins, list) and origin in origins:
+            return True
+    return False
+

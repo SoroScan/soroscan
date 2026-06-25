@@ -16,6 +16,31 @@ const config: Config = {
     // Handle module aliases (this will be automatically configured for you soon)
     '^@/(.*)$': '<rootDir>/$1',
   },
+  // Coverage configuration
+  collectCoverage: false, // enabled via --coverage flag or test:coverage script
+  coverageDirectory: 'coverage',
+  coverageReporters: ['lcov', 'json', 'json-summary', 'text', 'html'],
+  collectCoverageFrom: [
+    'app/**/*.{ts,tsx}',
+    'components/**/*.{ts,tsx}',
+    'lib/**/*.{ts,tsx}',
+    'context/**/*.{ts,tsx}',
+    'providers/**/*.{ts,tsx}',
+    '!**/*.d.ts',
+    '!**/node_modules/**',
+    '!**/__mocks__/**',
+    '!**/generated/**',
+    '!app/layout.tsx',
+    '!app/global-error.tsx',
+  ],
+  coverageThreshold: {
+    global: {
+      branches: 70,
+      functions: 70,
+      lines: 70,
+      statements: 70,
+    },
+  },
 }
 
 // createJestConfig is exported this way to ensure that next/jest can load the Next.js config which is async
