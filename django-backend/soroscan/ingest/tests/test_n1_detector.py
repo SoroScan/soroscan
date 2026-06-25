@@ -1,5 +1,4 @@
 """Tests for N+1 query detection middleware (issue #490)."""
-import logging
 
 from django.test import TestCase, override_settings
 
@@ -81,7 +80,7 @@ class N1QueryDetectorTest(TestCase):
 
     @override_settings(GRAPHQL_N1_DETECTION_ENABLED=True)
     def test_logs_warning_for_many_queries(self):
-        from unittest.mock import MagicMock, patch, PropertyMock
+        from unittest.mock import MagicMock, patch
 
         ext = N1QueryDetectorExtension()
         info = MagicMock()

@@ -1,7 +1,7 @@
 """Tests for gzip compression middleware (issue #487)."""
 import zlib
 
-from django.test import RequestFactory, TestCase, override_settings
+from django.test import RequestFactory, TestCase
 
 
 class GZipCompressionTest(TestCase):
@@ -29,7 +29,8 @@ class GZipCompressionTest(TestCase):
         from django.middleware.gzip import GZipMiddleware
 
         content = "x" * 2048
-        get_response = lambda request: HttpResponse(content, content_type="application/json")
+        def get_response(request):
+            return HttpResponse(content, content_type="application/json")
         middleware = GZipMiddleware(get_response)
 
         request = self.factory.get(
@@ -51,7 +52,8 @@ class GZipCompressionTest(TestCase):
         from django.middleware.gzip import GZipMiddleware
 
         content = "x" * 2048
-        get_response = lambda request: HttpResponse(content, content_type="application/json")
+        def get_response(request):
+            return HttpResponse(content, content_type="application/json")
         middleware = GZipMiddleware(get_response)
 
         request = self.factory.get("/api/test/")
@@ -66,7 +68,8 @@ class GZipCompressionTest(TestCase):
         from django.middleware.gzip import GZipMiddleware
 
         content = "small"
-        get_response = lambda request: HttpResponse(content, content_type="application/json")
+        def get_response(request):
+            return HttpResponse(content, content_type="application/json")
         middleware = GZipMiddleware(get_response)
 
         request = self.factory.get(
@@ -84,7 +87,8 @@ class GZipCompressionTest(TestCase):
         from django.middleware.gzip import GZipMiddleware
 
         content = "y" * 5000
-        get_response = lambda request: HttpResponse(content, content_type="application/json")
+        def get_response(request):
+            return HttpResponse(content, content_type="application/json")
         middleware = GZipMiddleware(get_response)
 
         request = self.factory.get(
@@ -101,9 +105,10 @@ class GZipCompressionTest(TestCase):
         from django.middleware.gzip import GZipMiddleware
 
         content = "z" * 5000
-        get_response = lambda request: HttpResponse(
-            content, content_type="application/json"
-        )
+        def get_response(request):
+            return HttpResponse(
+                    content, content_type="application/json"
+                )
         middleware = GZipMiddleware(get_response)
 
         request = self.factory.get(
@@ -126,9 +131,10 @@ class GZipCompressionTest(TestCase):
         import json
 
         large_payload = json.dumps({"data": list(range(1000))})
-        get_response = lambda request: HttpResponse(
-            large_payload, content_type="application/json"
-        )
+        def get_response(request):
+            return HttpResponse(
+                    large_payload, content_type="application/json"
+                )
         middleware = GZipMiddleware(get_response)
 
         request = self.factory.get(

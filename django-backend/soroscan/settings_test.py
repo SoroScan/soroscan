@@ -44,6 +44,7 @@ MIDDLEWARE = [
     "soroscan.middleware.RequestIdMiddleware",
     "soroscan.middleware.PlatformVersionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "django.middleware.gzip.GZipMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -175,6 +176,7 @@ EVENT_STREAMING = {
 # GraphQL Introspection — enabled in tests/dev
 GRAPHQL_INTROSPECTION_ENABLED = True
 GRAPHQL_MAX_COMPLEXITY = 1000
+GRAPHQL_N1_DETECTION_ENABLED = False
 
 # Fixed test seed for deterministic webhook signature tests.
 WEBHOOK_ED25519_SIGNING_SEED = (

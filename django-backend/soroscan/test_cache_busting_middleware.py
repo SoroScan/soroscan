@@ -1,6 +1,6 @@
 """Tests for CacheBustingMiddleware (issue #488)."""
-from django.http import HttpRequest, HttpResponse
-from django.test import TestCase, RequestFactory, override_settings
+from django.http import HttpResponse
+from django.test import TestCase, RequestFactory
 
 from soroscan.middleware import CacheBustingMiddleware
 

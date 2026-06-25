@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import time
 from datetime import timedelta
 
@@ -159,12 +160,27 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
+        self._invalidate_list_cache()
 
     def perform_update(self, serializer):
         instance = serializer.save()
+        self._invalidate_list_cache()
         from .tasks import alert_downstream_contract_change
 
         alert_downstream_contract_change.delay(instance.contract_id, "modified")
+
+    def _invalidate_list_cache(self):
+        from django.core.cache import cache as _cache
+
+        if hasattr(_cache, "delete_pattern"):
+            _cache.delete_pattern("soroscan:rest_contracts_list:*")
+        else:
+            _cache.clear()
+
+    def destroy(self, request, *args, **kwargs):
+        response = super().destroy(request, *args, **kwargs)
+        self._invalidate_list_cache()
+        return response
 
     def get_queryset(self):
         qs = TrackedContract.objects.all()
@@ -1870,8 +1886,6 @@ def contract_identity_view(request):
 # Issue #491: EXPLAIN ANALYZE endpoint for query debugging
 # ---------------------------------------------------------------------------
 
-import re
-
 _ALLOWED_STATEMENTS = re.compile(
     r"^\s*(SELECT|WITH|EXPLAIN)\b",
     re.IGNORECASE,
@@ -1976,7 +1990,6 @@ def cache_stats_view(request):
     """
     from django.core.cache import cache as django_cache
 
-    backend_name = django_cache._cache.__class__.__name__ if hasattr(django_cache, '_cache') else 'unknown'
     backend_info = str(type(django_cache._cache).__name__)
 
     return Response({

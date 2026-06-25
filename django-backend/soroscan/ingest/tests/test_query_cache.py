@@ -1,7 +1,5 @@
 """Tests for query result caching layer (issue #488)."""
-import json
 
-from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.test import RequestFactory, TestCase, override_settings
 from rest_framework.test import APIClient
@@ -10,13 +8,11 @@ from soroscan.ingest.cache_utils import (
     cache_result,
     get_or_set_json,
     invalidate_contract_query_cache,
-    invalidate_cached_contract,
     invalidate_event_count_cache,
     query_cache_ttl,
     stable_cache_key,
 )
 from soroscan.ingest.tests.factories import (
-    ContractEventFactory,
     TrackedContractFactory,
     UserFactory,
 )
