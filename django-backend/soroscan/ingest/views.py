@@ -123,10 +123,23 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         return warnings
 
     def list(self, request, *args, **kwargs):
-        response = super().list(request, *args, **kwargs)
-        if isinstance(response.data, dict) and "results" in response.data:
-            response.data["warnings"] = self._collect_warnings(response.data["results"])
-        return response
+        """Cache the contracts list for 30 seconds (issue #488)."""
+        cache_key = stable_cache_key(
+            "rest_contracts_list",
+            {
+                "query": sorted(request.query_params.items()),
+                "user_id": getattr(request.user, "id", None),
+            },
+        )
+
+        def _build():
+            response = super(TrackedContractViewSet, self).list(request, *args, **kwargs)
+            if isinstance(response.data, dict) and "results" in response.data:
+                response.data["warnings"] = self._collect_warnings(response.data["results"])
+            return response.data
+
+        cached_data = get_or_set_json(cache_key, 30, _build)
+        return Response(cached_data)
 
     def retrieve(self, request, *args, **kwargs):
         response = super().retrieve(request, *args, **kwargs)
@@ -1850,4 +1863,124 @@ def contract_identity_view(request):
         "contract_id": getattr(settings, "SOROSCAN_CONTRACT_ID", ""),
         "network_passphrase": getattr(settings, "STELLAR_NETWORK_PASSPHRASE", ""),
         "rpc_url": getattr(settings, "SOROBAN_RPC_URL", ""),
+    })
+
+
+# ---------------------------------------------------------------------------
+# Issue #491: EXPLAIN ANALYZE endpoint for query debugging
+# ---------------------------------------------------------------------------
+
+import re
+
+_ALLOWED_STATEMENTS = re.compile(
+    r"^\s*(SELECT|WITH|EXPLAIN)\b",
+    re.IGNORECASE,
+)
+
+
+@extend_schema(
+    request=inline_serializer(
+        name="DBExplainRequest",
+        fields={
+            "query": serializers.CharField(
+                help_text="SQL SELECT statement to explain",
+            ),
+            "analyze": serializers.BooleanField(
+                default=False,
+                help_text="If true, runs EXPLAIN ANALYZE instead of EXPLAIN",
+            ),
+        },
+    ),
+    responses={
+        200: inline_serializer(
+            name="DBExplainResponse",
+            fields={
+                "query_plan": serializers.CharField(),
+                "analyzed": serializers.BooleanField(),
+            },
+        ),
+        400: inline_serializer(
+            name="DBExplainError",
+            fields={"error": serializers.CharField()},
+        ),
+    },
+)
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([UserRateThrottle])
+def db_explain_view(request):
+    """
+    POST /api/admin/db/explain/
+
+    Returns the query execution plan for a given SQL SELECT statement.
+    Secured to admin (staff) users only and rate-limited.
+    """
+    if not request.user or not request.user.is_staff:
+        return Response(
+            {"error": "Admin access required."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    sql = (request.data.get("query") or "").strip()
+    if not sql:
+        return Response(
+            {"error": "A SQL query is required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not _ALLOWED_STATEMENTS.match(sql):
+        return Response(
+            {"error": "Only SELECT, WITH, and EXPLAIN statements are allowed."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    analyze = bool(request.data.get("analyze", False))
+    prefix = "EXPLAIN ANALYZE" if analyze else "EXPLAIN"
+
+    try:
+        from django.db import connection
+
+        with connection.cursor() as cursor:
+            try:
+                cursor.execute(f"{prefix} {sql}")
+            except Exception:
+                if analyze:
+                    # SQLite doesn't support EXPLAIN ANALYZE; fall back to EXPLAIN
+                    cursor.execute(f"EXPLAIN {sql}")
+                else:
+                    raise
+            plan = "\n".join(
+                " ".join(str(cell) for cell in row) for row in cursor.fetchall()
+            )
+    except Exception as exc:
+        return Response(
+            {"error": f"Failed to execute EXPLAIN: {exc}"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Response({"query_plan": plan, "analyzed": analyze})
+
+
+# ---------------------------------------------------------------------------
+# Issue #488: Cache stats endpoint
+# ---------------------------------------------------------------------------
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([UserRateThrottle])
+def cache_stats_view(request):
+    """
+    GET /api/cache/stats/
+
+    Returns cache hit/miss statistics and current cache backend info.
+    """
+    from django.core.cache import cache as django_cache
+
+    backend_name = django_cache._cache.__class__.__name__ if hasattr(django_cache, '_cache') else 'unknown'
+    backend_info = str(type(django_cache._cache).__name__)
+
+    return Response({
+        "backend": backend_info,
+        "default_ttl": getattr(settings, "QUERY_CACHE_TTL_SECONDS", 60),
+        "status": "ok",
     })

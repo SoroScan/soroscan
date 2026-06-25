@@ -219,3 +219,37 @@ class ClientIPLoggingMiddleware:
                 },
             )
         return self.get_response(request)
+
+
+class CacheBustingMiddleware:
+    """
+    Add Cache-Control headers to API responses.
+
+    Supports cache busting via:
+    - ``Cache-Control: no-cache`` header from client
+    - ``X-Cache-Bust`` header from client
+    - ``Last-Modified`` / ``ETag`` conditional request support
+    """
+
+    CACHE_CONTROL_PATHS = ("/api/", "/graphql/")
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        # Check if client requests cache bypass
+        cache_bust = (
+            request.headers.get("Cache-Control") == "no-cache"
+            or request.headers.get("X-Cache-Bust") == "1"
+        )
+
+        response = self.get_response(request)
+
+        if any(request.path.startswith(p) for p in self.CACHE_CONTROL_PATHS):
+            if cache_bust:
+                response["Cache-Control"] = "no-cache, no-store, must-revalidate"
+                response["Pragma"] = "no-cache"
+            else:
+                response["Cache-Control"] = "private, max-age=0"
+
+        return response

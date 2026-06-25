@@ -110,6 +110,7 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "soroscan.middleware.ReverseProxyFixedIPMiddleware",
     "soroscan.middleware.ClientIPLoggingMiddleware",
+    "soroscan.middleware.CacheBustingMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "soroscan.middleware.RequestIdMiddleware",
     "soroscan.middleware.PlatformVersionMiddleware",
@@ -414,6 +415,12 @@ GRAPHQL_INTROSPECTION_ENABLED = env.bool(
 # Maximum allowed GraphQL query complexity score (see soroscan.graphql_complexity).
 GRAPHQL_MAX_COMPLEXITY = env.int("GRAPHQL_MAX_COMPLEXITY", default=1000)
 
+# N+1 query detection (issue #490) — enabled by default in DEBUG, disabled in production.
+GRAPHQL_N1_DETECTION_ENABLED = env.bool(
+    "GRAPHQL_N1_DETECTION_ENABLED",
+    default=DEBUG,
+)
+
 # Ed25519 seed (32 bytes hex) for webhook X-Signature headers.
 WEBHOOK_ED25519_SIGNING_SEED = env("WEBHOOK_ED25519_SIGNING_SEED", default="")
 
@@ -484,6 +491,11 @@ LOGGING["loggers"]["soroscan.migrate"] = {
     "propagate": False,
 }
 LOGGING["loggers"]["django.performance.database"] = {
+    "handlers": ["console"],
+    "level": "WARNING",
+    "propagate": False,
+}
+LOGGING["loggers"]["soroscan.graphql.n1_detection"] = {
     "handlers": ["console"],
     "level": "WARNING",
     "propagate": False,

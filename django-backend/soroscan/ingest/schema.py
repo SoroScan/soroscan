@@ -15,7 +15,14 @@ from django.utils import timezone
 from strawberry import auto
 from strawberry.types import Info
 
-from .cache_utils import get_or_set_json, query_cache_ttl, stable_cache_key
+from .cache_utils import (
+    get_or_set_json,
+    invalidate_contract_query_cache,
+    invalidate_cached_contract,
+    invalidate_event_count_cache,
+    query_cache_ttl,
+    stable_cache_key,
+)
 from .models import (
     CallGraph,
     ContractDependency,
@@ -33,6 +40,7 @@ from ..graphql_extensions import (
     GraphQLResolverLoggingExtension,
     log_graphql_resolver,
 )
+from ..graphql_n1_detector import N1QueryDetectorExtension
 
 
 def _get_authenticated_user(info: Info):
@@ -875,6 +883,7 @@ class Mutation:
             team=team,
             metadata=metadata or {},
         )
+        invalidate_cached_contract(contract_id)
         return contract
 
     @strawberry.mutation
@@ -939,6 +948,8 @@ class Mutation:
             },
         )
 
+        invalidate_cached_contract(contract_id)
+
         try:
             instance.full_clean()
         except ValidationError as exc:
@@ -963,6 +974,7 @@ class Mutation:
 
         try:
             ContractMetadata.objects.get(contract__contract_id=contract_id).delete()
+            invalidate_cached_contract(contract_id)
             return True
         except ContractMetadata.DoesNotExist:
             return False
@@ -1009,6 +1021,10 @@ class Mutation:
             contract.metadata = metadata
 
         contract.save()
+
+        invalidate_cached_contract(contract_id)
+        invalidate_contract_query_cache(contract_id)
+        invalidate_event_count_cache(contract_id)
 
         # Push notification when a contract is paused
         if is_active is False:
@@ -1149,5 +1165,6 @@ schema = strawberry.Schema(
     extensions=[
         GraphQLRateLimitExtension,
         GraphQLResolverLoggingExtension,
+        N1QueryDetectorExtension,
     ],
 )

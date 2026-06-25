@@ -19,7 +19,9 @@ from soroscan.health import health_view, readiness_view, worker_health_view
 from soroscan.meta_views import db_pool_stats_view
 from soroscan.ingest.views import (
     audit_trail_view,
+    cache_stats_view,
     contract_status,
+    db_explain_view,
     rate_limit_analytics_view,
     webhook_batch_delivery_status_view,
     webhook_delivery_metrics_view,
@@ -48,6 +50,8 @@ urlpatterns = [
     path("api/analytics/rate-limits/", rate_limit_analytics_view, name="rate-limit-analytics"),
     path("api/meta/db-pool/", db_pool_stats_view, name="db-pool-stats"),
     path("api/dev/summary/", dev_summary_view, name="dev-summary"),
+    path("api/admin/db/explain/", db_explain_view, name="admin-db-explain"),
+    path("api/cache/stats/", cache_stats_view, name="cache-stats"),
     path(
         "api/webhooks/deliveries/batch-status/",
         webhook_batch_delivery_status_view,
