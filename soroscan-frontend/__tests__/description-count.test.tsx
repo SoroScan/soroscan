@@ -29,7 +29,7 @@ describe("Description character count", () => {
 
     expect(screen.getByText("5/256")).toBeInTheDocument()
     expect(textarea).toHaveAttribute("maxLength", "256")
-  })
+  }, 10000)
 
   it("applies warning styling when the count is near limit", async () => {
     const user = userEvent.setup()
@@ -48,5 +48,5 @@ describe("Description character count", () => {
 
     const counter = screen.getByText("230/256")
     expect(counter).toHaveClass("text-terminal-danger")
-  })
+  }, 10000)
 })

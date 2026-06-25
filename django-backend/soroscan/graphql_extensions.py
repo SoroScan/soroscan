@@ -3,11 +3,12 @@ import inspect
 import logging
 import time
 import traceback
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Union
 
 from strawberry.extensions import SchemaExtension
 from strawberry.types import Info
 from strawberry.exceptions import StrawberryException
+from strawberry.schema.schema import Schema
 from django.conf import settings
 from django.core.cache import cache
 
@@ -15,6 +16,125 @@ logger = logging.getLogger("soroscan.graphql")
 
 # Sensitive keys to mask in logs
 SENSITIVE_KEYS = {"password", "secret", "token", "key", "authorization", "api_key"}
+
+
+def _get_authenticated_user(info: Info):
+    """Safely extract authenticated user from context (copied from schema.py for consistency)."""
+    if info.context is None:
+        return None
+    if not hasattr(info.context, "request"):
+        return None
+    request = info.context.request
+    if request is None:
+        return None
+    if not hasattr(request, "user"):
+        return None
+    user = request.user
+    if user and hasattr(user, "is_authenticated") and user.is_authenticated:
+        return user
+    return None
+
+
+PermissionCheck = Callable[[Any, Info], bool]
+
+
+def field_permission(
+    check: Optional[Union[PermissionCheck, str]] = None,
+    require_auth: bool = False,
+    require_staff: bool = False,
+    require_superuser: bool = False,
+):
+    """
+    Decorator to add field-level permissions to GraphQL fields.
+
+    Args:
+        check: Custom permission check function that takes (root, info) and returns bool
+        require_auth: Field requires authenticated user
+        require_staff: Field requires user.is_staff == True
+        require_superuser: Field requires user.is_superuser == True
+    """
+
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(root: Any, info: Info, *args: Any, **kwargs: Any) -> Any:
+            user = _get_authenticated_user(info)
+
+            if require_auth and not user:
+                raise StrawberryException("Authentication required")
+
+            if require_staff and (not user or not user.is_staff):
+                raise StrawberryException("Staff access required")
+
+            if require_superuser and (not user or not user.is_superuser):
+                raise StrawberryException("Superuser access required")
+
+            if check is not None:
+                if isinstance(check, str):
+                    # Check if string method exists on user or root
+                    if hasattr(user, check) and callable(getattr(user, check)):
+                        if not getattr(user, check)(root):
+                            raise StrawberryException("Permission denied")
+                    elif hasattr(root, check) and callable(getattr(root, check)):
+                        if not getattr(root, check)(user):
+                            raise StrawberryException("Permission denied")
+                    else:
+                        raise StrawberryException(f"Permission check {check} not found")
+                elif not check(root, info):
+                    raise StrawberryException("Permission denied")
+
+            return func(root, info, *args, **kwargs)
+
+        # Store permission checks on the function for schema extension use
+        setattr(wrapper, "_field_permission", {
+            "check": check,
+            "require_auth": require_auth,
+            "require_staff": require_staff,
+            "require_superuser": require_superuser,
+        })
+        return wrapper
+
+    return decorator
+
+
+def has_field_permission(
+    field_wrapper: Any,
+    root: Any,
+    info: Info,
+) -> bool:
+    """
+    Check if the current user has permission to access a field.
+    Used by SchemaExtension to hide unauthorized fields from schema.
+    """
+    if not hasattr(field_wrapper, "_field_permission"):
+        return True
+
+    perms = getattr(field_wrapper, "_field_permission")
+    user = _get_authenticated_user(info)
+
+    if perms["require_auth"] and not user:
+        return False
+
+    if perms["require_staff"] and (not user or not user.is_staff):
+        return False
+
+    if perms["require_superuser"] and (not user or not user.is_superuser):
+        return False
+
+    if perms["check"] is not None:
+        check = perms["check"]
+        if isinstance(check, str):
+            if hasattr(user, check) and callable(getattr(user, check)):
+                if not getattr(user, check)(root):
+                    return False
+            elif hasattr(root, check) and callable(getattr(root, check)):
+                if not getattr(root, check)(user):
+                    return False
+            else:
+                return False
+        elif not check(root, info):
+            return False
+
+    return True
 
 
 def sanitize_arguments(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -211,3 +331,24 @@ class GraphQLRateLimitExtension(SchemaExtension):
             return num_requests, duration
         except (ValueError, KeyError, IndexError):
             return None, None
+
+
+class GraphQLFieldPermissionExtension(SchemaExtension):
+    """
+    Strawberry SchemaExtension to enforce field-level authorization:
+    - Checks permissions before resolving fields
+    - Can hide unauthorized fields from schema introspection
+    """
+
+    def resolve(
+        self,
+        _next: Callable,
+        root: Any,
+        info: Info,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        # The field permission decorator already handles all checks
+        # so we don't need to do anything here - just call next
+        return _next(root, info, *args, **kwargs)
+

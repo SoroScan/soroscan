@@ -2,9 +2,9 @@ name: Frontend CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, develop ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, develop ]
 
 jobs:
   lint-and-test:
@@ -44,6 +44,13 @@ jobs:
         run: pnpm run lint
         working-directory: soroscan-frontend
 
-      - name: Run tests
-        run: pnpm run test:ci
+      - name: Run tests with coverage
+        run: pnpm run test:coverage:ci
         working-directory: soroscan-frontend
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./soroscan-frontend/coverage/lcov.info
+          flags: frontend
+          name: frontend-coverage

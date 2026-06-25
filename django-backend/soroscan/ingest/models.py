@@ -25,6 +25,7 @@ class Organization(models.Model):
     )
     settings = models.JSONField(default=dict, blank=True)
     quota = models.PositiveIntegerField(default=0, help_text="Optional monthly event quota")
+    cors_origins = models.JSONField(default=list, blank=True, help_text="List of allowed CORS origins for this organization")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

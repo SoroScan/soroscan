@@ -5,6 +5,7 @@ omit =
     soroscan/wsgi.py
     soroscan/asgi.py
     soroscan/ingest/migrations/*
+source = soroscan
 
 [report]
 omit =
@@ -13,3 +14,6 @@ omit =
     soroscan/wsgi.py
     soroscan/asgi.py
     soroscan/ingest/migrations/*
+fail_under = 50
+show_missing = true
+skip_covered = false

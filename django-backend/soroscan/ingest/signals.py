@@ -1,15 +1,12 @@
-"""
-Security audit signals — logs successful and failed admin login attempts.
-Hooks into Django's user_logged_in and user_login_failed signals.
-"""
-import logging
-
+from corsheaders.signals import check_request_enabled
 from django.contrib.auth.signals import user_logged_in, user_login_failed
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
+import logging
 
 from .cache_utils import invalidate_cached_contract
-from .models import TrackedContract
+from .models import Organization, TrackedContract
+
 
 logger = logging.getLogger("soroscan.security_audit")
 
@@ -50,3 +47,28 @@ def invalidate_contract_on_update(sender, instance, **kwargs):
     """Invalidate the Redis cache for a TrackedContract when it is modified or deleted."""
     if instance.contract_id:
         invalidate_cached_contract(instance.contract_id)
+
+
+@receiver(check_request_enabled)
+def cors_allow_organization_origins(sender, request, **kwargs):
+    origin = request.headers.get("Origin")
+    if not origin:
+        return None
+    
+    # First check if any organization has this origin
+    for org in Organization.objects.all():
+        if origin in (org.cors_origins or []):
+            return True
+    
+    # Also check if request is for a specific contract that belongs to an org with this origin
+    if hasattr(request, 'resolver_match') and request.resolver_match:
+        kwargs = request.resolver_match.kwargs
+        if 'contract_id' in kwargs:
+            try:
+                contract = TrackedContract.objects.get(contract_id=kwargs['contract_id'])
+                if contract.organization and origin in (contract.organization.cors_origins or []):
+                    return True
+            except TrackedContract.DoesNotExist:
+                pass
+    
+    return None

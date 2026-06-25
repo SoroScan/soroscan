@@ -31,7 +31,9 @@ from .services.timeline import build_timeline
 from ..graphql_extensions import (
     GraphQLRateLimitExtension,
     GraphQLResolverLoggingExtension,
+    GraphQLFieldPermissionExtension,
     log_graphql_resolver,
+    field_permission,
 )
 
 
@@ -73,21 +75,23 @@ class ContractType:
     created_at: auto
 
     @strawberry.field
-    def verification_status(self) -> Optional[str]:
-        try:
-            return self.verification.status
-        except ContractVerification.DoesNotExist:
-            return None
+    @field_permission(require_auth=True)
+    def organization_id(self) -> Optional[int]:
+        oid = getattr(self, "organization_id", None)
+        return int(oid) if oid is not None else None
 
     @strawberry.field
+    @field_permission(require_auth=True)
     def team_id(self) -> Optional[int]:
         tid = getattr(self, "team_id", None)
         return int(tid) if tid is not None else None
 
     @strawberry.field
-    def organization_id(self) -> Optional[int]:
-        oid = getattr(self, "organization_id", None)
-        return int(oid) if oid is not None else None
+    def verification_status(self) -> Optional[str]:
+        try:
+            return self.verification.status
+        except ContractVerification.DoesNotExist:
+            return None
 
     @strawberry.field
     def event_count(self) -> int:
@@ -1149,5 +1153,6 @@ schema = strawberry.Schema(
     extensions=[
         GraphQLRateLimitExtension,
         GraphQLResolverLoggingExtension,
+        GraphQLFieldPermissionExtension,
     ],
 )

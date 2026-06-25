@@ -11,9 +11,37 @@ from django.db import connection
 from django.http import JsonResponse
 
 from .log_context import set_request_id
+from .ingest.models import Organization, TrackedContract
 
 logger = logging.getLogger(__name__)
 slow_query_logger = logging.getLogger("soroscan.slow_queries")
+
+
+def is_origin_allowed(origin, request):
+    """Check if origin is allowed globally or by any organization."""
+    # First check global allowed origins
+    if origin in settings.CORS_ALLOWED_ORIGINS:
+        return True
+    if settings.CORS_ALLOW_ALL_ORIGINS:
+        return True
+    
+    # Check if any organization has this origin in cors_origins
+    orgs = Organization.objects.filter(cors_origins__contains=origin)
+    if orgs.exists():
+        return True
+    
+    # Also check if request is associated with a specific organization via contract_id
+    if hasattr(request, 'resolver_match') and request.resolver_match:
+        kwargs = request.resolver_match.kwargs
+        if 'contract_id' in kwargs:
+            try:
+                contract = TrackedContract.objects.get(contract_id=kwargs['contract_id'])
+                if contract.organization and origin in (contract.organization.cors_origins or []):
+                    return True
+            except TrackedContract.DoesNotExist:
+                pass
+    
+    return False
 
 
 class RequestIdMiddleware:
