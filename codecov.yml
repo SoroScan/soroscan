@@ -1,0 +1,86 @@
+# codecov.yml — SoroScan repository-level Codecov configuration
+# Docs: https://docs.codecov.com/docs/codecov-yaml
+
+codecov:
+  # Token is set via CODECOV_TOKEN secret in GitHub Actions
+  require_ci_to_pass: true
+  notify:
+    wait_for_ci: true
+
+coverage:
+  # ── Status checks posted back to GitHub ───────────────────────────────────
+  status:
+    project:
+      default:
+        # Overall project health gate
+        target: auto          # compare against base commit
+        threshold: 1%         # allow 1% drop before failing
+        if_not_found: success
+      backend:
+        flags: [backend]
+        target: 80%
+        threshold: 1%
+      frontend:
+        flags: [frontend]
+        target: 70%
+        threshold: 1%
+      sdk:
+        flags: [sdk]
+        target: 80%
+        threshold: 1%
+      contracts:
+        flags: [contracts]
+        target: 70%
+        threshold: 1%
+    patch:
+      default:
+        target: 70%           # new code in PRs must hit 70%
+        threshold: 5%
+
+# ── Per-flag configuration ─────────────────────────────────────────────────
+flags:
+  backend:
+    paths:
+      - django-backend/
+    carryforward: false
+  frontend:
+    paths:
+      - soroscan-frontend/
+    carryforward: false
+  sdk:
+    paths:
+      - sdk/typescript/
+    carryforward: false
+  contracts:
+    paths:
+      - soroban-contracts/
+    carryforward: false
+
+# ── PR comment layout ──────────────────────────────────────────────────────
+comment:
+  layout: "reach, diff, flags, components, files"
+  behavior: default           # update existing comment rather than posting new ones
+  require_changes: true       # only post if coverage changed
+  require_base: true
+  show_carryforward_flags: false
+
+# ── Files to ignore from all coverage reports ─────────────────────────────
+ignore:
+  - "**/migrations/**"
+  - "**/settings*.py"
+  - "**/wsgi.py"
+  - "**/asgi.py"
+  - "**/conftest.py"
+  - "**/manage.py"
+  - "**/__mocks__/**"
+  - "**/generated/**"
+  - "**/node_modules/**"
+  - "**/dist/**"
+  - "**/target/**"
+  - "docs/**"
+  - "load-tests/**"
+  - "k8s/**"
+
+# ── GitHub checks ──────────────────────────────────────────────────────────
+github_checks:
+  annotations: true

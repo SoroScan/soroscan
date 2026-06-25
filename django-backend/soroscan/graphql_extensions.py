@@ -8,8 +8,60 @@ from typing import Any, Callable, Dict, Optional
 from strawberry.extensions import SchemaExtension
 from strawberry.types import Info
 from strawberry.exceptions import StrawberryException
+from strawberry.permission import BasePermission
 from django.conf import settings
 from django.core.cache import cache
+
+
+class IsAuthenticated(BasePermission):
+    message = "User is not authenticated"
+
+    def has_permission(self, source: Any, info: Info, **kwargs) -> bool:
+        if info.context is None:
+            return False
+        if not hasattr(info.context, "request"):
+            return False
+        request = info.context.request
+        if request is None:
+            return False
+        if not hasattr(request, "user"):
+            return False
+        user = request.user
+        return user and hasattr(user, "is_authenticated") and user.is_authenticated
+
+
+class IsStaff(BasePermission):
+    message = "User is not a staff member"
+
+    def has_permission(self, source: Any, info: Info, **kwargs) -> bool:
+        if info.context is None:
+            return False
+        if not hasattr(info.context, "request"):
+            return False
+        request = info.context.request
+        if request is None:
+            return False
+        if not hasattr(request, "user"):
+            return False
+        user = request.user
+        return user and hasattr(user, "is_authenticated") and user.is_authenticated and hasattr(user, "is_staff") and user.is_staff
+
+
+class IsSuperuser(BasePermission):
+    message = "User is not a superuser"
+
+    def has_permission(self, source: Any, info: Info, **kwargs) -> bool:
+        if info.context is None:
+            return False
+        if not hasattr(info.context, "request"):
+            return False
+        request = info.context.request
+        if request is None:
+            return False
+        if not hasattr(request, "user"):
+            return False
+        user = request.user
+        return user and hasattr(user, "is_authenticated") and user.is_authenticated and hasattr(user, "is_superuser") and user.is_superuser
 
 logger = logging.getLogger("soroscan.graphql")
 

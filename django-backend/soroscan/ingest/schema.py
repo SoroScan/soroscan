@@ -31,6 +31,9 @@ from .services.timeline import build_timeline
 from ..graphql_extensions import (
     GraphQLRateLimitExtension,
     GraphQLResolverLoggingExtension,
+    IsAuthenticated,
+    IsStaff,
+    IsSuperuser,
     log_graphql_resolver,
 )
 
@@ -749,13 +752,9 @@ class Query:
             groups=groups,
         )
 
-    @strawberry.field
+    @strawberry.field(permission_classes=[IsStaff])
     def system_metrics(self, info: Info) -> SystemMetrics:
         """Get system-wide health and performance metrics."""
-        user = _get_authenticated_user(info)
-        if not user or not user.is_staff:
-            raise Exception("Admin access required")
-
         now = timezone.now()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -787,7 +786,7 @@ class Query:
             redis_status="CONNECTED",
         )
 
-    @strawberry.field
+    @strawberry.field(permission_classes=[IsAuthenticated])
     def notifications(
         self,
         info: Info,
@@ -797,9 +796,6 @@ class Query:
     ) -> list[NotificationType]:
         """Get notifications for the authenticated user (newest first, max 50)."""
         user = _get_authenticated_user(info)
-        if not user:
-            raise Exception("Authentication required")
-
         qs = Notification.objects.filter(user=user)
         if notification_type:
             qs = qs.filter(notification_type=notification_type)
@@ -817,13 +813,9 @@ class Query:
             return 0
         return Notification.objects.filter(user=user, is_read=False).count()
 
-    @strawberry.field
+    @strawberry.field(permission_classes=[IsStaff])
     def recent_errors(self, info: Info, limit: int = 10) -> list[ErrorLog]:
         """Get recent system errors and warnings."""
-        user = _get_authenticated_user(info)
-        if not user or not user.is_staff:
-            raise Exception("Admin access required")
-
         # Using WebhookDeliveryLog failures as a source of system errors
         logs = WebhookDeliveryLog.objects.filter(success=False).order_by("-timestamp")[:limit]
         
@@ -841,7 +833,7 @@ class Query:
 
 @strawberry.type
 class Mutation:
-    @strawberry.mutation
+    @strawberry.mutation(permission_classes=[IsAuthenticated])
     def register_contract(
         self,
         info: Info,
@@ -853,8 +845,6 @@ class Mutation:
     ) -> ContractType:
         """Register a new contract for indexing."""
         user = _get_authenticated_user(info)
-        if not user:
-            raise Exception("Authentication required")
 
         from .models import Team, TeamMembership
 
@@ -877,33 +867,27 @@ class Mutation:
         )
         return contract
 
-    @strawberry.mutation
+    @strawberry.mutation(permission_classes=[IsAuthenticated])
     def mark_notification_read(self, info: Info, notification_id: int) -> bool:
         """Mark a single notification as read."""
         user = _get_authenticated_user(info)
-        if not user:
-            raise Exception("Authentication required")
         updated = Notification.objects.filter(id=notification_id, user=user).update(is_read=True)
         return updated > 0
 
-    @strawberry.mutation
+    @strawberry.mutation(permission_classes=[IsAuthenticated])
     def mark_all_notifications_read(self, info: Info) -> int:
         """Mark all notifications as read. Returns count updated."""
         user = _get_authenticated_user(info)
-        if not user:
-            raise Exception("Authentication required")
         return Notification.objects.filter(user=user, is_read=False).update(is_read=True)
 
-    @strawberry.mutation
+    @strawberry.mutation(permission_classes=[IsAuthenticated])
     def clear_all_notifications(self, info: Info) -> int:
         """Delete all notifications for the user. Returns count deleted."""
         user = _get_authenticated_user(info)
-        if not user:
-            raise Exception("Authentication required")
         count, _ = Notification.objects.filter(user=user).delete()
         return count
 
-    @strawberry.mutation
+    @strawberry.mutation(permission_classes=[IsAuthenticated])
     def set_contract_metadata(
         self,
         info: Info,
@@ -919,8 +903,6 @@ class Mutation:
         from django.core.exceptions import ValidationError
 
         user = _get_authenticated_user(info)
-        if not user:
-            raise Exception("Authentication required")
 
         try:
             contract = TrackedContract.objects.get(contract_id=contract_id)
@@ -954,12 +936,10 @@ class Mutation:
             team_email=instance.team_email,
         )
 
-    @strawberry.mutation
+    @strawberry.mutation(permission_classes=[IsAuthenticated])
     def delete_contract_metadata(self, info: Info, contract_id: str) -> bool:
         """Delete metadata for a contract. Returns False if no record exists."""
         user = _get_authenticated_user(info)
-        if not user:
-            raise Exception("Authentication required")
 
         try:
             ContractMetadata.objects.get(contract__contract_id=contract_id).delete()
@@ -967,7 +947,7 @@ class Mutation:
         except ContractMetadata.DoesNotExist:
             return False
 
-    @strawberry.mutation
+    @strawberry.mutation(permission_classes=[IsAuthenticated])
     def update_contract(
         self,
         info: Info,
@@ -982,8 +962,6 @@ class Mutation:
     ) -> Optional[ContractType]:
         """Update a tracked contract."""
         user = _get_authenticated_user(info)
-        if not user:
-            raise Exception("Authentication required")
 
         try:
             contract = TrackedContract.objects.get(contract_id=contract_id)

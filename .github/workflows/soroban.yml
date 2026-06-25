@@ -48,7 +48,54 @@ jobs:
       - name: Run tests
         working-directory: ./soroban-contracts/soroscan_core
         run: cargo test
-      
+
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin --locked
+
+      - name: Run coverage with tarpaulin
+        working-directory: ./soroban-contracts/soroscan_core
+        env:
+          COVERAGE_THRESHOLD: "70"
+        run: |
+          mkdir -p coverage
+          cargo tarpaulin \
+            --verbose \
+            --all-features \
+            --workspace \
+            --timeout 120 \
+            --skip-clean \
+            --exclude-files "*/target/*" \
+            --out Xml \
+            --out Lcov \
+            --output-dir coverage/ \
+            -- --test-threads=1
+
+      - name: Enforce coverage threshold (≥ 70%)
+        working-directory: ./soroban-contracts/soroscan_core
+        run: |
+          python3 - <<'EOF'
+          import xml.etree.ElementTree as ET, sys
+          tree = ET.parse("coverage/cobertura.xml")
+          root = tree.getroot()
+          rate = float(root.attrib.get("line-rate", 0)) * 100
+          print(f"Contract coverage: {rate:.2f}%")
+          if rate < 70:
+              print(f"ERROR: coverage {rate:.2f}% is below the 70% threshold")
+              sys.exit(1)
+          print("Coverage threshold met.")
+          EOF
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./soroban-contracts/soroscan_core/coverage/lcov.info
+          flags: contracts
+          name: contracts-coverage
+          fail_ci_if_error: true
+          verbose: true
+
       - name: Build WASM contract
         working-directory: ./soroban-contracts/soroscan_core
         run: |

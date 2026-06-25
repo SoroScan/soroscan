@@ -1,3 +1,4 @@
+
 """
 Django Admin configuration for SoroScan models.
 """
@@ -87,7 +88,7 @@ class AdminAuditMixin:
 
     def _audit(self, request, obj, action: str, message) -> None:
         try:
-            AdminAction.objects.create(
+            AdminAction.objects.create(  # type: ignore
                 user=request.user if getattr(request.user, "is_authenticated", False) else None,
                 action=action,
                 object_type=obj._meta.model_name[:32],
@@ -100,16 +101,16 @@ class AdminAuditMixin:
             return
 
     def log_addition(self, request, obj, message):
-        super().log_addition(request, obj, message)
+        super().log_addition(request, obj, message)  # type: ignore
         self._audit(request, obj, "add", message)
 
     def log_change(self, request, obj, message):
-        super().log_change(request, obj, message)
+        super().log_change(request, obj, message)  # type: ignore
         self._audit(request, obj, "change", message)
 
     def log_deletions(self, request, queryset):
         snapshot = list(queryset)
-        super().log_deletions(request, queryset)
+        super().log_deletions(request, queryset)  # type: ignore
         for obj in snapshot:
             self._audit(request, obj, "delete", "Deleted via Django admin")
 
@@ -132,9 +133,10 @@ class TeamMembershipAdmin(admin.ModelAdmin):
 
 @admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):
-    list_display = ["name", "slug", "owner", "quota", "created_at"]
+    list_display = ["name", "slug", "owner", "quota", "cors_origins", "created_at"]
     search_fields = ["name", "slug", "owner__username"]
     readonly_fields = ["created_at", "updated_at"]
+    fields = ["name", "slug", "owner", "quota", "cors_origins", "created_at", "updated_at"]
 
 
 @admin.register(OrganizationMembership)
@@ -445,14 +447,14 @@ class ContractEventAdmin(AdminAuditMixin, admin.ModelAdmin):
         task_ids = []
         for contract_id in contract_ids:
             try:
-                contract = TrackedContract.objects.get(contract_id=contract_id)
+                contract = TrackedContract.objects.get(contract_id=contract_id)  # type: ignore
                 from_ledger = (
                     contract.last_indexed_ledger + 1 if contract.last_indexed_ledger else 1
                 )
                 to_ledger = (contract.last_indexed_ledger or 0) + 1000
                 task = backfill_contract_events.delay(contract_id, from_ledger, to_ledger)
                 task_ids.append(f"{contract.name}: {task.id}")
-            except TrackedContract.DoesNotExist:
+            except TrackedContract.DoesNotExist:  # type: ignore
                 self.message_user(
                     request, f"Contract {contract_id} not found.", level=messages.ERROR
                 )
@@ -517,7 +519,7 @@ class ContractEventAdmin(AdminAuditMixin, admin.ModelAdmin):
             from silk.models import SQLQuery  # type: ignore[import]
 
             top_queries = (
-                SQLQuery.objects.values("query")
+                SQLQuery.objects.values("query")  # type: ignore
                 .annotate(freq=Count("id"))
                 .order_by("-freq")[:20]
             )
@@ -621,7 +623,7 @@ class WebhookSubscriptionAdmin(AdminAuditMixin, admin.ModelAdmin):
         from django.shortcuts import redirect
         from django.utils import timezone
 
-        webhook = WebhookSubscription.objects.get(pk=pk)
+        webhook = WebhookSubscription.objects.get(pk=pk)  # type: ignore
         test_payload = {
             "event_type": "ping",
             "payload": {"message": "This is a test ping from SoroScan admin"},
@@ -672,8 +674,8 @@ class WebhookSubscriptionAdmin(AdminAuditMixin, admin.ModelAdmin):
         if not contract_id:
             return JsonResponse({"results": []})
         try:
-            contract = TrackedContract.objects.get(pk=contract_id)
-        except TrackedContract.DoesNotExist:
+            contract = TrackedContract.objects.get(pk=contract_id)  # type: ignore
+        except TrackedContract.DoesNotExist:  # type: ignore
             return JsonResponse({"results": []})
         
         types = set()
@@ -1342,8 +1344,8 @@ class EventDeduplicationConfigAdmin(AdminAuditMixin, admin.ModelAdmin):
 
     def test_dedup_view(self, request, contract_id):
         try:
-            contract = TrackedContract.objects.get(pk=contract_id)
-        except TrackedContract.DoesNotExist:
+            contract = TrackedContract.objects.get(pk=contract_id)  # type: ignore
+        except TrackedContract.DoesNotExist:  # type: ignore
             return HttpResponse(json.dumps({"error": "contract not found"}), content_type="application/json", status=404)
 
         try:

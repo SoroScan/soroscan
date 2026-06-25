@@ -9,7 +9,7 @@ DOCS_DIR        := docs
 API_DOCS_MD     := $(DOCS_DIR)/api_reference.md
 API_DOCS_JSON   := $(DOCS_DIR)/api_reference.json
 
-.PHONY: help install migrate run test lint format \
+.PHONY: help install migrate run test coverage coverage-check lint format \
         docs docs-json docs-watch \
         celery celery-beat \
         clean
@@ -21,21 +21,23 @@ help:
 	@echo ""
 	@echo "SoroScan Django backend — available targets:"
 	@echo ""
-	@echo "  install        Install Python dependencies"
-	@echo "  migrate        Run database migrations"
-	@echo "  run            Start the Django dev server"
-	@echo "  test           Run the test suite with pytest"
-	@echo "  lint           Run ruff linter"
-	@echo "  format         Run black + ruff formatter"
+	@echo "  install          Install Python dependencies"
+	@echo "  migrate          Run database migrations"
+	@echo "  run              Start the Django dev server"
+	@echo "  test             Run the test suite with pytest (+ coverage)"
+	@echo "  coverage         Run tests, generate all coverage reports, open HTML"
+	@echo "  coverage-check   Fail if coverage < 80% (CI safe, no browser)"
+	@echo "  lint             Run ruff linter"
+	@echo "  format           Run black + ruff formatter"
 	@echo ""
-	@echo "  docs           Generate Markdown API reference (default output: $(API_DOCS_MD))"
-	@echo "  docs-json      Generate JSON API reference (output: $(API_DOCS_JSON))"
-	@echo "  docs-watch     Regenerate docs whenever views.py or urls.py changes (requires entr)"
+	@echo "  docs             Generate Markdown API reference (default output: $(API_DOCS_MD))"
+	@echo "  docs-json        Generate JSON API reference (output: $(API_DOCS_JSON))"
+	@echo "  docs-watch       Regenerate docs whenever views.py or urls.py changes (requires entr)"
 	@echo ""
-	@echo "  celery         Start Celery worker"
-	@echo "  celery-beat    Start Celery beat scheduler"
+	@echo "  celery           Start Celery worker"
+	@echo "  celery-beat      Start Celery beat scheduler"
 	@echo ""
-	@echo "  clean          Remove __pycache__ and .pyc files"
+	@echo "  clean            Remove __pycache__ and .pyc files"
 	@echo ""
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -58,6 +60,35 @@ run:
 # ──────────────────────────────────────────────────────────────────────────────
 test:
 	pytest
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Coverage
+# ──────────────────────────────────────────────────────────────────────────────
+coverage:
+	@echo "📊  Running tests with full coverage reporting …"
+	pytest \
+		--cov=soroscan \
+		--cov-branch \
+		--cov-report=term-missing \
+		--cov-report=xml:coverage.xml \
+		--cov-report=json:coverage.json \
+		--cov-report=html:htmlcov \
+		--cov-fail-under=80 \
+		--cov-config=.coveragerc
+	@echo "✅  HTML report: htmlcov/index.html"
+	@python -c "import webbrowser; webbrowser.open('htmlcov/index.html')" 2>/dev/null || true
+
+coverage-check:
+	@echo "🔍  Checking coverage threshold (≥ 80%) …"
+	pytest \
+		--cov=soroscan \
+		--cov-branch \
+		--cov-report=xml:coverage.xml \
+		--cov-report=json:coverage.json \
+		--cov-report=term \
+		--cov-fail-under=80 \
+		--cov-config=.coveragerc
+	@echo "✅  Coverage threshold met."
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Linting & formatting
