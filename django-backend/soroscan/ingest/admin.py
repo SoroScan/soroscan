@@ -135,6 +135,14 @@ class OrganizationAdmin(admin.ModelAdmin):
     list_display = ["name", "slug", "owner", "quota", "created_at"]
     search_fields = ["name", "slug", "owner__username"]
     readonly_fields = ["created_at", "updated_at"]
+    fieldsets = (
+        (None, {
+            "fields": ("name", "slug", "owner", "quota", "settings", "cors_origins"),
+        }),
+        ("Timestamps", {
+            "fields": ("created_at", "updated_at"),
+        }),
+    )
 
 
 @admin.register(OrganizationMembership)
