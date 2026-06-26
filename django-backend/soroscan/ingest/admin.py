@@ -12,6 +12,7 @@ import csv
 import json
 from datetime import datetime
 import requests as http_requests
+import hashlib
 
 from .models import (
     AlertExecution,
@@ -38,6 +39,7 @@ from .models import (
     EventSchema,
     IndexerState,
     IngestError,
+    EventDeduplicationConfig,
     Organization,
     OrganizationBudget,
     OrganizationCostSnapshot,
@@ -1319,3 +1321,52 @@ class ContractABIVersionAdmin(admin.ModelAdmin):
     list_filter = ["has_breaking_changes", "created_at"]
     search_fields = ["contract__contract_id", "contract__name"]
     readonly_fields = ["created_at"]
+
+
+@admin.register(EventDeduplicationConfig)
+class EventDeduplicationConfigAdmin(AdminAuditMixin, admin.ModelAdmin):
+    list_display = ["contract", "enabled", "updated_at"]
+    search_fields = ["contract__name", "contract__contract_id"]
+    readonly_fields = ["created_at", "updated_at"]
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "test/<int:contract_id>/",
+                self.admin_site.admin_view(self.test_dedup_view),
+                name="soroscan_dedup_test",
+            ),
+        ]
+        return custom + urls
+
+    def test_dedup_view(self, request, contract_id):
+        try:
+            contract = TrackedContract.objects.get(pk=contract_id)
+        except TrackedContract.DoesNotExist:
+            return HttpResponse(json.dumps({"error": "contract not found"}), content_type="application/json", status=404)
+
+        try:
+            body = request.body.decode("utf-8") if request.body else "{}"
+            payload = json.loads(body)
+        except Exception:
+            payload = {}
+
+        config = getattr(contract, "dedup_config", None)
+        if not config or not config.enabled:
+            return HttpResponse(json.dumps({"dedup_enabled": False}), content_type="application/json")
+
+        material = {}
+        for f in config.fields:
+            if f in ("event_type", "ledger", "event_index", "tx_hash"):
+                material[f] = payload.get(f)
+            else:
+                material[f] = payload.get("payload", {}).get(f)
+
+        dedup_material = json.dumps(material, sort_keys=True, default=str)
+        dedup_hash = hashlib.sha256(dedup_material.encode("utf-8")).hexdigest()
+
+        return HttpResponse(
+            json.dumps({"dedup_hash": dedup_hash, "material": material}),
+            content_type="application/json",
+        )

@@ -15,6 +15,12 @@ interface DeliveryLogProps {
   logs: DeliveryLog[]
 }
 
+interface RetryOutcome {
+  id: string
+  ok: boolean
+  details: string
+}
+
 function StatusCodeBadge({ code }: { code: number }) {
   const cls =
     code < 300 ? "text-terminal-green border-terminal-green/40" :
@@ -52,6 +58,11 @@ export function DeliveryLog({ logs }: DeliveryLogProps) {
   const [sortField, setSortField] = React.useState<SortField>("timestamp")
   const [sortDir, setSortDir] = React.useState<SortDir>("desc")
   const [page, setPage] = React.useState(1)
+  const [selectedLogIds, setSelectedLogIds] = React.useState<string[]>([])
+  const [confirmRetryOpen, setConfirmRetryOpen] = React.useState(false)
+  const [retrying, setRetrying] = React.useState(false)
+  const [retryFeedback, setRetryFeedback] = React.useState<string | null>(null)
+  const [retryOutcomes, setRetryOutcomes] = React.useState<RetryOutcome[]>([])
 
   const toggleSort = (f: SortField) => {
     if (f === sortField) setSortDir((d) => (d === "asc" ? "desc" : "asc"))
@@ -79,6 +90,54 @@ export function DeliveryLog({ logs }: DeliveryLogProps) {
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const paginated = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
+  const failedInView = sorted.filter((log) => log.statusCode >= 400)
+  const selectedCount = selectedLogIds.length
+  const allFailedSelected = failedInView.length > 0 && failedInView.every((log) => selectedLogIds.includes(log.id))
+
+  const toggleSelection = (id: string, checked: boolean) => {
+    setSelectedLogIds((prev) => {
+      if (checked) {
+        if (prev.includes(id)) {
+          return prev
+        }
+        return [...prev, id]
+      }
+      return prev.filter((entry) => entry !== id)
+    })
+  }
+
+  const toggleSelectAllFailed = (checked: boolean) => {
+    if (!checked) {
+      setSelectedLogIds([])
+      return
+    }
+    setSelectedLogIds(failedInView.map((log) => log.id))
+  }
+
+  const executeBatchRetry = async () => {
+    setRetrying(true)
+    setRetryFeedback(null)
+
+    await new Promise((resolve) => setTimeout(resolve, 900))
+
+    const outcomes = selectedLogIds.map((id) => {
+      const log = logs.find((entry) => entry.id === id)
+      const shouldFail = !log || log.statusCode >= 500
+      return shouldFail
+        ? { id, ok: false, details: `Retry failed (${log?.statusCode ?? "N/A"}) due to downstream endpoint timeout.` }
+        : { id, ok: true, details: "Retry accepted and queued for delivery." }
+    })
+
+    const successCount = outcomes.filter((result) => result.ok).length
+    const failureCount = outcomes.length - successCount
+
+    setRetryOutcomes(outcomes)
+    setRetryFeedback(`Batch retry completed: ${successCount} succeeded, ${failureCount} failed.`)
+    setSelectedLogIds([])
+    setConfirmRetryOpen(false)
+    setRetrying(false)
+  }
 
   return (
     <section className="space-y-4">
@@ -112,6 +171,71 @@ export function DeliveryLog({ logs }: DeliveryLogProps) {
         </div>
       </div>
 
+      {selectedCount > 0 && (
+        <div className="border border-terminal-cyan/30 bg-terminal-cyan/5 p-3 text-xs text-terminal-cyan flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <span>{selectedCount} failed delivery{selectedCount > 1 ? "ies" : ""} selected</span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="px-3 py-1 border border-terminal-cyan/40 hover:border-terminal-cyan transition-colors"
+              onClick={() => setSelectedLogIds([])}
+            >
+              Clear Selection
+            </button>
+            <button
+              type="button"
+              className="px-3 py-1 border border-terminal-warning/50 text-terminal-warning hover:border-terminal-warning transition-colors"
+              onClick={() => setConfirmRetryOpen(true)}
+            >
+              Retry Selected
+            </button>
+          </div>
+        </div>
+      )}
+
+      {confirmRetryOpen && (
+        <div className="border border-terminal-warning/50 bg-terminal-warning/10 p-3 text-xs text-terminal-warning flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <span>Retry {selectedCount} failed delivery{selectedCount > 1 ? "ies" : ""}? This will requeue webhook attempts.</span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="px-3 py-1 border border-terminal-gray/30 text-terminal-gray hover:border-terminal-green hover:text-terminal-green transition-colors"
+              onClick={() => setConfirmRetryOpen(false)}
+              disabled={retrying}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="px-3 py-1 border border-terminal-warning text-terminal-warning hover:bg-terminal-warning/10 transition-colors disabled:opacity-50"
+              onClick={executeBatchRetry}
+              disabled={retrying}
+            >
+              {retrying ? "Retrying..." : "Confirm Retry"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {retryFeedback && (
+        <div className="border border-terminal-green/30 bg-terminal-green/10 p-3 text-xs text-terminal-green">
+          {retryFeedback}
+        </div>
+      )}
+
+      {retryOutcomes.some((result) => !result.ok) && (
+        <div className="border border-terminal-danger/40 bg-terminal-danger/10 p-3 text-xs text-terminal-danger space-y-2">
+          <div className="font-bold">Retry Errors</div>
+          {retryOutcomes
+            .filter((result) => !result.ok)
+            .map((result) => (
+              <div key={result.id}>
+                <span className="text-terminal-gray">{result.id}</span>: {result.details}
+              </div>
+            ))}
+        </div>
+      )}
+
       {paginated.length === 0 ? (
         <div className="border border-terminal-green/20 p-8 text-center text-terminal-gray text-sm">
           NO_LOGS_FOUND — try adjusting the filter
@@ -122,6 +246,14 @@ export function DeliveryLog({ logs }: DeliveryLogProps) {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-8">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all failed deliveries"
+                      checked={allFailedSelected}
+                      onChange={(e) => toggleSelectAllFailed(e.target.checked)}
+                    />
+                  </TableHead>
                   <TableHead
                     className="cursor-pointer select-none hover:text-terminal-green transition-colors"
                     onClick={() => toggleSort("timestamp")}
@@ -177,6 +309,15 @@ export function DeliveryLog({ logs }: DeliveryLogProps) {
               <TableBody>
                 {paginated.map((log) => (
                   <TableRow key={log.id}>
+                    <TableCell>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select delivery ${log.id}`}
+                        checked={selectedLogIds.includes(log.id)}
+                        disabled={log.statusCode < 400}
+                        onChange={(e) => toggleSelection(log.id, e.target.checked)}
+                      />
+                    </TableCell>
                     <TableCell className="text-[10px] whitespace-nowrap text-terminal-gray">
                       {new Date(log.timestamp).toLocaleString("en-GB", {
                         dateStyle: "short",

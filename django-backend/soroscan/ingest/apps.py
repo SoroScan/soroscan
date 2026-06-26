@@ -8,3 +8,6 @@ class IngestConfig(AppConfig):
 
     def ready(self):
         import soroscan.ingest.signals  # noqa: F401 — registers signal handlers
+        from soroscan.operational_metrics import register_operational_collector
+
+        register_operational_collector()

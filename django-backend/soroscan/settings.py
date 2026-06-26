@@ -8,6 +8,7 @@ from pathlib import Path
 
 import environ
 from django.core.exceptions import ImproperlyConfigured
+from soroscan.db_pool import calculate_pool_limits
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -104,11 +105,14 @@ ENABLE_SILK = env.bool("ENABLE_SILK", default=False)
 MIDDLEWARE = [
     # PrometheusBeforeMiddleware must be first to capture all requests.
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
+    "soroscan.monitoring.ErrorRateMetricsMiddleware",
     "soroscan.middleware.RequestBodySizeMiddleware",
     "soroscan.middleware.MaintenanceModeMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "soroscan.middleware.ReverseProxyFixedIPMiddleware",
+    "soroscan.middleware.ClientIPLoggingMiddleware",
+    "soroscan.middleware.CacheBustingMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "soroscan.middleware.RequestIdMiddleware",
     "soroscan.middleware.PlatformVersionMiddleware",
@@ -116,6 +120,7 @@ MIDDLEWARE = [
     "soroscan.middleware.SlowQueryMiddleware",
     "soroscan.middleware.ApiDeprecationMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "django.middleware.gzip.GZipMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -158,6 +163,18 @@ DATABASES = {
         default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
     ),
 }
+DB_POOL_MIN_SIZE, DB_POOL_MAX_SIZE = calculate_pool_limits()
+DATABASES["default"]["CONN_MAX_AGE"] = env.int("DB_CONN_MAX_AGE", default=300)
+DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
+if DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql":
+    DATABASES["default"].setdefault("OPTIONS", {}).update(
+        {
+            "connect_timeout": env.int("DB_CONNECT_TIMEOUT", default=5),
+            "application_name": env(
+                "DB_APPLICATION_NAME", default="soroscan-backend"
+            ),
+        }
+    )
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -409,6 +426,18 @@ GRAPHQL_INTROSPECTION_ENABLED = env.bool(
     default=DEBUG,
 )
 
+# Maximum allowed GraphQL query complexity score (see soroscan.graphql_complexity).
+GRAPHQL_MAX_COMPLEXITY = env.int("GRAPHQL_MAX_COMPLEXITY", default=1000)
+
+# N+1 query detection (issue #490) — enabled by default in DEBUG, disabled in production.
+GRAPHQL_N1_DETECTION_ENABLED = env.bool(
+    "GRAPHQL_N1_DETECTION_ENABLED",
+    default=DEBUG,
+)
+
+# Ed25519 seed (32 bytes hex) for webhook X-Signature headers.
+WEBHOOK_ED25519_SIGNING_SEED = env("WEBHOOK_ED25519_SIGNING_SEED", default="")
+
 # Prometheus
 # Expose the /metrics endpoint without authentication.
 # The URL is registered in urls.py via django_prometheus.urls.
@@ -480,6 +509,11 @@ LOGGING["loggers"]["django.performance.database"] = {
     "level": "WARNING",
     "propagate": False,
 }
+LOGGING["loggers"]["soroscan.graphql.n1_detection"] = {
+    "handlers": ["console"],
+    "level": "WARNING",
+    "propagate": False,
+}
 
 # ---------------------------------------------------------------------------
 # Security audit logger — admin login success / failure events
@@ -494,6 +528,15 @@ LOGGING["handlers"]["security_audit"] = {
 }
 LOGGING["loggers"]["soroscan.security_audit"] = {
     "handlers": ["security_audit", "console"],
+    "level": "INFO",
+    "propagate": False,
+}
+
+# ---------------------------------------------------------------------------
+# IP access logger — client IP, method, and path for every API request
+# ---------------------------------------------------------------------------
+LOGGING["loggers"]["soroscan.ip_access"] = {
+    "handlers": ["console"],
     "level": "INFO",
     "propagate": False,
 }
@@ -576,3 +619,10 @@ DEPRECATED_ENDPOINTS = {
         "replacement": "/graphql/"
     }
 }
+
+if 'test' in sys.argv:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        }
+    }

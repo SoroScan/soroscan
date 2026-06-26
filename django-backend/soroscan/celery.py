@@ -1,16 +1,19 @@
 """
 Celery configuration for SoroScan project.
 """
+
 import os
+import time
 
 from celery import Celery
-from celery.signals import task_prerun
+from celery.signals import task_failure, task_postrun, task_prerun
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "soroscan.settings")
 
 app = Celery("soroscan")
 app.config_from_object("django.conf:settings", namespace="CELERY")
 app.autodiscover_tasks()
+_task_started_at: dict[str, float] = {}
 
 
 @task_prerun.connect
@@ -19,6 +22,45 @@ def set_celery_task_context(sender, task_id, **kwargs):
     from soroscan.log_context import set_task_id
 
     set_task_id(task_id or "")
+    from soroscan.ingest.metrics import celery_tasks_active
+
+    task_name = getattr(sender, "name", "unknown")
+    _task_started_at[task_id] = time.monotonic()
+    celery_tasks_active.labels(task_name=task_name).inc()
+
+
+@task_postrun.connect
+def record_celery_task_completion(sender, task_id, state, **kwargs):
+    """Record task throughput, active count, and duration."""
+    from soroscan.ingest.metrics import (
+        celery_task_duration_seconds,
+        celery_tasks_active,
+        celery_tasks_total,
+    )
+
+    task_name = getattr(sender, "name", "unknown")
+    celery_tasks_active.labels(task_name=task_name).dec()
+    if str(state).upper() != "FAILURE":
+        celery_tasks_total.labels(
+            task_name=task_name, status=str(state).lower(), error_type=""
+        ).inc()
+    started = _task_started_at.pop(task_id, None)
+    if started is not None:
+        celery_task_duration_seconds.labels(task_name=task_name).observe(
+            time.monotonic() - started
+        )
+
+
+@task_failure.connect
+def record_celery_task_failure(sender, exception, **kwargs):
+    """Record failure causes for alert and dashboard breakdowns."""
+    from soroscan.ingest.metrics import celery_tasks_total
+
+    celery_tasks_total.labels(
+        task_name=getattr(sender, "name", "unknown"),
+        status="failure",
+        error_type=type(exception).__name__,
+    ).inc()
 
 
 @app.task(bind=True, ignore_result=True)

@@ -1,7 +1,8 @@
 import React from "react"
-import { render, screen, fireEvent } from "@testing-library/react"
+import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { WebhookTable } from "@/app/webhooks/components/WebhookTable"
 import { CreateWebhookModal } from "@/app/webhooks/components/CreateWebhookModal"
+import WebhookDetailPage from "@/app/webhooks/[id]/page"
 import { DeliveryLog } from "@/app/webhooks/[id]/components/DeliveryLog"
 import { MOCK_WEBHOOKS, MOCK_DELIVERY_LOGS } from "@/app/webhooks/mock-data"
 import type { Webhook } from "@/app/webhooks/types"
@@ -44,7 +45,6 @@ describe("WebhookTable", () => {
         onTest={mockTest}
       />
     )
-    // Each row has a URL link — text partially matches first webhook URL
     expect(screen.getAllByRole("link").length).toBeGreaterThanOrEqual(MOCK_WEBHOOKS.length)
   })
 
@@ -59,7 +59,7 @@ describe("WebhookTable", () => {
     render(
       <WebhookTable webhooks={MOCK_WEBHOOKS} onDelete={mockDelete} onTest={mockTest} />
     )
-    expect(screen.getByText("FAILED")).toBeInTheDocument()
+    expect(screen.getAllByText("FAILED").length).toBeGreaterThanOrEqual(1)
   })
 
   it("shows empty state when no webhooks", () => {
@@ -77,7 +77,7 @@ describe("WebhookTable", () => {
         onTest={mockTest}
       />
     )
-    fireEvent.click(screen.getByTitle("Delete webhook"))
+    fireEvent.click(screen.getAllByTitle("Delete webhook")[0])
     expect(mockDelete).toHaveBeenCalledWith(MOCK_WEBHOOKS[0].id)
   })
 
@@ -89,7 +89,7 @@ describe("WebhookTable", () => {
         onTest={mockTest}
       />
     )
-    fireEvent.click(screen.getByTitle("Test webhook"))
+    fireEvent.click(screen.getAllByTitle("Test webhook")[0])
     expect(mockTest).toHaveBeenCalledWith(MOCK_WEBHOOKS[0].id)
   })
 
@@ -102,7 +102,69 @@ describe("WebhookTable", () => {
         testResult={{ id: MOCK_WEBHOOKS[0].id, ok: true, code: 200 }}
       />
     )
-    expect(screen.getByText(/TEST_OK/)).toBeInTheDocument()
+    expect(screen.getAllByText(/TEST_OK/).length).toBeGreaterThanOrEqual(1)
+  })
+
+  // ── Responsive / mobile ──────────────────────────────────────────────────
+
+  it("renders mobile card list container", () => {
+    render(
+      <WebhookTable webhooks={MOCK_WEBHOOKS} onDelete={mockDelete} onTest={mockTest} />
+    )
+    expect(screen.getByTestId("webhook-mobile-list")).toBeInTheDocument()
+  })
+
+  it("renders desktop table container", () => {
+    render(
+      <WebhookTable webhooks={MOCK_WEBHOOKS} onDelete={mockDelete} onTest={mockTest} />
+    )
+    expect(screen.getByTestId("webhook-desktop-table")).toBeInTheDocument()
+  })
+
+  it("renders one mobile card per webhook", () => {
+    render(
+      <WebhookTable webhooks={MOCK_WEBHOOKS} onDelete={mockDelete} onTest={mockTest} />
+    )
+    expect(screen.getAllByTestId("webhook-card")).toHaveLength(MOCK_WEBHOOKS.length)
+  })
+
+  it("mobile card shows expand/collapse button", () => {
+    render(
+      <WebhookTable
+        webhooks={[MOCK_WEBHOOKS[0]]}
+        onDelete={mockDelete}
+        onTest={mockTest}
+      />
+    )
+    expect(screen.getByLabelText("Expand details")).toBeInTheDocument()
+  })
+
+  it("mobile card expands to show details on toggle", () => {
+    render(
+      <WebhookTable
+        webhooks={[MOCK_WEBHOOKS[0]]}
+        onDelete={mockDelete}
+        onTest={mockTest}
+      />
+    )
+    const expandBtn = screen.getByLabelText("Expand details")
+    fireEvent.click(expandBtn)
+    expect(screen.getByLabelText("Collapse details")).toBeInTheDocument()
+    // After expand, action buttons appear in the card
+    expect(screen.getAllByTitle("Delete webhook").length).toBeGreaterThanOrEqual(1)
+  })
+
+  it("mobile action buttons have touch-friendly size (min-h-[44px])", () => {
+    render(
+      <WebhookTable
+        webhooks={[MOCK_WEBHOOKS[0]]}
+        onDelete={mockDelete}
+        onTest={mockTest}
+      />
+    )
+    fireEvent.click(screen.getByLabelText("Expand details"))
+    const deleteBtn = screen.getAllByTitle("Delete webhook")[0]
+    expect(deleteBtn.className).toMatch(/min-h-\[44px\]/)
   })
 })
 
@@ -154,6 +216,149 @@ describe("CreateWebhookModal", () => {
     expect(screen.getByText("ACTIVE")).toBeInTheDocument()
     expect(screen.getByText("SUSPENDED")).toBeInTheDocument()
   })
+
+  it("shows timeout validation error on invalid input + blur", () => {
+    render(
+      <CreateWebhookModal isOpen onClose={mockClose} onCreate={mockCreate} />
+    )
+    const timeoutInput = screen.getByLabelText("REQUEST_TIMEOUT (seconds)") as HTMLInputElement
+    fireEvent.change(timeoutInput, { target: { value: "3" } })
+    fireEvent.blur(timeoutInput)
+    expect(screen.getByText(/Timeout must be a whole number between 5 and 60 seconds./)).toBeInTheDocument()
+  })
+
+  it("accepts a valid timeout value", () => {
+    render(
+      <CreateWebhookModal isOpen onClose={mockClose} onCreate={mockCreate} />
+    )
+    const timeoutInput = screen.getByLabelText("REQUEST_TIMEOUT (seconds)") as HTMLInputElement
+    fireEvent.change(timeoutInput, { target: { value: "35" } })
+    fireEvent.blur(timeoutInput)
+    expect(screen.queryByText(/Timeout must be a whole number between 5 and 60 seconds./)).not.toBeInTheDocument()
+  })
+
+  it("submits valid timeout value when creating a webhook", async () => {
+    render(
+      <CreateWebhookModal isOpen onClose={mockClose} onCreate={mockCreate} />
+    )
+
+    const urlInput = screen.getByPlaceholderText(/https:\/\/yourapp.io\/webhook/)
+    fireEvent.change(urlInput, { target: { value: "https://example.com/hook" } })
+    fireEvent.blur(urlInput)
+
+    const timeoutInput = screen.getByLabelText("REQUEST_TIMEOUT (seconds)") as HTMLInputElement
+    fireEvent.change(timeoutInput, { target: { value: "45" } })
+    fireEvent.blur(timeoutInput)
+
+    fireEvent.click(screen.getByText("CREATE_WEBHOOK"))
+
+    await waitFor(() => {
+      expect(mockCreate).toHaveBeenCalledWith({
+        url: "https://example.com/hook",
+        eventTypes: ["ALL"],
+        contractFilter: undefined,
+        status: "ACTIVE",
+        timeoutSeconds: 45,
+        filterExpression: undefined,
+      })
+    }, { timeout: 1200 })
+  })
+
+  it("displays timeout explanation text", () => {
+    render(
+      <CreateWebhookModal isOpen onClose={mockClose} onCreate={mockCreate} />
+    )
+    expect(screen.getByText(/Maximum time to wait for webhook response/)).toBeInTheDocument()
+  })
+
+  it("shows timeout quick suggestion buttons", () => {
+    render(
+      <CreateWebhookModal isOpen onClose={mockClose} onCreate={mockCreate} />
+    )
+    const suggestionButtons = screen.getAllByRole("button").filter((btn) =>
+      ["10s", "20s", "30s", "45s", "60s"].includes(btn.textContent || "")
+    )
+    expect(suggestionButtons).toHaveLength(5)
+  })
+
+  it("sets timeout value when suggestion button is clicked", () => {
+    render(
+      <CreateWebhookModal isOpen onClose={mockClose} onCreate={mockCreate} />
+    )
+    const suggestionButton = screen.getByRole("button", { name: "45s" })
+    fireEvent.click(suggestionButton)
+    const timeoutInput = screen.getByLabelText("REQUEST_TIMEOUT (seconds)") as HTMLInputElement
+    expect(timeoutInput.value).toBe("45")
+  })
+
+  it("validates timeout at minimum boundary (5 seconds)", () => {
+    render(
+      <CreateWebhookModal isOpen onClose={mockClose} onCreate={mockCreate} />
+    )
+    const timeoutInput = screen.getByLabelText("REQUEST_TIMEOUT (seconds)") as HTMLInputElement
+    fireEvent.change(timeoutInput, { target: { value: "5" } })
+    fireEvent.blur(timeoutInput)
+    expect(screen.queryByText(/Timeout must be a whole number between 5 and 60 seconds./)).not.toBeInTheDocument()
+  })
+
+  it("validates timeout at maximum boundary (60 seconds)", () => {
+    render(
+      <CreateWebhookModal isOpen onClose={mockClose} onCreate={mockCreate} />
+    )
+    const timeoutInput = screen.getByLabelText("REQUEST_TIMEOUT (seconds)") as HTMLInputElement
+    fireEvent.change(timeoutInput, { target: { value: "60" } })
+    fireEvent.blur(timeoutInput)
+    expect(screen.queryByText(/Timeout must be a whole number between 5 and 60 seconds./)).not.toBeInTheDocument()
+  })
+
+  it("rejects timeout below minimum (4 seconds)", () => {
+    render(
+      <CreateWebhookModal isOpen onClose={mockClose} onCreate={mockCreate} />
+    )
+    const timeoutInput = screen.getByLabelText("REQUEST_TIMEOUT (seconds)") as HTMLInputElement
+    fireEvent.change(timeoutInput, { target: { value: "4" } })
+    fireEvent.blur(timeoutInput)
+    expect(screen.getByText(/Timeout must be a whole number between 5 and 60 seconds./)).toBeInTheDocument()
+  })
+
+  it("rejects timeout above maximum (61 seconds)", () => {
+    render(
+      <CreateWebhookModal isOpen onClose={mockClose} onCreate={mockCreate} />
+    )
+    const timeoutInput = screen.getByLabelText("REQUEST_TIMEOUT (seconds)") as HTMLInputElement
+    fireEvent.change(timeoutInput, { target: { value: "61" } })
+    fireEvent.blur(timeoutInput)
+    expect(screen.getByText(/Timeout must be a whole number between 5 and 60 seconds./)).toBeInTheDocument()
+  })
+})
+
+// ── WebhookDetailPage ───────────────────────────────────────────────────────
+describe("WebhookDetailPage", () => {
+  it("renders timeout editor and updates the configured timeout", () => {
+    render(<WebhookDetailPage />)
+    const timeoutInput = screen.getByLabelText("REQUEST_TIMEOUT (seconds)") as HTMLInputElement
+
+    expect(timeoutInput.value).toBe("30")
+
+    fireEvent.change(timeoutInput, { target: { value: "25" } })
+    fireEvent.blur(timeoutInput)
+    fireEvent.click(screen.getByText("SAVE"))
+
+    expect(screen.queryByText(/Timeout must be between 5 and 60 seconds./)).not.toBeInTheDocument()
+    expect(screen.getByText("Timeout updated successfully.")).toBeInTheDocument()
+    expect(screen.getByText("25s")).toBeInTheDocument()
+  })
+
+  it("prevents saving an out-of-range timeout", () => {
+    render(<WebhookDetailPage />)
+    const timeoutInput = screen.getByLabelText("REQUEST_TIMEOUT (seconds)") as HTMLInputElement
+
+    fireEvent.change(timeoutInput, { target: { value: "2" } })
+    fireEvent.blur(timeoutInput)
+    fireEvent.click(screen.getByText("SAVE"))
+
+    expect(screen.getByText(/Timeout must be between 5 and 60 seconds./)).toBeInTheDocument()
+  })
 })
 
 // ── DeliveryLog ────────────────────────────────────────────────────────────
@@ -184,7 +389,6 @@ describe("DeliveryLog", () => {
     render(<DeliveryLog logs={logs} />)
     const btn = screen.getByRole("button", { name: "2xx" })
     fireEvent.click(btn)
-    // All visible "OK" texts should be present, no ERROR texts visible
     const statusCells = screen.queryAllByText(/^[45]\d\d$/)
     expect(statusCells).toHaveLength(0)
   })

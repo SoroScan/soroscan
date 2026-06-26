@@ -5,11 +5,12 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import time
 from datetime import timedelta
 
 from django.conf import settings
-from django.db.models import Count, Max, Min, Q
+from django.db.models import Count, Max, Min, Q, Avg
 from django.db.models.functions import Cast
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
@@ -25,6 +26,7 @@ from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 import requests as http_requests
 
 from soroscan.throttles import IngestRateThrottle
+from soroscan.webhook_signing import build_x_signature_header, public_key_base64
 
 from .cache_utils import cache_result, get_or_set_json, query_cache_ttl, stable_cache_key
 from .models import (
@@ -122,10 +124,23 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         return warnings
 
     def list(self, request, *args, **kwargs):
-        response = super().list(request, *args, **kwargs)
-        if isinstance(response.data, dict) and "results" in response.data:
-            response.data["warnings"] = self._collect_warnings(response.data["results"])
-        return response
+        """Cache the contracts list for 30 seconds (issue #488)."""
+        cache_key = stable_cache_key(
+            "rest_contracts_list",
+            {
+                "query": sorted(request.query_params.items()),
+                "user_id": getattr(request.user, "id", None),
+            },
+        )
+
+        def _build():
+            response = super(TrackedContractViewSet, self).list(request, *args, **kwargs)
+            if isinstance(response.data, dict) and "results" in response.data:
+                response.data["warnings"] = self._collect_warnings(response.data["results"])
+            return response.data
+
+        cached_data = get_or_set_json(cache_key, 30, _build)
+        return Response(cached_data)
 
     def retrieve(self, request, *args, **kwargs):
         response = super().retrieve(request, *args, **kwargs)
@@ -145,12 +160,27 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
+        self._invalidate_list_cache()
 
     def perform_update(self, serializer):
         instance = serializer.save()
+        self._invalidate_list_cache()
         from .tasks import alert_downstream_contract_change
 
         alert_downstream_contract_change.delay(instance.contract_id, "modified")
+
+    def _invalidate_list_cache(self):
+        from django.core.cache import cache as _cache
+
+        if hasattr(_cache, "delete_pattern"):
+            _cache.delete_pattern("soroscan:rest_contracts_list:*")
+        else:
+            _cache.clear()
+
+    def destroy(self, request, *args, **kwargs):
+        response = super().destroy(request, *args, **kwargs)
+        self._invalidate_list_cache()
+        return response
 
     def get_queryset(self):
         qs = TrackedContract.objects.all()
@@ -328,7 +358,16 @@ class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
     }
 
     def get_queryset(self):
-        return ContractEvent.objects.select_related("contract").all()
+        qs = ContractEvent.objects.select_related("contract").all()
+        
+        # Support comma-separated 'type' filter (Issue #476)
+        event_types = self.request.query_params.get("type")
+        if event_types:
+            types_list = [t.strip() for t in event_types.split(",") if t.strip()]
+            if types_list:
+                qs = qs.filter(event_type__in=types_list)
+                
+        return qs
 
     @extend_schema(
         parameters=[
@@ -590,6 +629,10 @@ class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
             "X-SoroScan-Signature": f"{prefix}={sig_hex}",
             "X-SoroScan-Timestamp": timezone.now().isoformat(),
         }
+        try:
+            headers["X-Signature"] = build_x_signature_header(payload_bytes)
+        except ValueError:
+            pass
 
         try:
             http_requests.post(
@@ -864,6 +907,31 @@ def record_event_view(request):
 
 @extend_schema(
     responses=inline_serializer(
+        name="WebhookSigningPublicKeyResponse",
+        fields={
+            "algorithm": serializers.CharField(),
+            "public_key": serializers.CharField(),
+            "header": serializers.CharField(),
+            "format": serializers.CharField(),
+        },
+    )
+)
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def webhook_signing_public_key_view(request):
+    """Return the platform Ed25519 public key used for webhook X-Signature headers."""
+    return Response(
+        {
+            "algorithm": "ed25519",
+            "public_key": public_key_base64(),
+            "header": "X-Signature",
+            "format": "ed25519=<base64-signature>",
+        }
+    )
+
+
+@extend_schema(
+    responses=inline_serializer(
         name="HealthCheckResponse",
         fields={
             "status": serializers.CharField(),
@@ -1086,6 +1154,79 @@ def contract_event_types_view(request, contract_id: str):
     
     result = get_or_set_json(cache_key, 60, _build)
     return Response(result)
+
+
+@extend_schema(
+    parameters=[
+        inline_serializer(
+            name="EventTypeStatisticsParams",
+            fields={
+                "contract_id": serializers.CharField(required=False),
+            },
+        )
+    ],
+    responses=inline_serializer(
+        name="EventTypeStatisticsResponse",
+        fields={
+            "contract_id": serializers.CharField(allow_null=True),
+            "total_events": serializers.IntegerField(),
+            "event_types": serializers.JSONField(),
+        },
+    ),
+)
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def event_type_statistics_view(request):
+    """Return event type distribution globally or for a specific contract."""
+    contract_id = request.query_params.get("contract_id")
+
+    contract = None
+    if contract_id:
+        contract = get_cached_contract(contract_id)
+        if not contract:
+            from django.http import Http404
+            raise Http404
+
+    cache_key = stable_cache_key(
+        "event_type_statistics",
+        {"contract_id": contract_id or "all"},
+    )
+
+    def _build():
+        events = ContractEvent.objects.select_related("contract").all()
+
+        if contract:
+            events = events.filter(contract=contract)
+
+        total_events = events.count()
+
+        event_types = list(
+            events.values("contract__contract_id", "event_type")
+            .annotate(
+                count=Count("id"),
+                first_seen=Min("timestamp"),
+                last_seen=Max("timestamp"),
+            )
+            .order_by("contract__contract_id", "-count", "event_type")
+        )
+
+        return {
+            "contract_id": contract_id if contract_id else None,
+            "total_events": total_events,
+            "event_types": [
+                {
+                    "contract_id": item["contract__contract_id"],
+                    "event_type": item["event_type"],
+                    "count": item["count"],
+                    "first_seen": item["first_seen"],
+                    "last_seen": item["last_seen"],
+                }
+                for item in event_types
+            ],
+        }
+
+    payload = get_or_set_json(cache_key, query_cache_ttl(), _build)
+    return Response(payload)
 
 
 @extend_schema(
@@ -1563,6 +1704,97 @@ def webhook_batch_delivery_status_view(request):
     return Response({"deliveries": deliveries})
 
 
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def webhook_delivery_metrics_view(request):
+    """
+    GET /api/webhooks/deliveries/metrics/
+
+    Returns webhook delivery health metrics.
+
+    Query params:
+    - subscription_id: optional integer to restrict to a specific subscription
+    - minutes: optional integer for a relative time range (last N minutes)
+    - recent: optional integer number of recent deliveries to include (default 10)
+    """
+    now = timezone.now()
+
+    # Time range: prefer `minutes` when provided, otherwise default to 24 hours
+    minutes = request.query_params.get("minutes")
+    try:
+        minutes = int(minutes) if minutes is not None else None
+    except (TypeError, ValueError):
+        return Response({"detail": "minutes must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if minutes is not None and minutes <= 0:
+        return Response({"detail": "minutes must be > 0."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if minutes is None:
+        start = now - timedelta(hours=24)
+    else:
+        start = now - timedelta(minutes=minutes)
+
+    qs = WebhookDeliveryLog.objects.filter(timestamp__gte=start, timestamp__lte=now)
+
+    subscription_id = request.query_params.get("subscription_id")
+    if subscription_id is not None:
+        try:
+            subpk = int(subscription_id)
+        except (TypeError, ValueError):
+            return Response({"detail": "subscription_id must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
+        qs = qs.filter(subscription_id=subpk)
+
+    # Aggregates
+    total = qs.count()
+    success_count = qs.filter(success=True).count()
+    success_rate = (success_count / total) * 100.0 if total > 0 else None
+    avg_latency = qs.aggregate(avg_latency_ms=Avg("latency_ms"))["avg_latency_ms"]
+
+    # Recent deliveries
+    try:
+        recent_n = int(request.query_params.get("recent", 10))
+    except (TypeError, ValueError):
+        recent_n = 10
+
+    recent_qs = qs.order_by("-timestamp")[: recent_n]
+    recent_deliveries = list(
+        recent_qs.values(
+            "id",
+            "subscription_id",
+            "status_code",
+            "success",
+            "error",
+            "attempt_number",
+            "timestamp",
+        )
+    )
+
+    # Failure breakdown by status_code (including null network errors)
+    failed = qs.filter(success=False)
+    breakdown_qs = (
+        failed.values("status_code")
+        .annotate(count=Count("id"))
+        .order_by("-count")
+    )
+    failure_breakdown = []
+    for row in breakdown_qs:
+        code = row["status_code"]
+        key = "network_error" if code is None else str(code)
+        failure_breakdown.append({"code": key, "count": row["count"]})
+
+    resp = {
+        "total_deliveries": total,
+        "success_count": success_count,
+        "success_rate_percent": success_rate,
+        "avg_latency_ms": avg_latency,
+        "recent_deliveries": recent_deliveries,
+        "failure_breakdown": failure_breakdown,
+        "time_range": {"start": start, "end": now},
+    }
+
+    return Response(resp)
+
+
 # ---------------------------------------------------------------------------
 # Issue #284: Contract deployment timeline
 # ---------------------------------------------------------------------------
@@ -1647,4 +1879,121 @@ def contract_identity_view(request):
         "contract_id": getattr(settings, "SOROSCAN_CONTRACT_ID", ""),
         "network_passphrase": getattr(settings, "STELLAR_NETWORK_PASSPHRASE", ""),
         "rpc_url": getattr(settings, "SOROBAN_RPC_URL", ""),
+    })
+
+
+# ---------------------------------------------------------------------------
+# Issue #491: EXPLAIN ANALYZE endpoint for query debugging
+# ---------------------------------------------------------------------------
+
+_ALLOWED_STATEMENTS = re.compile(
+    r"^\s*(SELECT|WITH|EXPLAIN)\b",
+    re.IGNORECASE,
+)
+
+
+@extend_schema(
+    request=inline_serializer(
+        name="DBExplainRequest",
+        fields={
+            "query": serializers.CharField(
+                help_text="SQL SELECT statement to explain",
+            ),
+            "analyze": serializers.BooleanField(
+                default=False,
+                help_text="If true, runs EXPLAIN ANALYZE instead of EXPLAIN",
+            ),
+        },
+    ),
+    responses={
+        200: inline_serializer(
+            name="DBExplainResponse",
+            fields={
+                "query_plan": serializers.CharField(),
+                "analyzed": serializers.BooleanField(),
+            },
+        ),
+        400: inline_serializer(
+            name="DBExplainError",
+            fields={"error": serializers.CharField()},
+        ),
+    },
+)
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([UserRateThrottle])
+def db_explain_view(request):
+    """
+    POST /api/admin/db/explain/
+
+    Returns the query execution plan for a given SQL SELECT statement.
+    Secured to admin (staff) users only and rate-limited.
+    """
+    if not request.user or not request.user.is_staff:
+        return Response(
+            {"error": "Admin access required."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    sql = (request.data.get("query") or "").strip()
+    if not sql:
+        return Response(
+            {"error": "A SQL query is required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not _ALLOWED_STATEMENTS.match(sql):
+        return Response(
+            {"error": "Only SELECT, WITH, and EXPLAIN statements are allowed."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    analyze = bool(request.data.get("analyze", False))
+    prefix = "EXPLAIN ANALYZE" if analyze else "EXPLAIN"
+
+    try:
+        from django.db import connection
+
+        with connection.cursor() as cursor:
+            try:
+                cursor.execute(f"{prefix} {sql}")
+            except Exception:
+                if analyze:
+                    # SQLite doesn't support EXPLAIN ANALYZE; fall back to EXPLAIN
+                    cursor.execute(f"EXPLAIN {sql}")
+                else:
+                    raise
+            plan = "\n".join(
+                " ".join(str(cell) for cell in row) for row in cursor.fetchall()
+            )
+    except Exception as exc:
+        return Response(
+            {"error": f"Failed to execute EXPLAIN: {exc}"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Response({"query_plan": plan, "analyzed": analyze})
+
+
+# ---------------------------------------------------------------------------
+# Issue #488: Cache stats endpoint
+# ---------------------------------------------------------------------------
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([UserRateThrottle])
+def cache_stats_view(request):
+    """
+    GET /api/cache/stats/
+
+    Returns cache hit/miss statistics and current cache backend info.
+    """
+    from django.core.cache import cache as django_cache
+
+    backend_info = str(type(django_cache._cache).__name__)
+
+    return Response({
+        "backend": backend_info,
+        "default_ttl": getattr(settings, "QUERY_CACHE_TTL_SECONDS", 60),
+        "status": "ok",
     })
