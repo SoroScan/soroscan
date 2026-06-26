@@ -120,7 +120,7 @@ class SlowQueryMiddleware:
         with connection.execute_wrapper(_execute):
             response = self.get_response(request)
 
-        # Forward X-RateLimit-* headers set by APIKeyThrottle
+        # Forward RateLimit-* headers set by APIKeyThrottle
         headers = getattr(request, "_api_key_throttle_headers", None)
         if headers and hasattr(response, "__setitem__"):
             for name, value in headers.items():

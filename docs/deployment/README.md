@@ -20,7 +20,7 @@ This guide covers recommended production deployments for SoroScan, including loc
 - [Monitoring & Observability](deployment/monitoring)
 - [Backups & Disaster Recovery](deployment/backups)
 - [Troubleshooting & Runbooks](deployment/runbooks)
-- [Security Checklist](deployment/security)
+- [Pre-Deployment Security Checklist](deployment/security)
 - [Cost Estimates](deployment/costs)
 
 ## Decision tree
