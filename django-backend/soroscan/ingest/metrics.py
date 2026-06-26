@@ -5,6 +5,7 @@ Registers application-level metrics using prometheus_client.
 Guards against duplicate registration so tests can import this module
 multiple times without raising ``ValueError: Duplicated timeseries``.
 """
+
 from prometheus_client import REGISTRY, Counter, Gauge, Histogram
 
 __all__ = [
@@ -44,6 +45,9 @@ __all__ = [
     "circuit_breaker_state_gauge",
     "circuit_breaker_trips_total",
     "circuit_breaker_calls_total",
+    "celery_tasks_total",
+    "celery_tasks_active",
+    "celery_task_duration_seconds",
 ]
 
 
@@ -214,7 +218,6 @@ ledgers_scanned_total = _get_or_create(
 )
 
 
-
 events_rate_limited_total = _get_or_create(
     Counter,
     "soroscan_events_rate_limited_total",
@@ -315,4 +318,23 @@ circuit_breaker_calls_total = _get_or_create(
     "soroscan_circuit_breaker_calls_total",
     "Circuit breaker protected call outcomes",
     ["name", "outcome"],
+)
+
+celery_tasks_total = _get_or_create(
+    Counter,
+    "soroscan_celery_tasks_total",
+    "Celery task terminal outcomes",
+    ["task_name", "status", "error_type"],
+)
+celery_tasks_active = _get_or_create(
+    Gauge,
+    "soroscan_celery_tasks_active",
+    "Celery tasks currently executing",
+    ["task_name"],
+)
+celery_task_duration_seconds = _get_or_create(
+    Histogram,
+    "soroscan_celery_task_duration_seconds",
+    "Celery task execution duration",
+    ["task_name"],
 )
