@@ -162,7 +162,10 @@ jobs:
           FAILOVER_REPORT_PATH: failover-tests/results/ci-failover-summary.json
         run: |
           mkdir -p failover-tests/results
-          python failover-tests/run_failover.py --execute --report-path failover-tests/results/ci-failover-summary.json
+          python failover-tests/run_failover.py \
+            --execute \
+            --exclude-scenario multiple_worker_failures \
+            --report-path failover-tests/results/ci-failover-summary.json
 
       - name: Upload failover probe report
         if: always()

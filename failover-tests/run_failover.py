@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 import yaml
@@ -86,8 +86,11 @@ def validate_scenario(scenario: Scenario) -> None:
 
 
 def probe_url(url: str, timeout_seconds: float = 5.0) -> int:
-    with urlopen(url, timeout=timeout_seconds) as response:
-        return response.status
+    try:
+        with urlopen(url, timeout=timeout_seconds) as response:
+            return response.status
+    except HTTPError as exc:
+        return exc.code
 
 
 def wait_for_recovery(url: str, timeout_seconds: int, interval_seconds: float = 2.0) -> None:
@@ -135,6 +138,23 @@ def run_scenario(scenario: Scenario, execute: bool, base_url: str) -> dict[str, 
             f"Baseline probe failed for {scenario.name}: {exc}"
         ) from exc
 
+    healthy_status = int(scenario.probes.get("healthy_status", 200))
+    if liveness_status != healthy_status:
+        raise FailoverError(
+            f"Liveness probe failed for {scenario.name}: status {liveness_status}"
+        )
+    if readiness_status != healthy_status:
+        raise FailoverError(
+            f"Readiness probe failed for {scenario.name}: status {readiness_status}"
+        )
+    if (
+        scenario.failure["type"] == "worker"
+        and worker_status != healthy_status
+    ):
+        raise FailoverError(
+            f"Worker probe failed for {scenario.name}: status {worker_status}"
+        )
+
     result.update(
         {
             "baseline": {
@@ -154,6 +174,12 @@ def run_scenario(scenario: Scenario, execute: bool, base_url: str) -> dict[str, 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run SoroScan failover scenarios.")
     parser.add_argument("--scenario", help="Run one scenario by name")
+    parser.add_argument(
+        "--exclude-scenario",
+        action="append",
+        default=[],
+        help="Skip one or more scenarios by name",
+    )
     parser.add_argument("--scenarios-file", type=Path, default=DEFAULT_SCENARIOS)
     parser.add_argument(
         "--base-url",
@@ -179,6 +205,11 @@ def main(argv: list[str] | None = None) -> int:
             scenarios = [item for item in scenarios if item.name == args.scenario]
             if not scenarios:
                 raise FailoverError(f"Unknown scenario: {args.scenario}")
+        if args.exclude_scenario:
+            excluded = set(args.exclude_scenario)
+            scenarios = [item for item in scenarios if item.name not in excluded]
+            if not scenarios:
+                raise FailoverError("All scenarios were excluded.")
 
         execute = args.execute and os.getenv("SOROSCAN_FAILOVER_RUN") == "1"
         if args.execute and not execute:

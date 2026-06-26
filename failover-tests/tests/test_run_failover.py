@@ -48,6 +48,24 @@ def test_unknown_scenario_fails_cleanly():
     assert main(["--scenario", "missing"]) == 1
 
 
+def test_exclude_scenario_skips_matching_entries():
+    assert (
+        main(
+            [
+                "--exclude-scenario",
+                "database_connection_failure",
+                "--exclude-scenario",
+                "redis_connection_failure",
+                "--exclude-scenario",
+                "rpc_timeout",
+                "--exclude-scenario",
+                "multiple_worker_failures",
+            ]
+        )
+        == 1
+    )
+
+
 def test_invalid_scenario_file_fails(tmp_path):
     path = tmp_path / "bad.yaml"
     path.write_text(
