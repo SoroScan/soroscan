@@ -13,8 +13,8 @@ PACTS_DIR = REPO_ROOT / "pacts"
 
 def _handle_provider_state(
     state: str,
-    action: Literal["setup", "teardown"],
-    parameters: dict[str, Any] | None,
+    action: Literal["setup", "teardown"] = "setup",
+    parameters: dict[str, Any] | None = None,
 ) -> None:
     if action == "setup":
         apply_provider_state(state)

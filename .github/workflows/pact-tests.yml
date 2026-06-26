@@ -101,6 +101,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Download TypeScript pact artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: pact-contracts-typescript
+          path: pacts
+
+      - name: Download Python pact artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: pact-contracts-python
+          path: pacts
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"

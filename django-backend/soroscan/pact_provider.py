@@ -9,6 +9,7 @@ import json
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from django.http import HttpResponseForbidden, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
@@ -55,6 +56,7 @@ def _ensure_contract_events() -> TrackedContract:
             ledger=123456,
             event_index=1,
             tx_hash="b" * 64,
+            timestamp=timezone.now(),
         )
     return contract
 
