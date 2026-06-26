@@ -17,6 +17,7 @@ from rest_framework_simplejwt.views import (
 from soroscan.graphql_views import ThrottledGraphQLView
 from soroscan.health import health_view, readiness_view, worker_health_view
 from soroscan.meta_views import db_pool_stats_view
+from soroscan.pact_provider import provider_states
 from soroscan.ingest.views import (
     audit_trail_view,
     cache_stats_view,
@@ -63,6 +64,8 @@ urlpatterns = [
         name="webhook-delivery-metrics",
     ),
     path("api/ingest/", include("soroscan.ingest.urls")),
+    path("v1/", include("soroscan.v1.urls")),
+    path("_pact/provider-states", provider_states, name="pact-provider-states"),
     path("graphql/", ThrottledGraphQLView.as_view(schema=schema)),
     # JWT Authentication
     path("api/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),

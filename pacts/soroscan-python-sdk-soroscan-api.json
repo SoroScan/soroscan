@@ -1,0 +1,121 @@
+{
+  "consumer": {
+    "name": "soroscan-python-sdk"
+  },
+  "interactions": [
+    {
+      "description": "a request for ingest service health",
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "the API is healthy"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/api/ingest/health/"
+      },
+      "response": {
+        "body": {
+          "content": {
+            "service": "soroscan",
+            "status": "healthy"
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Content-Type": ["application/json"]
+        },
+        "matchingRules": {
+          "body": {
+            "$.service": {
+              "combine": "AND",
+              "matchers": [{ "match": "type" }]
+            }
+          }
+        },
+        "status": 200
+      },
+      "type": "Synchronous/HTTP"
+    },
+    {
+      "description": "a request to list tracked contracts",
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "user has API access with contracts"
+        }
+      ],
+      "request": {
+        "headers": {
+          "Authorization": ["ApiKey pact-test-key-32chars-minimum-length-here12"]
+        },
+        "method": "GET",
+        "path": "/api/ingest/contracts/"
+      },
+      "response": {
+        "body": {
+          "content": {
+            "count": 1,
+            "results": [
+              {
+                "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                "id": 1,
+                "is_active": true,
+                "name": "Pact API Contract"
+              }
+            ]
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Content-Type": ["application/json"]
+        },
+        "matchingRules": {
+          "body": {
+            "$.count": {
+              "combine": "AND",
+              "matchers": [{ "match": "integer" }]
+            },
+            "$.results": {
+              "combine": "AND",
+              "matchers": [{ "match": "type", "min": 1 }]
+            },
+            "$.results[*].contract_id": {
+              "combine": "AND",
+              "matchers": [{ "match": "type" }]
+            },
+            "$.results[*].id": {
+              "combine": "AND",
+              "matchers": [{ "match": "integer" }]
+            },
+            "$.results[*].is_active": {
+              "combine": "AND",
+              "matchers": [{ "match": "type" }]
+            },
+            "$.results[*].name": {
+              "combine": "AND",
+              "matchers": [{ "match": "type" }]
+            }
+          }
+        },
+        "status": 200
+      },
+      "type": "Synchronous/HTTP"
+    }
+  ],
+  "metadata": {
+    "pactRust": {
+      "ffi": "0.4.22",
+      "models": "1.2.3"
+    },
+    "pactSpecification": {
+      "version": "4.0"
+    }
+  },
+  "provider": {
+    "name": "soroscan-api"
+  }
+}
