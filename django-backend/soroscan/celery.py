@@ -6,7 +6,13 @@ import os
 import time
 
 from celery import Celery
-from celery.signals import task_failure, task_postrun, task_prerun
+from celery.signals import (
+    task_failure,
+    task_postrun,
+    task_prerun,
+    worker_shutdown,
+    worker_shutting_down,
+)
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "soroscan.settings")
 
@@ -61,6 +67,20 @@ def record_celery_task_failure(sender, exception, **kwargs):
         status="failure",
         error_type=type(exception).__name__,
     ).inc()
+
+
+@worker_shutting_down.connect
+def _celery_worker_shutting_down(sender, sig=None, how=None, exitcode=None, **kwargs):
+    from soroscan.shutdown import on_celery_worker_shutting_down
+
+    on_celery_worker_shutting_down(sig=sig, how=how, exitcode=exitcode, **kwargs)
+
+
+@worker_shutdown.connect
+def _celery_worker_shutdown(sender, **kwargs):
+    from soroscan.shutdown import on_celery_worker_shutdown
+
+    on_celery_worker_shutdown(**kwargs)
 
 
 @app.task(bind=True, ignore_result=True)

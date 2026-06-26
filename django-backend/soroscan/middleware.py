@@ -149,6 +149,26 @@ class RequestBodySizeMiddleware:
         
         return self.get_response(request)
         
+class GracefulShutdownMiddleware:
+    """Reject new requests during shutdown and track in-flight request count."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        from soroscan.shutdown import end_request, try_begin_request
+
+        if not try_begin_request():
+            return JsonResponse(
+                {"error": "Server is shutting down"},
+                status=503,
+            )
+        try:
+            return self.get_response(request)
+        finally:
+            end_request()
+
+
 class MaintenanceModeMiddleware:
     """Return 503 for all non-admin routes when MAINTENANCE_MODE=True."""
 

@@ -105,6 +105,7 @@ ENABLE_SILK = env.bool("ENABLE_SILK", default=False)
 MIDDLEWARE = [
     # PrometheusBeforeMiddleware must be first to capture all requests.
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
+    "soroscan.middleware.GracefulShutdownMiddleware",
     "soroscan.monitoring.ErrorRateMetricsMiddleware",
     "soroscan.middleware.RequestBodySizeMiddleware",
     "soroscan.middleware.MaintenanceModeMiddleware",
@@ -295,6 +296,9 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
+# Graceful shutdown: wait up to 30s for active tasks after SIGTERM
+CELERY_WORKER_SOFT_SHUTDOWN_TIMEOUT = 30
+SHUTDOWN_TIMEOUT_SECONDS = env.int("SHUTDOWN_TIMEOUT_SECONDS", default=30)
 CELERY_TASK_ROUTES = {
     "ingest.tasks.ingest_latest_events": {"queue": "high_priority"},
     "ingest.tasks.dispatch_webhook": {"queue": "default"},

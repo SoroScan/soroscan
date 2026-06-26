@@ -36,6 +36,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
+    "soroscan.middleware.GracefulShutdownMiddleware",
     "soroscan.middleware.RequestBodySizeMiddleware",
     "soroscan.middleware.MaintenanceModeMiddleware",
     "django.middleware.security.SecurityMiddleware",
@@ -147,6 +148,8 @@ CELERY_RESULT_BACKEND = "cache+memory://"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
+SHUTDOWN_TIMEOUT_SECONDS = 30
+CELERY_WORKER_SOFT_SHUTDOWN_TIMEOUT = 30
 CELERY_TIMEZONE = TIME_ZONE
 
 # Stellar / Soroban Configuration
