@@ -1100,6 +1100,16 @@ def contract_timeline_view(request, contract_id: str):
     return redirect(f"{frontend_base}/contracts/{contract.contract_id}/timeline")
 
 
+@extend_schema(
+    responses=inline_serializer(
+        name="TransactionEventsResponse",
+        fields={
+            "transaction_id": serializers.CharField(),
+            "event_count": serializers.IntegerField(),
+            "events": ContractEventSerializer(many=True),
+        },
+    ),
+)
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def transaction_events_view(request, tx_id: str):
@@ -1129,6 +1139,18 @@ def contract_event_explorer_view(request, contract_id: str):
     return redirect(f"{frontend_base}/contracts/{contract.contract_id}/events/explorer")
 
 
+@extend_schema(
+    responses=inline_serializer(
+        name="ContractEventTypesResponse",
+        fields={
+            "event_type": serializers.CharField(),
+            "count": serializers.IntegerField(),
+            "first_seen": serializers.DateTimeField(allow_null=True),
+            "last_seen": serializers.DateTimeField(allow_null=True),
+        },
+        many=True,
+    ),
+)
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def contract_event_types_view(request, contract_id: str):
@@ -1394,6 +1416,19 @@ def audit_trail_view(request):
     return Response(serializer.data)
 
 
+@extend_schema(
+    responses=inline_serializer(
+        name="AdminIngestErrorsResponse",
+        fields={
+            "error_type": serializers.CharField(),
+            "contract_id": serializers.CharField(allow_null=True),
+            "count": serializers.IntegerField(),
+            "last_occurrence": serializers.DateTimeField(allow_null=True),
+            "sample_error": serializers.CharField(allow_null=True),
+        },
+        many=True,
+    ),
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def admin_ingest_errors_view(request):
@@ -1504,6 +1539,19 @@ class DataDeletionRequestSerializer(serializers.ModelSerializer):
         return list(obj.contracts.values_list("contract_id", flat=True))
 
 
+@extend_schema(
+    request=inline_serializer(
+        name="DeletionRequestCreate",
+        fields={
+            "subject_identifier": serializers.CharField(),
+            "contract_ids": serializers.ListField(
+                child=serializers.CharField(),
+                required=False,
+            ),
+        },
+    ),
+    responses=DataDeletionRequestSerializer(),
+)
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def deletion_requests_view(request):
@@ -1539,6 +1587,18 @@ def deletion_requests_view(request):
     return Response(DataDeletionRequestSerializer(req).data, status=status.HTTP_201_CREATED)
 
 
+@extend_schema(
+    parameters=[
+        inline_serializer(
+            name="ComplianceExportParams",
+            fields={
+                "from": serializers.DateTimeField(required=False),
+                "to": serializers.DateTimeField(required=False),
+            },
+        )
+    ],
+    responses={200: {"type": "string", "format": "binary", "description": "CSV audit trail export"}},
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def compliance_export_view(request):
@@ -1704,6 +1764,30 @@ def webhook_batch_delivery_status_view(request):
     return Response({"deliveries": deliveries})
 
 
+@extend_schema(
+    parameters=[
+        inline_serializer(
+            name="WebhookDeliveryMetricsParams",
+            fields={
+                "subscription_id": serializers.IntegerField(required=False),
+                "minutes": serializers.IntegerField(required=False),
+                "recent": serializers.IntegerField(required=False),
+            },
+        )
+    ],
+    responses=inline_serializer(
+        name="WebhookDeliveryMetricsResponse",
+        fields={
+            "total_deliveries": serializers.IntegerField(),
+            "success_count": serializers.IntegerField(),
+            "success_rate_percent": serializers.FloatField(allow_null=True),
+            "avg_latency_ms": serializers.FloatField(allow_null=True),
+            "recent_deliveries": serializers.JSONField(),
+            "failure_breakdown": serializers.JSONField(),
+            "time_range": serializers.JSONField(),
+        },
+    ),
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def webhook_delivery_metrics_view(request):
@@ -1819,6 +1903,17 @@ class ContractABIVersionSerializer(serializers.ModelSerializer):
         ]
 
 
+@extend_schema(
+    responses=inline_serializer(
+        name="DeploymentTimelineResponse",
+        fields={
+            "contract_id": serializers.CharField(),
+            "deployments": ContractDeploymentSerializer(many=True),
+            "abi_versions": ContractABIVersionSerializer(many=True),
+            "compatibility_warnings": serializers.JSONField(),
+        },
+    ),
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def deployment_timeline_view(request, contract_id):
@@ -1979,6 +2074,16 @@ def db_explain_view(request):
 # Issue #488: Cache stats endpoint
 # ---------------------------------------------------------------------------
 
+@extend_schema(
+    responses=inline_serializer(
+        name="CacheStatsResponse",
+        fields={
+            "backend": serializers.CharField(),
+            "default_ttl": serializers.IntegerField(),
+            "status": serializers.CharField(),
+        },
+    ),
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 @throttle_classes([UserRateThrottle])

@@ -257,8 +257,29 @@ REST_FRAMEWORK = {
 # Spectacular Settings
 SPECTACULAR_SETTINGS = {
     "TITLE": "SoroScan API",
-    "DESCRIPTION": "REST API documentation for SoroScan, a Stellar Soroban smart contract indexer.",
-    "VERSION": "1.0.0",
+    "DESCRIPTION": (
+        "REST API documentation for SoroScan — a developer-focused indexing service "
+        "for Soroban smart contract events on the Stellar blockchain. Provides endpoints "
+        "for querying indexed events, managing tracked contracts, configuring webhooks, "
+        "and monitoring ingest health."
+    ),
+    "VERSION": SOFTWARE_VERSION,
+    # Exclude the schema endpoint itself from the generated schema
+    "SERVE_INCLUDE_SCHEMA": False,
+    # Split request/response components for cleaner schema output
+    "COMPONENT_SPLIT_REQUEST": True,
+    # Contact and license info
+    "CONTACT": {"name": "SoroScan", "url": "https://github.com/SoroScan/soroscan"},
+    "LICENSE": {"name": "MIT"},
+    # Tags for logical grouping in Swagger UI
+    "TAGS": [
+        {"name": "contracts", "description": "Tracked contract management"},
+        {"name": "events", "description": "Indexed contract event queries"},
+        {"name": "webhooks", "description": "Webhook subscription management"},
+        {"name": "ingest", "description": "Event ingestion and indexing"},
+        {"name": "analytics", "description": "Cost, rate-limit, and error analytics"},
+        {"name": "admin", "description": "Staff-only administrative endpoints"},
+    ],
 }
 
 # Simple JWT Settings
@@ -512,6 +533,11 @@ LOGGING["loggers"]["django.performance.database"] = {
 LOGGING["loggers"]["soroscan.graphql.n1_detection"] = {
     "handlers": ["console"],
     "level": "WARNING",
+    "propagate": False,
+}
+LOGGING["loggers"]["soroscan.graphql"] = {
+    "handlers": ["console"],
+    "level": env("GRAPHQL_RESOLVER_LOG_LEVEL", default="INFO"),
     "propagate": False,
 }
 
