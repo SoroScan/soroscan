@@ -1,5 +1,6 @@
 import time
 import pytest
+from unittest.mock import patch, MagicMock
 from django.conf import settings
 from django.urls import reverse
 from rest_framework import status
@@ -10,6 +11,17 @@ from soroscan.health import format_uptime
 @pytest.fixture
 def api_client():
     return APIClient()
+
+
+@pytest.fixture
+def mock_soroban_rpc_healthy():
+    """Stub out the Soroban RPC HTTP call so tests don't need a live node."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = {"result": {"status": "healthy"}}
+    with patch("soroscan.health.requests.post", return_value=mock_response) as mock_post:
+        yield mock_post
 
 @pytest.mark.django_db
 class TestHealthView:
@@ -47,7 +59,7 @@ class TestHealthView:
 
 @pytest.mark.django_db
 class TestReadinessView:
-    def test_ready_when_db_and_cache_connected(self, api_client):
+    def test_ready_when_db_and_cache_connected(self, api_client, mock_soroban_rpc_healthy):
         url = reverse("readiness")
         response = api_client.get(url)
 
@@ -56,7 +68,7 @@ class TestReadinessView:
         assert "components" in response.data
         assert response["X-SoroScan-Version"] == settings.SOFTWARE_VERSION
 
-    def test_not_ready_when_db_fails(self, api_client, monkeypatch):
+    def test_not_ready_when_db_fails(self, api_client, monkeypatch, mock_soroban_rpc_healthy):
         from django.db import connection
         monkeypatch.setattr(connection, "cursor", lambda: (_ for _ in ()).throw(Exception("DB fail")))
 
@@ -68,7 +80,7 @@ class TestReadinessView:
         assert "database" in response.data["components"]
         assert response["X-SoroScan-Version"] == settings.SOFTWARE_VERSION
 
-    def test_not_ready_when_cache_fails(self, api_client, monkeypatch):
+    def test_not_ready_when_cache_fails(self, api_client, monkeypatch, mock_soroban_rpc_healthy):
         from django.core.cache import cache
         monkeypatch.setattr(cache, "get", lambda *args, **kwargs: (_ for _ in ()).throw(Exception("Redis fail")))
 
