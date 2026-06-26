@@ -62,11 +62,8 @@ def test_list_contracts_contract(pact: Any) -> None:
     (
         pact.upon_receiving("a request to list tracked contracts")
         .given("user has API access with contracts")
-        .with_request(
-            "GET",
-            "/api/ingest/contracts/",
-            headers={"Authorization": f"ApiKey {PACT_API_KEY}"},
-        )
+        .with_request("GET", "/api/ingest/contracts/")
+        .with_header("Authorization", f"ApiKey {PACT_API_KEY}", part="Request")
         .will_respond_with(200)
         .with_body(body, content_type="application/json")
     )
