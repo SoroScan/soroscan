@@ -154,8 +154,7 @@ def test_middleware_tracks_in_flight_during_request(rf):
 
 
 def test_close_database_connections():
-    mock_connections = MagicMock()
-    with patch("soroscan.shutdown.connections", mock_connections):
+    with patch("soroscan.shutdown.connections") as mock_connections:
         close_database_connections()
     mock_connections.close_all.assert_called_once()
 
