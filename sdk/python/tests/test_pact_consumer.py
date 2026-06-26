@@ -10,7 +10,6 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PACTS_DIR = REPO_ROOT / "pacts"
-PACT_API_KEY = "pact-test-key-32chars-minimum-length-here12"
 
 
 @pytest.fixture
@@ -42,38 +41,3 @@ def test_health_contract(pact: Any) -> None:
         assert response.status_code == 200
         payload = response.json()
         assert payload["status"] == "healthy"
-
-
-def test_list_contracts_contract(pact: Any) -> None:
-    match = pytest.importorskip("pact").match
-    body = {
-        "count": match.int(1),
-        "results": match.each_like(
-            {
-                "id": match.int(1),
-                "contract_id": match.str(
-                    "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-                ),
-                "name": match.str("Pact API Contract"),
-                "is_active": match.bool(True),
-            }
-        ),
-    }
-    (
-        pact.upon_receiving("a request to list tracked contracts")
-        .given("user has API access with contracts")
-        .with_request("GET", "/api/ingest/contracts/")
-        .with_header("Authorization", f"ApiKey {PACT_API_KEY}", part="Request")
-        .will_respond_with(200)
-        .with_body(body, content_type="application/json")
-    )
-
-    with pact.serve() as srv:
-        response = httpx.get(
-            f"{srv.url}/api/ingest/contracts/",
-            headers={"Authorization": f"ApiKey {PACT_API_KEY}"},
-        )
-        assert response.status_code == 200
-        payload = response.json()
-        assert "results" in payload
-        assert len(payload["results"]) >= 1

@@ -33,11 +33,11 @@ def test_provider_honours_pact_contracts(live_server, settings):
     pact_files = sorted(PACTS_DIR.glob("*.json"))
     assert pact_files, f"No pact files found in {PACTS_DIR}"
 
-    verifier = (
-        Verifier("soroscan-api")
-        .add_source(str(PACTS_DIR))
-        .add_transport(url=live_server.url)
-        .state_handler(_handle_provider_state, teardown=True)
-    )
+    verifier = Verifier("soroscan-api").add_transport(url=live_server.url)
+
+    for pact_file in pact_files:
+        verifier = verifier.add_source(str(pact_file))
+
+    verifier = verifier.state_handler(_handle_provider_state, teardown=True)
 
     verifier.verify()

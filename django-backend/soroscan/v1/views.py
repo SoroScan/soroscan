@@ -31,7 +31,7 @@ def _event_to_sdk(event: ContractEvent) -> dict:
         "txHash": event.tx_hash,
         "contractId": event.contract.contract_id,
         "type": event.event_type,
-        "topics": [],
+        "topics": [{"type": "symbol", "value": event.event_type}],
         "value": event.payload,
         "inSuccessfulContractCall": True,
         "pagingToken": f"{event.ledger}-{event.event_index}",
