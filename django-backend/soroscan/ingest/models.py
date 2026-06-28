@@ -678,8 +678,8 @@ class ContractEvent(models.Model):
             models.Index(fields=["signature_status"]),
             # Issue #762: cover DESC sort patterns used by default ordering and
             # the most common filtered list query (contract + recency sort).
-            models.Index(fields=["contract", "-timestamp"], name="ingest_contractevent_contract_timestamp_desc_idx"),
-            models.Index(fields=["-timestamp"], name="ingest_contractevent_timestamp_desc_idx"),
+            models.Index(fields=["contract", "-timestamp"], name="ingest_ce_cont_ts_desc_idx"),
+            models.Index(fields=["-timestamp"], name="ingest_ce_ts_desc_idx"),
         ]
         constraints = [
             models.UniqueConstraint(

@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
             model_name="contractevent",
             index=models.Index(
                 fields=["contract", "-timestamp"],
-                name="ingest_contractevent_contract_timestamp_desc_idx",
+                name="ingest_ce_cont_ts_desc_idx",
             ),
         ),
         # (-timestamp) — covers the default ordering for unfiltered list queries.
@@ -32,7 +32,7 @@ class Migration(migrations.Migration):
             model_name="contractevent",
             index=models.Index(
                 fields=["-timestamp"],
-                name="ingest_contractevent_timestamp_desc_idx",
+                name="ingest_ce_ts_desc_idx",
             ),
         ),
     ]
