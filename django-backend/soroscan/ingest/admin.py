@@ -36,6 +36,7 @@ from .models import (
     ContractVerification,
     DataDeletionRequest,
     DataRetentionPolicy,
+    EventAggregation,
     EventSchema,
     IndexerState,
     IngestError,
@@ -1422,3 +1423,170 @@ class TransactionCostAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+# ---------------------------------------------------------------------------
+# Event Aggregation Analytics (Issue #801)
+# ---------------------------------------------------------------------------
+
+
+@admin.register(EventAggregation)
+class EventAggregationAdmin(admin.ModelAdmin):
+    list_display = [
+        "contract",
+        "event_type",
+        "time_bucket",
+        "event_count",
+        "created_at",
+    ]
+    list_filter = ["event_type", "time_bucket"]
+    search_fields = [
+        "contract__contract_id",
+        "contract__name",
+        "event_type",
+    ]
+    readonly_fields = [
+        "contract",
+        "event_type",
+        "time_bucket",
+        "event_count",
+        "created_at",
+    ]
+    date_hierarchy = "time_bucket"
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Analytics Dashboard View
+# ---------------------------------------------------------------------------
+
+
+from django.template.response import TemplateResponse
+from django.db.models import Count as _Count, Sum as _Sum
+from django.urls import path as _path
+from django.utils import timezone as _tz
+
+
+def analytics_dashboard_view(request):
+    """
+    Admin view for the analytics dashboard.
+    Displays summary widgets for event volume, active contracts, and event types.
+    """
+    now = _tz.now()
+    day_ago = now - timedelta(days=1)
+    week_ago = now - timedelta(days=7)
+    month_ago = now - timedelta(days=30)
+
+    total_events_24h = (
+        EventAggregation.objects.filter(time_bucket__gte=day_ago)
+        .aggregate(total=_Sum("event_count"))["total"] or 0
+    )
+    total_events_7d = (
+        EventAggregation.objects.filter(time_bucket__gte=week_ago)
+        .aggregate(total=_Sum("event_count"))["total"] or 0
+    )
+    total_events_30d = (
+        EventAggregation.objects.filter(time_bucket__gte=month_ago)
+        .aggregate(total=_Sum("event_count"))["total"] or 0
+    )
+
+    active_contracts_24h = (
+        EventAggregation.objects.filter(time_bucket__gte=day_ago)
+        .values("contract_id")
+        .distinct()
+        .count()
+    )
+    active_contracts_7d = (
+        EventAggregation.objects.filter(time_bucket__gte=week_ago)
+        .values("contract_id")
+        .distinct()
+        .count()
+    )
+
+    daily_volume = list(
+        EventAggregation.objects.filter(time_bucket__gte=month_ago)
+        .values("time_bucket")
+        .annotate(count=_Sum("event_count"))
+        .order_by("time_bucket")[:30]
+    )
+
+    event_type_breakdown = list(
+        EventAggregation.objects.filter(time_bucket__gte=week_ago)
+        .values("event_type")
+        .annotate(count=_Sum("event_count"))
+        .order_by("-count")[:10]
+    )
+
+    top_contracts = list(
+        EventAggregation.objects.filter(time_bucket__gte=week_ago)
+        .values("contract__contract_id", "contract__name")
+        .annotate(count=_Sum("event_count"))
+        .order_by("-count")[:10]
+    )
+
+    extra_context = (
+        request.contextual_help_context()
+        if hasattr(request, "contextual_help_context")
+        else {}
+    )
+    context = {
+        **extra_context,
+        "title": "Analytics Dashboard",
+        "total_events_24h": total_events_24h,
+        "total_events_7d": total_events_7d,
+        "total_events_30d": total_events_30d,
+        "active_contracts_24h": active_contracts_24h,
+        "active_contracts_7d": active_contracts_7d,
+        "daily_volume": [
+            {
+                "date": r["time_bucket"].strftime("%Y-%m-%d") if hasattr(r["time_bucket"], "strftime") else str(r["time_bucket"]),
+                "count": r["count"],
+            }
+            for r in daily_volume
+        ],
+        "event_type_breakdown": [
+            {"event_type": r["event_type"], "count": r["count"]}
+            for r in event_type_breakdown
+        ],
+        "top_contracts": [
+            {
+                "contract_id": r["contract__contract_id"],
+                "name": r["contract__name"],
+                "count": r["count"],
+            }
+            for r in top_contracts
+        ],
+    }
+
+    return TemplateResponse(request, "admin/analytics_dashboard.html", context)
+
+
+# Register analytics dashboard URL with the admin site
+from django.contrib import admin as _admin_site
+
+_original_get_urls = _admin_site.site.get_urls
+
+
+def _extended_get_urls():
+    from django.urls import path as _url_path
+    urls = _original_get_urls()
+    urls.insert(
+        0,
+        _url_path(
+            "analytics-dashboard/",
+            _admin_site.site.admin_view(analytics_dashboard_view),
+            name="analytics-dashboard",
+        ),
+    )
+    return urls
+
+
+_admin_site.site.get_urls = _extended_get_urls

@@ -46,6 +46,7 @@ from .models import (
     IndexerState,
     Team,
     TeamMembership,
+    EventAggregation,
     TrackedContract,
     TransactionCost,
     WebhookDeliveryLog,
@@ -54,11 +55,13 @@ from .models import (
 from .cache_utils import get_cached_contract
 from .serializers import (
     APIKeySerializer,
+    AnalyticsQuerySerializer,
     ContractEventSerializer,
     ContractInvocationSerializer,
     ContractSourceSerializer,
     ContractVerificationSerializer,
     CostAnalyticsQuerySerializer,
+    EventAggregationSerializer,
     EventSearchSerializer,
     OrganizationBudgetSerializer,
     OrganizationCostSnapshotSerializer,
@@ -2265,3 +2268,298 @@ class CostAnalyticsViewSet(viewsets.ViewSet):
             })
 
         return Response({"suggestions": suggestions})
+
+
+# ---------------------------------------------------------------------------
+# Analytics Dashboard (Issue #801)
+# ---------------------------------------------------------------------------
+
+
+class AnalyticsViewSet(viewsets.ViewSet):
+    """
+    ViewSet for event analytics and reporting.
+
+    Endpoints:
+    - GET /api/analytics/ - Time-series event data with filtering
+    - GET /api/analytics/overview/ - Dashboard summary widgets
+    - GET /api/analytics/anomalies/ - Detected volume anomalies
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def _time_bucket_trunc(self, granularity: str):
+        from django.db.models.functions import TruncDay, TruncHour, TruncMonth, TruncWeek
+        return {
+            "hourly": TruncHour("time_bucket"),
+            "daily": TruncDay("time_bucket"),
+            "weekly": TruncWeek("time_bucket"),
+            "monthly": TruncMonth("time_bucket"),
+        }[granularity]
+
+    def _range_days(self, range_param: str) -> int:
+        return {"7d": 7, "30d": 30, "90d": 90, "1y": 365}[range_param]
+
+    @extend_schema(
+        parameters=[AnalyticsQuerySerializer],
+        responses=inline_serializer(
+            name="AnalyticsResponse",
+            fields={
+                "metric": serializers.CharField(),
+                "granularity": serializers.CharField(),
+                "range": serializers.CharField(),
+                "data": serializers.ListField(
+                    child=inline_serializer(
+                        name="AnalyticsDataPoint",
+                        fields={
+                            "timestamp": serializers.CharField(),
+                            "contract_id": serializers.CharField(required=False),
+                            "event_type": serializers.CharField(required=False),
+                            "count": serializers.IntegerField(),
+                        },
+                    )
+                ),
+            },
+        ),
+    )
+    def list(self, request):
+        """
+        GET /api/analytics/
+
+        Query params:
+        - metric: event_volume (default), active_contracts, event_type_breakdown
+        - granularity: hourly, daily (default), weekly, monthly
+        - range: 7d, 30d (default), 90d, 1y
+        - contract_id: optional filter by specific contract
+        - export: csv or json (triggers file download)
+        """
+        serializer = AnalyticsQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+
+        metric = serializer.validated_data["metric"]
+        granularity = serializer.validated_data["granularity"]
+        range_days = self._range_days(serializer.validated_data["range"])
+        contract_id = serializer.validated_data.get("contract_id")
+        export_format = serializer.validated_data.get("export")
+
+        since = timezone.now() - timedelta(days=range_days)
+        qs = EventAggregation.objects.filter(time_bucket__gte=since)
+
+        if contract_id:
+            qs = qs.filter(contract__contract_id=contract_id)
+
+        trunc = self._time_bucket_trunc(granularity)
+
+        if metric == "active_contracts":
+            results = (
+                qs.annotate(bucket=trunc)
+                .values("bucket")
+                .annotate(count=Count("contract_id", distinct=True))
+                .order_by("bucket")
+            )
+            data = [
+                {"timestamp": r["bucket"].isoformat(), "count": r["count"]}
+                for r in results
+            ]
+        elif metric == "event_type_breakdown":
+            results = (
+                qs.values("event_type")
+                .annotate(count=Sum("event_count"))
+                .order_by("-count")
+            )
+            data = [
+                {"event_type": r["event_type"], "count": r["count"]}
+                for r in results
+            ]
+        else:
+            results = (
+                qs.annotate(bucket=trunc)
+                .values("bucket", "contract__contract_id")
+                .annotate(count=Sum("event_count"))
+                .order_by("bucket")
+            )
+            data = [
+                {
+                    "timestamp": r["bucket"].isoformat(),
+                    "contract_id": r["contract__contract_id"],
+                    "count": r["count"],
+                }
+                for r in results
+            ]
+
+        if export_format == "csv":
+            return self._export_csv(metric, data)
+
+        if export_format == "json":
+            return self._export_json(metric, data)
+
+        return Response({
+            "metric": metric,
+            "granularity": granularity,
+            "range": serializer.validated_data["range"],
+            "data": data,
+        })
+
+    def _export_csv(self, metric: str, data: list) -> Response:
+        import csv
+        from io import StringIO
+
+        buf = StringIO()
+        writer = csv.writer(buf)
+        if metric == "event_type_breakdown":
+            writer.writerow(["event_type", "count"])
+            for row in data:
+                writer.writerow([row["event_type"], row["count"]])
+        elif metric == "active_contracts":
+            writer.writerow(["timestamp", "active_contracts"])
+            for row in data:
+                writer.writerow([row["timestamp"], row["count"]])
+        else:
+            writer.writerow(["timestamp", "contract_id", "count"])
+            for row in data:
+                writer.writerow([row["timestamp"], row["contract_id"], row["count"]])
+
+        response = Response(
+            buf.getvalue(),
+            content_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="analytics_{metric}.csv"'
+            },
+        )
+        return response
+
+    def _export_json(self, metric: str, data: list) -> Response:
+        response = Response(
+            {"metric": metric, "data": data},
+            content_type="application/json",
+            headers={
+                "Content-Disposition": f'attachment; filename="analytics_{metric}.json"'
+            },
+        )
+        return response
+
+    @extend_schema(
+        responses=inline_serializer(
+            name="AnalyticsOverviewResponse",
+            fields={
+                "total_events_24h": serializers.IntegerField(),
+                "total_events_7d": serializers.IntegerField(),
+                "active_contracts_24h": serializers.IntegerField(),
+                "active_contracts_7d": serializers.IntegerField(),
+                "top_event_types": serializers.ListField(
+                    child=inline_serializer(
+                        name="TopEventType",
+                        fields={
+                            "event_type": serializers.CharField(),
+                            "count": serializers.IntegerField(),
+                        },
+                    )
+                ),
+                "top_contracts": serializers.ListField(
+                    child=inline_serializer(
+                        name="TopContract",
+                        fields={
+                            "contract_id": serializers.CharField(),
+                            "count": serializers.IntegerField(),
+                        },
+                    )
+                ),
+            },
+        )
+    )
+    @action(detail=False, methods=["get"])
+    def overview(self, request):
+        """
+        GET /api/analytics/overview/
+
+        Returns summary widgets for the analytics dashboard:
+        - Total events in last 24h and 7d
+        - Active contracts in last 24h and 7d
+        - Top event types by volume
+        - Top contracts by event count
+        """
+        now = timezone.now()
+        day_ago = now - timedelta(days=1)
+        week_ago = now - timedelta(days=7)
+
+        total_24h = (
+            EventAggregation.objects.filter(time_bucket__gte=day_ago)
+            .aggregate(total=Sum("event_count"))["total"] or 0
+        )
+        total_7d = (
+            EventAggregation.objects.filter(time_bucket__gte=week_ago)
+            .aggregate(total=Sum("event_count"))["total"] or 0
+        )
+
+        active_24h = (
+            EventAggregation.objects.filter(time_bucket__gte=day_ago)
+            .values("contract_id")
+            .distinct()
+            .count()
+        )
+        active_7d = (
+            EventAggregation.objects.filter(time_bucket__gte=week_ago)
+            .values("contract_id")
+            .distinct()
+            .count()
+        )
+
+        top_event_types = list(
+            EventAggregation.objects.filter(time_bucket__gte=week_ago)
+            .values("event_type")
+            .annotate(count=Sum("event_count"))
+            .order_by("-count")[:10]
+        )
+
+        top_contracts = list(
+            EventAggregation.objects.filter(time_bucket__gte=week_ago)
+            .values("contract__contract_id")
+            .annotate(count=Sum("event_count"))
+            .order_by("-count")[:10]
+        )
+
+        return Response({
+            "total_events_24h": total_24h,
+            "total_events_7d": total_7d,
+            "active_contracts_24h": active_24h,
+            "active_contracts_7d": active_7d,
+            "top_event_types": [
+                {"event_type": r["event_type"], "count": r["count"]}
+                for r in top_event_types
+            ],
+            "top_contracts": [
+                {"contract_id": r["contract__contract_id"], "count": r["count"]}
+                for r in top_contracts
+            ],
+        })
+
+    @extend_schema(
+        responses=inline_serializer(
+            name="AnomaliesResponse",
+            fields={
+                "anomalies": serializers.ListField(
+                    child=inline_serializer(
+                        name="AnomalyItem",
+                        fields={
+                            "contract_id": serializers.CharField(),
+                            "event_type": serializers.CharField(),
+                            "current_count": serializers.IntegerField(),
+                            "previous_count": serializers.IntegerField(),
+                            "drop_pct": serializers.FloatField(),
+                        },
+                    )
+                )
+            },
+        )
+    )
+    @action(detail=False, methods=["get"])
+    def anomalies(self, request):
+        """
+        GET /api/analytics/anomalies/
+
+        Returns detected event volume anomalies by comparing the last
+        full hour against the previous hour.
+        """
+        from soroscan.ingest.tasks import detect_event_anomalies
+
+        result = detect_event_anomalies()
+        return Response({"anomalies": result.get("anomalies", [])})

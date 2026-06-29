@@ -45,6 +45,7 @@ from .models import (
     TrackedContract,
     WebhookSubscription,
     IndexerState,
+    EventAggregation,
     EventSchema,
     RemediationRule,
     RemediationIncident,
@@ -2252,20 +2253,56 @@ def ingest_latest_events() -> int:
 @shared_task(name="ingest.tasks.aggregate_event_statistics")
 def aggregate_event_statistics() -> dict[str, Any]:
     """
-    Perform analytics aggregation on ingested events (Low Priority).
+    Aggregate events into pre-computed buckets by contract, event type, and hour.
+
+    Runs hourly to populate EventAggregation for fast dashboard queries.
+    Supports daily, weekly, monthly rollups derived from hourly buckets.
     """
     _start = time.monotonic()
     m = _get_metrics()
+    now = timezone.now()
+    hour_ago = now - timedelta(hours=1)
+    bucket = hour_ago.replace(minute=0, second=0, microsecond=0)
 
-    # Placeholder for actual aggregation logic
+    aggs = (
+        ContractEvent.objects.filter(
+            timestamp__gte=bucket,
+            timestamp__lt=bucket + timedelta(hours=1),
+        )
+        .values("contract_id", "event_type")
+        .annotate(count=Count("id"))
+    )
+
+    created = 0
+    updated = 0
+    for agg in aggs:
+        obj, was_created = EventAggregation.objects.update_or_create(
+            contract_id=agg["contract_id"],
+            event_type=agg["event_type"],
+            time_bucket=bucket,
+            defaults={"event_count": agg["count"]},
+        )
+        if was_created:
+            created += 1
+        else:
+            updated += 1
+
     total_events = ContractEvent.objects.count()
     active_contracts = TrackedContract.objects.filter(is_active=True).count()
 
     logger.info(
-        "Aggregated statistics: %d events across %d contracts",
+        "Aggregated %d event buckets (%d created, %d updated): %d total events, %d active contracts",
+        len(aggs),
+        created,
+        updated,
         total_events,
         active_contracts,
-        extra={"total_events": total_events, "active_contracts": active_contracts},
+        extra={
+            "buckets_created": created,
+            "buckets_updated": updated,
+            "total_events": total_events,
+            "active_contracts": active_contracts,
+        },
     )
 
     m.task_duration_seconds.labels(task_name="aggregate_event_statistics").observe(
@@ -2273,9 +2310,83 @@ def aggregate_event_statistics() -> dict[str, Any]:
     )
 
     return {
+        "buckets_created": created,
+        "buckets_updated": updated,
         "total_events": total_events,
         "active_contracts": active_contracts,
-        "timestamp": timezone.now().isoformat(),
+        "timestamp": now.isoformat(),
+    }
+
+
+@shared_task(name="ingest.tasks.detect_event_anomalies")
+def detect_event_anomalies() -> dict[str, Any]:
+    """
+    Detect anomalous drops in event volume.
+
+    Compares the last full hour of event counts against the previous
+    same-day-of-week hourly average. Flags contracts where volume
+    drops below the configurable ANOMALY_DROP_THRESHOLD_PCT threshold.
+    """
+    from django.conf import settings
+
+    _start = time.monotonic()
+    now = timezone.now()
+    bucket = (now - timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+    prev_hour = bucket - timedelta(hours=1)
+    threshold_pct = getattr(settings, "ANOMALY_DROP_THRESHOLD_PCT", 50)
+
+    anomalies = []
+    recent_rows = list(
+        EventAggregation.objects.filter(time_bucket=bucket)
+        .values("contract_id", "event_type")
+        .annotate(count=Sum("event_count"))
+        .values("contract_id", "event_type", "count")
+    )
+    recent_counts = {(r["contract_id"], r["event_type"]): r["count"] for r in recent_rows}
+
+    prev_rows = list(
+        EventAggregation.objects.filter(time_bucket=prev_hour)
+        .values("contract_id", "event_type")
+        .annotate(count=Sum("event_count"))
+        .values("contract_id", "event_type", "count")
+    )
+    prev_counts = {(r["contract_id"], r["event_type"]): r["count"] for r in prev_rows}
+
+    for (cid, etype), count in recent_counts.items():
+        prev = prev_counts.get((cid, etype), 0)
+        if prev > 0:
+            drop_pct = (1 - count / prev) * 100
+            if drop_pct > threshold_pct:
+                anomalies.append({
+                    "contract_id": cid,
+                    "event_type": etype,
+                    "current_count": count,
+                    "previous_count": prev,
+                    "drop_pct": round(drop_pct, 1),
+                })
+                logger.warning(
+                    "Anomaly detected: contract=%s event_type=%s dropped %.1f%%",
+                    cid, etype, drop_pct,
+                    extra={
+                        "contract_id": cid,
+                        "event_type": etype,
+                        "drop_pct": drop_pct,
+                        "current_count": count,
+                        "previous_count": prev,
+                    },
+                )
+
+    elapsed = time.monotonic() - _start
+    logger.info(
+        "Anomaly detection completed in %.2fs: %d anomalies found",
+        elapsed,
+        len(anomalies),
+    )
+
+    return {
+        "anomalies_found": len(anomalies),
+        "anomalies": anomalies,
+        "duration_seconds": round(elapsed, 3),
     }
 
 

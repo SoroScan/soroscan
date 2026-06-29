@@ -2219,3 +2219,31 @@ class TransactionCost(models.Model):
 
     def __str__(self):
         return f"${self.total_fee_stroops} stroops | {self.function_name} @ ledger {self.ledger_sequence}"
+
+
+class EventAggregation(models.Model):
+    """
+    Pre-computed event counters aggregated by contract, event type, and time bucket.
+    Updated hourly by aggregate_event_statistics for fast dashboard queries.
+    """
+
+    contract = models.ForeignKey(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name="event_aggregations",
+    )
+    event_type = models.CharField(max_length=128, db_index=True)
+    time_bucket = models.DateTimeField(db_index=True)
+    event_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-time_bucket"]
+        unique_together = [("contract", "event_type", "time_bucket")]
+        indexes = [
+            models.Index(fields=["contract", "time_bucket"]),
+            models.Index(fields=["event_type", "time_bucket"]),
+        ]
+
+    def __str__(self):
+        return f"{self.event_type}: {self.event_count} @ {self.time_bucket.isoformat()}"

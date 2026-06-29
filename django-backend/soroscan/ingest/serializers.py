@@ -12,6 +12,7 @@ from .models import (
     ContractInvocation,
     ContractSource,
     ContractVerification,
+    EventAggregation,
     Organization,
     OrganizationBudget,
     OrganizationCostSnapshot,
@@ -524,4 +525,41 @@ class CostAnalyticsQuerySerializer(serializers.Serializer):
     )
     range = serializers.ChoiceField(
         choices=["7d", "30d", "90d"], default="7d"
+    )
+
+
+class EventAggregationSerializer(serializers.ModelSerializer):
+    contract_id = serializers.CharField(source="contract.contract_id", read_only=True)
+
+    class Meta:
+        model = EventAggregation
+        fields = [
+            "id",
+            "contract_id",
+            "event_type",
+            "time_bucket",
+            "event_count",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class AnalyticsQuerySerializer(serializers.Serializer):
+    metric = serializers.ChoiceField(
+        choices=["event_volume", "active_contracts", "event_type_breakdown"],
+        default="event_volume",
+    )
+    granularity = serializers.ChoiceField(
+        choices=["hourly", "daily", "weekly", "monthly"],
+        default="daily",
+    )
+    range = serializers.ChoiceField(
+        choices=["7d", "30d", "90d", "1y"],
+        default="30d",
+    )
+    contract_id = serializers.CharField(required=False, allow_blank=True)
+    export = serializers.ChoiceField(
+        choices=["csv", "json"],
+        required=False,
+        allow_blank=True,
     )

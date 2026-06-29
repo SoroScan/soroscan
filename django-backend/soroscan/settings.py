@@ -333,7 +333,15 @@ CELERY_BEAT_SCHEDULE = {
         "task": "ingest.tasks.analyze_transaction_costs",
         "schedule": 3600,  # hourly
     },
+    "detect-event-anomalies": {
+        "task": "ingest.tasks.detect_event_anomalies",
+        "schedule": 3600,  # hourly
+    },
 }
+
+# Analytics / Anomaly Detection Configuration
+# Threshold for event volume drop anomaly detection (percentage)
+ANOMALY_DROP_THRESHOLD_PCT = env.int("ANOMALY_DROP_THRESHOLD_PCT", default=50)
 
 # Data Retention Configuration
 # Number of days to retain deduplication logs before cleanup
