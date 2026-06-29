@@ -3896,3 +3896,65 @@ def detect_contract_upgrades() -> dict[str, Any]:
             ).update(valid_to_ledger=ledger - 1)
 
     return summary
+
+
+@shared_task(name="ingest.tasks.check_contract_health")
+def check_contract_health() -> dict[str, Any]:
+    from .models import TrackedContract, ContractEvent, ContractHealthCheck
+    from django.utils.timezone import now
+    from .services.notifications import create_and_push
+
+    summary: dict[str, int] = {"healthy": 0, "degraded": 0, "failed": 0}
+
+    for contract in TrackedContract.objects.filter(is_active=True):
+        latest_event = ContractEvent.objects.filter(
+            contract=contract
+        ).order_by('-timestamp').first()
+        
+        if not latest_event:
+            continue
+            
+        minutes_since = (now() - latest_event.timestamp).total_seconds() / 60
+        
+        if minutes_since > 30:
+            health, _ = ContractHealthCheck.objects.get_or_create(contract=contract)
+            old_status = health.status
+            new_status = 'degraded' if minutes_since < 120 else 'failed'
+            
+            health.status = new_status
+            health.minutes_since_last_event = int(minutes_since)
+            health.error_message = f"No events for {minutes_since:.0f} minutes"
+            health.last_event_time = latest_event.timestamp
+            health.save()
+            
+            summary[new_status] += 1
+
+            if old_status != new_status:
+                create_and_push(
+                    user=contract.owner,
+                    notification_type="alert",
+                    title=f"Contract {contract.name} health {new_status}",
+                    message=f"Contract {contract.contract_id} has had no events for {minutes_since:.0f} minutes. Status is now {new_status}.",
+                    link=f"/admin/ingest/contracthealthcheck/{health.id}/change/"
+                )
+        else:
+            health, created = ContractHealthCheck.objects.get_or_create(contract=contract)
+            old_status = health.status
+            health.status = 'healthy'
+            health.minutes_since_last_event = int(minutes_since)
+            health.error_message = ""
+            health.last_event_time = latest_event.timestamp
+            health.save()
+            
+            summary["healthy"] += 1
+            
+            if not created and old_status != 'healthy':
+                create_and_push(
+                    user=contract.owner,
+                    notification_type="alert",
+                    title=f"Contract {contract.name} health restored",
+                    message=f"Contract {contract.contract_id} is now receiving events again. Status is healthy.",
+                    link=f"/admin/ingest/contracthealthcheck/{health.id}/change/"
+                )
+
+    return summary

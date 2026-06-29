@@ -24,6 +24,7 @@ from .models import (
     AuditLog,
     ContractABI,
     ContractABIVersion,
+    ContractHealthCheck,
     ContractDependency,
     ContractDeployment,
     ContractEvent,
@@ -1418,3 +1419,11 @@ class EventDeduplicationConfigAdmin(AdminAuditMixin, admin.ModelAdmin):
             json.dumps({"dedup_hash": dedup_hash, "material": material}),
             content_type="application/json",
         )
+
+
+@admin.register(ContractHealthCheck)
+class ContractHealthCheckAdmin(admin.ModelAdmin):
+    list_display = ["contract", "status", "last_event_time", "minutes_since_last_event", "checked_at"]
+    list_filter = ["status"]
+    search_fields = ["contract__contract_id", "contract__name"]
+    readonly_fields = ["checked_at"]

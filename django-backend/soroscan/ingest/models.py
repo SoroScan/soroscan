@@ -2233,3 +2233,20 @@ class BlacklistedContract(models.Model):
 
     def __str__(self):
         return f"Blacklisted({self.contract_id[:8]}...)"
+
+
+class ContractHealthCheck(models.Model):
+    class Status(models.TextChoices):
+        HEALTHY = 'healthy'
+        DEGRADED = 'degraded'
+        FAILED = 'failed'
+
+    contract = models.OneToOneField(TrackedContract, on_delete=models.CASCADE)
+    status = models.CharField(max_length=16, choices=Status.choices)
+    last_event_time = models.DateTimeField(null=True)
+    minutes_since_last_event = models.IntegerField()
+    error_message = models.TextField(blank=True)
+    checked_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"HealthCheck({self.contract.contract_id[:8]}..., {self.status})"

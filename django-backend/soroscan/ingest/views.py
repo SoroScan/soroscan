@@ -253,6 +253,26 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
 
         return Response(_calculate_completeness(contract))
 
+    @action(detail=True, methods=["get"])
+    def health(self, request, pk=None):
+        contract = self.get_object()
+        try:
+            from .models import ContractHealthCheck
+            health = ContractHealthCheck.objects.get(contract=contract)
+            return Response({
+                "status": health.status,
+                "lastEventTime": health.last_event_time.isoformat() if health.last_event_time else None,
+                "minutesSinceLastEvent": health.minutes_since_last_event,
+                "errorMessage": health.error_message or None
+            })
+        except ContractHealthCheck.DoesNotExist:
+            return Response({
+                "status": "unknown",
+                "lastEventTime": None,
+                "minutesSinceLastEvent": 0,
+                "errorMessage": "Health check has not run yet."
+            })
+
     @action(detail=False, methods=["get"])
     def completeness_dashboard(self, request):
         from .tasks import _calculate_completeness

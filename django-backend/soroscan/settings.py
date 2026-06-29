@@ -371,6 +371,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "ingest.tasks.warm_event_count_cache",
         "schedule": 300,  # every 5 minutes
     },
+    "check-contract-health": {
+        "task": "ingest.tasks.check_contract_health",
+        "schedule": 300,  # every 5 minutes
+    },
 }
 
 # Data Retention Configuration
