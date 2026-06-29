@@ -296,6 +296,32 @@ kubectl scale deployment/soroscan-worker --replicas=3 -n soroscan
 
 ---
 
+## 🎨 Design System
+
+The frontend uses a **retro-futuristic terminal aesthetic** — a distinctive visual identity for a Web3 developer tool.
+
+### Design Philosophy
+
+- **Phosphor green on deep black**: Evokes 1980s terminal monitors. All primary UI uses `#00ff41` on `#0a0e27`.
+- **Monospace everywhere**: JetBrains Mono for code and UI text reinforces the developer-first feel.
+- **Box-drawing borders & glow effects**: Components use CSS box-drawing characters and `box-shadow` glow to simulate CRT screens.
+- **Dark mode first**: Light mode is supported but terminal dark is the canonical experience.
+
+### Component Library (Storybook)
+
+Interactive component showcase with all terminal UI primitives:
+
+```bash
+cd soroscan-frontend
+pnpm storybook   # http://localhost:6006
+```
+
+Components: `Button`, `Card`, `Table`, `Input`, `Modal`, `Badge`, `Alert`, `CodeBlock`, `TerminalWindow`, `Tabs`
+
+See [CONTRIBUTING.md](CONTRIBUTING.md#-component-library--design-system) for usage guidelines and how to add new components.
+
+---
+
 ## 🤝 Contributing
 
 1. Fork the repository and create your feature branch.
