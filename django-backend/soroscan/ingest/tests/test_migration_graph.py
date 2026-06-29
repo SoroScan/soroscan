@@ -3,6 +3,7 @@ Bug condition exploration test for the ingest app migration graph conflict.
 
 This test file ensures that the migration graph is consistent and has a single leaf node.
 The conflict between 0027_merge_final_leaf_nodes and 0029_contractmetadata has been resolved.
+The current leaf node is 0045_organization_cors_origins.
 
 Validates: Requirements 2.1, 2.2
 """
@@ -20,8 +21,6 @@ def enable_db_access_for_all_tests():
 def test_single_leaf_node():
     """
     Assert the ingest migration graph has exactly one leaf node.
-
-    The current leaf is '0040_alter_trackedcontract_contract_id'
     """
     loader = MigrationLoader(None, ignore_no_migrations=True)
 

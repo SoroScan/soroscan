@@ -25,6 +25,16 @@ class Organization(models.Model):
     )
     settings = models.JSONField(default=dict, blank=True)
     quota = models.PositiveIntegerField(default=0, help_text="Optional monthly event quota")
+    cors_origins = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "List of allowed CORS origins for this organization, e.g. "
+            '["https://app.example.com", "https://staging.example.com"]. '
+            "Each entry must start with http:// or https://. "
+            "These are merged with the global CORS_ALLOWED_ORIGINS setting."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -839,6 +849,13 @@ class WebhookSubscription(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=["target_url", "contract"],
+                name="unique_url_contract_subscription",
+            )
+        ]
 
     def __str__(self):
         return f"Webhook -> {self.target_url} ({self.contract.name})"
@@ -1839,6 +1856,36 @@ class ContractMetadata(models.Model):
     class Meta:
         verbose_name = "Contract Metadata"
         verbose_name_plural = "Contract Metadata"
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        errors = {}
+        
+        # Validate name is not empty or just whitespace
+        if not self.name or not self.name.strip():
+            errors["name"] = "Name cannot be empty or just whitespace."
+        
+        # Validate tags is a list of strings
+        if not isinstance(self.tags, list):
+            errors["tags"] = "Tags must be a list of strings."
+        else:
+            for i, tag in enumerate(self.tags):
+                if not isinstance(tag, str):
+                    errors["tags"] = f"All tags must be strings. Tag at index {i} is not a string."
+                    break
+                if len(tag) > 100:
+                    errors["tags"] = f"Tag at index {i} is too long (max 100 characters)."
+                    break
+                if not tag.strip():
+                    errors["tags"] = f"Tag at index {i} cannot be empty or just whitespace."
+                    break
+        
+        # Validate description length (optional, but reasonable limit)
+        if len(self.description) > 10000:
+            errors["description"] = "Description is too long (max 10000 characters)."
+        
+        if errors:
+            raise ValidationError(errors)
 
     def __str__(self):
         return f"Metadata({self.contract.contract_id[:8]}...)"
