@@ -15,6 +15,9 @@ To make your onboarding process as smooth as possible, we have detailed guidelin
 3. 🌿 **Git & PR Workflows**: Follow our [Git & PR Workflow Guide](docs/contributing/git-and-pr-workflow.md) to learn about branching, Conventional Commits, and code reviews.
 4. 📄 **Writing Documentation**: Check the [Documentation Contribution Guide](docs/contributing/documentation-guide.md) to learn how to edit docs and run the Docusaurus preview server.
 5. 🤝 **Community & Code of Conduct**: Read our [Community Standards](docs/contributing/community-standards.md) to understand our issue labeling, triage workflows, and Code of Conduct.
+6. 📝 **Logging Standards**: Follow our [Logging Standards](docs/contributing/LOGGING_STANDARDS.md) for structured logging formats, field naming conventions, log levels, and sensitive data masking.
+7. 🏛️ **Architecture Decisions**: Review our [Architecture Decision Records (ADRs)](docs/adrs/README.md) to understand the rationale behind major technical choices.
+
 
 ---
 
