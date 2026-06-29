@@ -15,7 +15,7 @@ interface FilterBarProps {
     tags: string[];
   };
   onFilterChange: (filters: Partial<FilterBarProps["filters"]>) => void;
-  onExport: (format: "csv" | "json") => void;
+  onExport: () => void;
   tagSuggestions: string[];
 }
 
@@ -236,16 +236,9 @@ export function FilterBar({ contracts, filters, onFilterChange, onExport, tagSug
           <button
             type="button"
             className={`${styles.btn} ${styles.secondaryBtn}`}
-            onClick={() => onExport("csv")}
+            onClick={onExport}
           >
-            Export CSV
-          </button>
-          <button
-            type="button"
-            className={`${styles.btn} ${styles.secondaryBtn}`}
-            onClick={() => onExport("json")}
-          >
-            Export JSON
+            Export Events
           </button>
         </div>
       </div>
