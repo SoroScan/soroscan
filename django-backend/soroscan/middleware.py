@@ -225,7 +225,7 @@ class SlowQueryMiddleware:
         with connection.execute_wrapper(_execute):
             response = self.get_response(request)
 
-        # Forward X-RateLimit-* headers set by APIKeyThrottle
+        # Forward RateLimit-* headers set by APIKeyThrottle
         headers = getattr(request, "_api_key_throttle_headers", None)
         if headers and hasattr(response, "__setitem__"):
             for name, value in headers.items():
@@ -254,6 +254,26 @@ class RequestBodySizeMiddleware:
         
         return self.get_response(request)
         
+class GracefulShutdownMiddleware:
+    """Reject new requests during shutdown and track in-flight request count."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        from soroscan.shutdown import end_request, try_begin_request
+
+        if not try_begin_request():
+            return JsonResponse(
+                {"error": "Server is shutting down"},
+                status=503,
+            )
+        try:
+            return self.get_response(request)
+        finally:
+            end_request()
+
+
 class MaintenanceModeMiddleware:
     """Return 503 for all non-admin routes when MAINTENANCE_MODE=True."""
 
@@ -276,10 +296,10 @@ class ApiDeprecationMiddleware:
     def __call__(self, request):
         response = self.get_response(request)
         deprecated_endpoints = getattr(settings, "DEPRECATED_ENDPOINTS", {})
-        
+
         # Normalize request path: remove leading/trailing slashes
         norm_request_path = request.path.strip("/")
-        
+
         for path, config in deprecated_endpoints.items():
             # Normalize config path
             if path.strip("/") == norm_request_path:
