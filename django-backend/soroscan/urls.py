@@ -15,10 +15,12 @@ from rest_framework_simplejwt.views import (
 )
 
 from soroscan.graphql_views import ThrottledGraphQLView
-from soroscan.health import health_view, readiness_view
+from soroscan.health import health_view, readiness_view, worker_health_view
 from soroscan.meta_views import db_pool_stats_view
+from soroscan.pact_provider import provider_states
 from soroscan.ingest.views import (
     audit_trail_view,
+    cache_stats_view,
     contract_status,
     organization_api_usage_analytics_view,
     rate_limit_analytics_view,
@@ -41,6 +43,7 @@ urlpatterns = [
 
     path("health/", health_view, name="health"),
     path("ready/", readiness_view, name="readiness"),
+    path("api/health/workers/", worker_health_view, name="worker-health"),
 
     path("admin/", admin.site.urls),
     path("api/audit-trail/", audit_trail_view, name="audit-trail"),
@@ -50,6 +53,8 @@ urlpatterns = [
     path("api/analytics/api-usage.csv/", organization_api_usage_analytics_view, {"format": "csv"}, name="organization-api-usage-analytics-csv"),
     path("api/meta/db-pool/", db_pool_stats_view, name="db-pool-stats"),
     path("api/dev/summary/", dev_summary_view, name="dev-summary"),
+    path("api/admin/db/explain/", db_explain_view, name="admin-db-explain"),
+    path("api/cache/stats/", cache_stats_view, name="cache-stats"),
     path(
         "api/webhooks/deliveries/batch-status/",
         webhook_batch_delivery_status_view,
@@ -61,6 +66,8 @@ urlpatterns = [
         name="webhook-delivery-metrics",
     ),
     path("api/ingest/", include("soroscan.ingest.urls")),
+    path("v1/", include("soroscan.v1.urls")),
+    path("_pact/provider-states", provider_states, name="pact-provider-states"),
     path("graphql/", ThrottledGraphQLView.as_view(schema=schema)),
     # JWT Authentication
     path("api/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
