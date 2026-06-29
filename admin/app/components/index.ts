@@ -21,3 +21,12 @@ export type { VerifiedSourceBadgeProps, VerificationDetails } from './VerifiedSo
 
 export { ContractEventTimeline } from './ContractEventTimeline';
 export type { ContractEvent, ContractEventTimelineProps } from './ContractEventTimeline';
+
+export { default as Breadcrumb } from './Breadcrumb';
+export type { BreadcrumbProps, BreadcrumbItem } from './Breadcrumb';
+
+export { default as Divider } from './Divider';
+export type { DividerProps } from './Divider';
+
+export { default as Avatar } from './Avatar';
+export type { AvatarProps } from './Avatar';

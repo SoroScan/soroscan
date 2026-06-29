@@ -852,6 +852,76 @@ class Query:
             for log in logs
         ]
 
+    @strawberry.field
+    def invocations_for_contract(
+        self,
+        contract_id: str,
+        caller: Optional[str] = None,
+        function_name: Optional[str] = None,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+        first: int = 20,
+        after: Optional[str] = None,
+    ) -> InvocationConnection:
+        """
+        Fetch invocations for a contract, each with its related events.
+
+        Supports filtering by caller address, function name, and timestamp range.
+        Returns cursor-based paginated results (max 100 per page).
+        """
+        qs = (
+            ContractInvocation.objects.select_related("contract")
+            .prefetch_related("events__contract")
+            .filter(contract__contract_id=contract_id)
+            .order_by("id")
+        )
+
+        if caller:
+            qs = qs.filter(caller=caller)
+        if function_name:
+            qs = qs.filter(function_name=function_name)
+        if since:
+            qs = qs.filter(created_at__gte=since)
+        if until:
+            qs = qs.filter(created_at__lte=until)
+
+        total_count = qs.count()
+
+        if after:
+            try:
+                decoded = base64.b64decode(after).decode("utf-8")
+                after_id = int(decoded.split(":", 1)[1])
+                qs = qs.filter(id__gt=after_id)
+            except (ValueError, IndexError, UnicodeDecodeError):
+                pass
+
+        first = max(0, min(first, 100))
+
+        if first == 0:
+            return InvocationConnection(
+                edges=[],
+                page_info=PageInfo(has_next_page=qs.exists(), end_cursor=None),
+                total_count=total_count,
+            )
+
+        items = list(qs[: first + 1])
+        has_next = len(items) > first
+        items = items[:first]
+
+        edges = []
+        for item in items:
+            cursor = base64.b64encode(f"cursor:{item.id}".encode()).decode("utf-8")
+            edges.append(InvocationEdge(node=item, cursor=cursor))
+
+        return InvocationConnection(
+            edges=edges,
+            page_info=PageInfo(
+                has_next_page=has_next,
+                end_cursor=edges[-1].cursor if edges else None,
+            ),
+            total_count=total_count,
+        )
+
 
 @strawberry.type
 class Mutation:

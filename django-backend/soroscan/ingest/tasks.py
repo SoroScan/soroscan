@@ -3896,3 +3896,103 @@ def detect_contract_upgrades() -> dict[str, Any]:
             ).update(valid_to_ledger=ledger - 1)
 
     return summary
+
+
+@shared_task(
+    name="ingest.tasks.fetch_and_store_invocation",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=10,
+)
+def fetch_and_store_invocation(self, contract_id: str, tx_hash: str, event_id: int) -> dict[str, Any]:
+    """
+    Fetch invocation details from Soroban RPC for a transaction and persist them.
+
+    Called asynchronously after a ContractEvent is created so that the ingest
+    pipeline is not blocked by RPC round-trips.  Implements:
+      - Rate-limited + cached RPC calls via SorobanClient.get_invocation()
+      - get_or_create semantics (idempotent on retry)
+      - Links the ContractEvent to the resulting ContractInvocation via FK
+
+    Args:
+        contract_id: Stellar contract address (C...)
+        tx_hash: Transaction hash that triggered the event
+        event_id: PK of the ContractEvent to link to the invocation
+    """
+    logger.info(
+        "Fetching invocation details for tx=%s contract=%s",
+        tx_hash,
+        contract_id,
+        extra={"contract_id": contract_id, "tx_hash": tx_hash},
+    )
+
+    try:
+        contract = TrackedContract.objects.get(contract_id=contract_id)
+    except TrackedContract.DoesNotExist:
+        logger.warning(
+            "TrackedContract not found for contract_id=%s — skipping invocation fetch",
+            contract_id,
+            extra={"contract_id": contract_id},
+        )
+        return {"status": "skipped", "reason": "contract_not_found"}
+
+    # Idempotency: if invocation already stored, just ensure the FK is set
+    existing = ContractInvocation.objects.filter(
+        tx_hash=tx_hash, contract=contract
+    ).first()
+    if existing:
+        _link_event_to_invocation(event_id, existing)
+        return {"status": "already_exists", "invocation_id": existing.id}
+
+    client = SorobanClient()
+    invocation_data = client.get_invocation(tx_hash)
+
+    if not invocation_data.success:
+        logger.warning(
+            "Invocation fetch failed for tx=%s: %s",
+            tx_hash,
+            invocation_data.error,
+            extra={"contract_id": contract_id, "tx_hash": tx_hash},
+        )
+        # Retry on transient failures; give up on permanent ones (e.g. NOT_FOUND)
+        if invocation_data.error and "not found" in (invocation_data.error or "").lower():
+            return {"status": "not_found", "tx_hash": tx_hash}
+        raise self.retry(exc=Exception(invocation_data.error or "fetch failed"))
+
+    invocation, created = ContractInvocation.objects.get_or_create(
+        tx_hash=tx_hash,
+        contract=contract,
+        defaults={
+            "caller": invocation_data.caller,
+            "function_name": invocation_data.function_name or "unknown",
+            "parameters": invocation_data.parameters or {},
+            "result": invocation_data.result,
+            "ledger_sequence": invocation_data.ledger_sequence,
+        },
+    )
+
+    _link_event_to_invocation(event_id, invocation)
+
+    logger.info(
+        "Invocation %s for tx=%s contract=%s (%s)",
+        invocation.id,
+        tx_hash,
+        contract_id,
+        "created" if created else "found",
+        extra={"contract_id": contract_id, "tx_hash": tx_hash, "invocation_id": invocation.id},
+    )
+    return {"status": "ok", "invocation_id": invocation.id, "created": created}
+
+
+def _link_event_to_invocation(event_id: int, invocation: "ContractInvocation") -> None:
+    """Set the invocation FK on a ContractEvent if not already linked."""
+    updated = ContractEvent.objects.filter(
+        id=event_id, invocation__isnull=True
+    ).update(invocation=invocation)
+    if updated:
+        logger.debug(
+            "Linked event %d to invocation %d",
+            event_id,
+            invocation.id,
+            extra={"event_id": event_id, "invocation_id": invocation.id},
+        )

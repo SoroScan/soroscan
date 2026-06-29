@@ -41,6 +41,11 @@ router.register(r"api-keys", APIKeyViewSet, basename="apikey")
 router.register(r"teams", TeamViewSet, basename="team")
 
 urlpatterns = [
+    path(
+        "contracts/<str:contract_id>/invocations/",
+        ContractInvocationViewSet.as_view({"get": "list"}),
+        name="contract-invocations",
+    ),
     path("contracts/<str:contract_id>/timeline/", contract_timeline_view, name="contract-timeline"),
     path(
         "contracts/<str:contract_id>/events/explorer/",
