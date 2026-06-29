@@ -8,6 +8,7 @@ are registered here so that tests can use reverse() normally.
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import include, path
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from soroscan.health import health_view, readiness_view, worker_health_view
 from soroscan.meta_views import db_pool_stats_view
@@ -56,6 +57,8 @@ urlpatterns = [
         webhook_delivery_metrics_view,
         name="webhook-delivery-metrics",
     ),
+    path("api/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("api/ingest/", include("soroscan.ingest.urls")),
     path("v1/", include("soroscan.v1.urls")),
     path("_pact/provider-states", provider_states, name="pact-provider-states"),
