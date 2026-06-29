@@ -48,6 +48,7 @@ from .models import (
     PIIField,
     RemediationIncident,
     RemediationRule,
+    SigningKey,
     Team,
     TeamMembership,
     TrackedContract,
@@ -630,18 +631,14 @@ class WebhookSubscriptionAdmin(AdminAuditMixin, admin.ModelAdmin):
             "contract_id": webhook.contract.contract_id,
             "timestamp": timezone.now().isoformat(),
         }
-        payload_bytes = json.dumps(test_payload, sort_keys=True).encode("utf-8")
+        payload_str = json.dumps(test_payload, sort_keys=True)
+        payload_bytes = payload_str.encode("utf-8")
         algorithm = (webhook.signature_algorithm or WebhookSubscription.SIGNATURE_SHA256).lower()
-        digestmod = hashlib.sha1 if algorithm == WebhookSubscription.SIGNATURE_SHA1 else hashlib.sha256
-        prefix = "sha1" if algorithm == WebhookSubscription.SIGNATURE_SHA1 else "sha256"
-        sig_hex = hmac.new(
-            webhook.secret.encode("utf-8"),
-            msg=payload_bytes,
-            digestmod=digestmod,
-        ).hexdigest()
+        from .webhook_signing import sign_webhook_payload
+
         headers = {
             "Content-Type": "application/json",
-            "X-SoroScan-Signature": f"{prefix}={sig_hex}",
+            "X-SoroScan-Signature": sign_webhook_payload(payload_str, webhook.secret, algorithm=algorithm),
             "X-SoroScan-Timestamp": timezone.now().isoformat(),
         }
         try:
@@ -1567,6 +1564,30 @@ def analytics_dashboard_view(request):
     }
 
     return TemplateResponse(request, "admin/analytics_dashboard.html", context)
+
+
+@admin.register(SigningKey)
+class SigningKeyAdmin(admin.ModelAdmin):
+    list_display = ["subscription", "label", "is_active", "expires_at", "created_at"]
+    list_filter = ["is_active", "subscription"]
+    search_fields = ["label", "key"]
+    readonly_fields = ["key", "created_at"]
+    raw_id_fields = ["subscription"]
+
+    fieldsets = [
+        (None, {"fields": ["subscription", "label"]}),
+        ("Key Material", {"fields": ["key", "is_active", "expires_at", "created_at"]}),
+    ]
+
+    def save_model(self, request, obj, form, change):
+        from .webhook_signing import generate_signing_key
+
+        if not obj.key:
+            obj.key = generate_signing_key()
+        super().save_model(request, obj, form, change)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("subscription")
 
 
 # Register analytics dashboard URL with the admin site

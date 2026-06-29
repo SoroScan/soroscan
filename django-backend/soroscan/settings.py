@@ -337,11 +337,19 @@ CELERY_BEAT_SCHEDULE = {
         "task": "ingest.tasks.detect_event_anomalies",
         "schedule": 3600,  # hourly
     },
+    "rotate-expired-signing-keys": {
+        "task": "ingest.tasks.rotate_expired_signing_keys",
+        "schedule": 86400,  # daily
+    },
 }
 
 # Analytics / Anomaly Detection Configuration
 # Threshold for event volume drop anomaly detection (percentage)
 ANOMALY_DROP_THRESHOLD_PCT = env.int("ANOMALY_DROP_THRESHOLD_PCT", default=50)
+
+# Signing Key Rotation Configuration
+# Number of days to retain expired signing keys after rotation
+SIGNING_KEY_RETENTION_DAYS = env.int("SIGNING_KEY_RETENTION_DAYS", default=7)
 
 # Data Retention Configuration
 # Number of days to retain deduplication logs before cleanup

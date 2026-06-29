@@ -2247,3 +2247,36 @@ class EventAggregation(models.Model):
 
     def __str__(self):
         return f"{self.event_type}: {self.event_count} @ {self.time_bucket.isoformat()}"
+
+
+class SigningKey(models.Model):
+    """
+    Rotatable HMAC signing keys for webhook request authentication.
+
+    Each webhook subscription can have multiple keys for zero-downtime
+    rotation. Expired keys are retained for a configurable grace period
+    (default 7 days) to allow subscribers to transition.
+    """
+
+    subscription = models.ForeignKey(
+        WebhookSubscription,
+        on_delete=models.CASCADE,
+        related_name="signing_keys",
+    )
+    key = models.CharField(max_length=255, unique=True)
+    label = models.CharField(
+        max_length=128, blank=True, help_text="Human-readable label for this key"
+    )
+    is_active = models.BooleanField(default=True, db_index=True)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["subscription", "is_active"]),
+            models.Index(fields=["expires_at"]),
+        ]
+
+    def __str__(self):
+        return f"SigningKey for {self.subscription} ({'active' if self.is_active else 'expired'})"

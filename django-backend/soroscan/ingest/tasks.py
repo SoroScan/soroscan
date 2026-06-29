@@ -49,6 +49,7 @@ from .models import (
     EventSchema,
     RemediationRule,
     RemediationIncident,
+    SigningKey,
     AdminAction,
     ContractInvocation,
     ContractDependency,
@@ -420,19 +421,24 @@ def _build_webhook_signature_header(
     algorithm = (
         webhook.signature_algorithm or WebhookSubscription.SIGNATURE_SHA256
     ).lower()
-    if algorithm == WebhookSubscription.SIGNATURE_SHA1:
-        digestmod = hashlib.sha1
-        prefix = "sha1"
-    else:
-        digestmod = hashlib.sha256
-        prefix = "sha256"
 
-    sig_hex = hmac.new(
-        webhook.secret.encode("utf-8"),
-        msg=payload_bytes,
-        digestmod=digestmod,
-    ).hexdigest()
-    return f"{prefix}={sig_hex}"
+    # Try to use the active SigningKey first; fall back to webhook.secret
+    signing_key = (
+        SigningKey.objects.filter(
+            subscription=webhook, is_active=True, expires_at__gt=timezone.now()
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    key_material = signing_key.key if signing_key else webhook.secret
+
+    from .webhook_signing import sign_webhook_payload
+
+    return sign_webhook_payload(
+        payload_bytes.decode("utf-8"),
+        key_material,
+        algorithm=algorithm,
+    )
 
 
 def validate_contract_payload_schema(
@@ -2441,6 +2447,41 @@ def warm_event_count_cache() -> dict[str, Any]:
         "contracts_warmed": warmed_count,
         "duration_seconds": round(elapsed, 3),
         "timestamp": timezone.now().isoformat(),
+    }
+
+
+@shared_task(name="ingest.tasks.rotate_expired_signing_keys")
+def rotate_expired_signing_keys() -> dict[str, Any]:
+    """
+    Deactivate expired signing keys past the retention window.
+
+    Keys whose ``expires_at`` is older than ``SIGNING_KEY_RETENTION_DAYS``
+    are hard-deleted.  Keys that have expired but are still within the
+    grace period are deactivated (``is_active = False``) so subscribers
+    have a window to update their secrets.
+    """
+    now = timezone.now()
+    retention_cutoff = now - timedelta(days=settings.SIGNING_KEY_RETENTION_DAYS)
+
+    # 1) Deactivate keys where expires_at is between now and retention_cutoff
+    expired_keys = SigningKey.objects.filter(
+        expires_at__lte=now, expires_at__gt=retention_cutoff, is_active=True
+    )
+    deactivated_count = expired_keys.update(is_active=False)
+
+    # 2) Hard-delete keys past the retention window
+    stale_keys = SigningKey.objects.filter(expires_at__lte=retention_cutoff)
+    deleted_count, _ = stale_keys.delete()
+
+    logger.info(
+        "Signing key rotation: %d deactivated, %d deleted",
+        deactivated_count,
+        deleted_count,
+    )
+    return {
+        "deactivated": deactivated_count,
+        "deleted": deleted_count,
+        "cutoff": retention_cutoff.isoformat(),
     }
 
 

@@ -1,5 +1,5 @@
 import pytest
-from .factories import UserFactory, TrackedContractFactory
+from .factories import UserFactory, TrackedContractFactory, WebhookSubscriptionFactory
 
 @pytest.fixture
 def user():
@@ -8,3 +8,7 @@ def user():
 @pytest.fixture
 def contract(user):
     return TrackedContractFactory(owner=user)
+
+@pytest.fixture
+def webhook_subscription(contract):
+    return WebhookSubscriptionFactory(contract=contract)
