@@ -10,6 +10,11 @@ from typing import Any
 from django.conf import settings
 from django.core.cache import cache
 
+# Imported at module level so patch('soroscan.ingest.cache_utils.TrackedContract…') works.
+# The lazy import inside get_cached_contract is replaced by this top-level reference.
+from .models import TrackedContract
+from .telemetry import tracer
+
 
 def query_cache_ttl() -> int:
     return int(getattr(settings, "QUERY_CACHE_TTL_SECONDS", 60))
@@ -39,6 +44,36 @@ def invalidate_contract_query_cache(contract_id: str) -> None:
     """Best-effort: drop stats cache for a contract (pattern-free delete)."""
     # Stats key uses contract_id in payload; callers can delete by known prefixes
     cache.delete(stable_cache_key("contract_stats", {"contract_id": contract_id}))
+
+
+def contract_cache_key(contract_id: str) -> str:
+    """Return the Redis key for a cached TrackedContract object."""
+    return f"soroscan:contract:obj:{contract_id}"
+
+
+def get_cached_contract(contract_id: str) -> Any:
+    """Get a TrackedContract instance from cache, or load from DB and cache it."""
+    with tracer.start_as_current_span(
+        "ingest.contract_lookup",
+        attributes={"contract_id": contract_id},
+    ):
+        key = contract_cache_key(contract_id)
+        contract = cache.get(key)
+        if contract is not None:
+            return contract
+
+        try:
+            contract = TrackedContract.objects.get(contract_id=contract_id)
+            cache.set(key, contract, timeout=3600)  # 1 hour TTL
+            return contract
+        except TrackedContract.DoesNotExist:
+            return None
+
+
+def invalidate_cached_contract(contract_id: str) -> None:
+    """Invalidate the cached TrackedContract object."""
+    cache.delete(contract_cache_key(contract_id))
+
 
 
 def get_event_count(contract_id: str) -> int:

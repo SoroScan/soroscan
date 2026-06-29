@@ -6,11 +6,13 @@ from django.contrib import admin, messages
 from django.contrib.admin.helpers import ActionForm, ACTION_CHECKBOX_NAME
 from django.db.models import Count
 from django.http import HttpResponse, StreamingHttpResponse
-from django.urls import path
+from django.urls import path, reverse
 from django.utils.html import format_html
-import json
 import csv
+import json
 from datetime import datetime
+import requests as http_requests
+import hashlib
 
 from .models import (
     AlertExecution,
@@ -37,6 +39,7 @@ from .models import (
     EventSchema,
     IndexerState,
     IngestError,
+    EventDeduplicationConfig,
     Organization,
     OrganizationBudget,
     OrganizationCostSnapshot,
@@ -129,9 +132,57 @@ class TeamMembershipAdmin(admin.ModelAdmin):
 
 @admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):
-    list_display = ["name", "slug", "owner", "quota", "created_at"]
+    list_display = ["name", "slug", "owner", "quota", "cors_origins_count", "created_at"]
     search_fields = ["name", "slug", "owner__username"]
     readonly_fields = ["created_at", "updated_at"]
+    fieldsets = (
+        (None, {
+            "fields": ("name", "slug", "owner", "quota", "settings"),
+        }),
+        ("CORS Configuration", {
+            "fields": ("cors_origins",),
+            "description": (
+                "Enter a JSON list of allowed origins for this organization, e.g. "
+                '<code>["https://app.example.com", "https://staging.example.com"]</code>. '
+                "Each entry must start with <code>http://</code> or <code>https://</code>. "
+                "Changes take effect within 60 seconds (cache TTL)."
+            ),
+        }),
+        ("Timestamps", {
+            "fields": ("created_at", "updated_at"),
+            "classes": ("collapse",),
+        }),
+    )
+
+    @admin.display(description="CORS Origins")
+    def cors_origins_count(self, obj):
+        origins = obj.cors_origins or []
+        count = len(origins)
+        if count == 0:
+            return format_html('<span style="color: #6c757d;">None</span>')
+        return format_html(
+            '<span title="{}">{} origin{}</span>',
+            ", ".join(origins[:10]),
+            count,
+            "s" if count != 1 else "",
+        )
+
+    def save_model(self, request, obj, form, change):
+        # Validate each origin before saving.
+        origins = obj.cors_origins or []
+        invalid = [
+            o for o in origins
+            if not isinstance(o, str) or not (o.startswith("http://") or o.startswith("https://"))
+        ]
+        if invalid:
+            self.message_user(
+                request,
+                f"Invalid CORS origin(s) removed (must start with http:// or https://): "
+                f"{', '.join(str(o) for o in invalid)}",
+                level=messages.WARNING,
+            )
+            obj.cors_origins = [o for o in origins if o not in invalid]
+        super().save_model(request, obj, form, change)
 
 
 @admin.register(OrganizationMembership)
@@ -548,6 +599,7 @@ class ContractEventAdmin(AdminAuditMixin, admin.ModelAdmin):
 @admin.register(WebhookSubscription)
 class WebhookSubscriptionAdmin(AdminAuditMixin, admin.ModelAdmin):
     """Admin interface for webhook subscriptions with delivery status display."""
+    change_form_template = "admin/ingest/webhooksubscription/change_form.html"
     list_display = [
         "target_url",
         "contract_name",
@@ -596,7 +648,6 @@ class WebhookSubscriptionAdmin(AdminAuditMixin, admin.ModelAdmin):
         js = ("ingest/admin_event_type_autocomplete.js",)
 
     def get_urls(self):
-        from django.urls import path
         urls = super().get_urls()
         custom_urls = [
             path(
@@ -604,8 +655,63 @@ class WebhookSubscriptionAdmin(AdminAuditMixin, admin.ModelAdmin):
                 self.admin_site.admin_view(self.event_types_api),
                 name="webhooksubscription_event_types",
             ),
+            path(
+                "<int:pk>/ping/",
+                self.admin_site.admin_view(self.ping_webhook),
+                name="webhooksubscription_ping",
+            ),
         ]
         return custom_urls + urls
+
+    def ping_webhook(self, request, pk):
+        import hashlib
+        import hmac
+        from django.shortcuts import redirect
+        from django.utils import timezone
+
+        webhook = WebhookSubscription.objects.get(pk=pk)
+        test_payload = {
+            "event_type": "ping",
+            "payload": {"message": "This is a test ping from SoroScan admin"},
+            "contract_id": webhook.contract.contract_id,
+            "timestamp": timezone.now().isoformat(),
+        }
+        payload_bytes = json.dumps(test_payload, sort_keys=True).encode("utf-8")
+        algorithm = (webhook.signature_algorithm or WebhookSubscription.SIGNATURE_SHA256).lower()
+        digestmod = hashlib.sha1 if algorithm == WebhookSubscription.SIGNATURE_SHA1 else hashlib.sha256
+        prefix = "sha1" if algorithm == WebhookSubscription.SIGNATURE_SHA1 else "sha256"
+        sig_hex = hmac.new(
+            webhook.secret.encode("utf-8"),
+            msg=payload_bytes,
+            digestmod=digestmod,
+        ).hexdigest()
+        headers = {
+            "Content-Type": "application/json",
+            "X-SoroScan-Signature": f"{prefix}={sig_hex}",
+            "X-SoroScan-Timestamp": timezone.now().isoformat(),
+        }
+        try:
+            response = http_requests.post(
+                webhook.target_url,
+                data=payload_bytes,
+                headers=headers,
+                timeout=10,
+            )
+            response.raise_for_status()
+            self.message_user(
+                request,
+                f"Test ping sent successfully to {webhook.target_url} (HTTP {response.status_code}).",
+                messages.SUCCESS,
+            )
+        except http_requests.RequestException as exc:
+            self.message_user(
+                request,
+                f"Test ping to {webhook.target_url} failed: {exc}",
+                messages.ERROR,
+            )
+        return redirect(
+            reverse("admin:ingest_webhooksubscription_change", args=[pk])
+        )
 
     def event_types_api(self, request):
         from django.http import JsonResponse
@@ -1263,3 +1369,52 @@ class ContractABIVersionAdmin(admin.ModelAdmin):
     list_filter = ["has_breaking_changes", "created_at"]
     search_fields = ["contract__contract_id", "contract__name"]
     readonly_fields = ["created_at"]
+
+
+@admin.register(EventDeduplicationConfig)
+class EventDeduplicationConfigAdmin(AdminAuditMixin, admin.ModelAdmin):
+    list_display = ["contract", "enabled", "updated_at"]
+    search_fields = ["contract__name", "contract__contract_id"]
+    readonly_fields = ["created_at", "updated_at"]
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "test/<int:contract_id>/",
+                self.admin_site.admin_view(self.test_dedup_view),
+                name="soroscan_dedup_test",
+            ),
+        ]
+        return custom + urls
+
+    def test_dedup_view(self, request, contract_id):
+        try:
+            contract = TrackedContract.objects.get(pk=contract_id)
+        except TrackedContract.DoesNotExist:
+            return HttpResponse(json.dumps({"error": "contract not found"}), content_type="application/json", status=404)
+
+        try:
+            body = request.body.decode("utf-8") if request.body else "{}"
+            payload = json.loads(body)
+        except Exception:
+            payload = {}
+
+        config = getattr(contract, "dedup_config", None)
+        if not config or not config.enabled:
+            return HttpResponse(json.dumps({"dedup_enabled": False}), content_type="application/json")
+
+        material = {}
+        for f in config.fields:
+            if f in ("event_type", "ledger", "event_index", "tx_hash"):
+                material[f] = payload.get(f)
+            else:
+                material[f] = payload.get("payload", {}).get(f)
+
+        dedup_material = json.dumps(material, sort_keys=True, default=str)
+        dedup_hash = hashlib.sha256(dedup_material.encode("utf-8")).hexdigest()
+
+        return HttpResponse(
+            json.dumps({"dedup_hash": dedup_hash, "material": material}),
+            content_type="application/json",
+        )

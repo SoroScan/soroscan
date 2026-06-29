@@ -25,6 +25,16 @@ class Organization(models.Model):
     )
     settings = models.JSONField(default=dict, blank=True)
     quota = models.PositiveIntegerField(default=0, help_text="Optional monthly event quota")
+    cors_origins = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "List of allowed CORS origins for this organization, e.g. "
+            '["https://app.example.com", "https://staging.example.com"]. '
+            "Each entry must start with http:// or https://. "
+            "These are merged with the global CORS_ALLOWED_ORIGINS setting."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -795,6 +805,13 @@ class WebhookSubscription(models.Model):
     class Meta:
         ordering = ["-created_at"]
 
+        constraints = [
+            models.UniqueConstraint(
+                fields=["target_url", "contract"],
+                name="unique_url_contract_subscription",
+            )
+        ]
+
     def __str__(self):
         return f"Webhook -> {self.target_url} ({self.contract.name})"
 
@@ -1019,6 +1036,36 @@ class IndexerState(models.Model):
 
     def __str__(self):
         return f"{self.key}: {self.value}"
+
+
+class EventDeduplicationConfig(models.Model):
+    """
+    Per-contract configuration that defines which event fields should be
+    considered when computing the deduplication fingerprint.
+
+    The `fields` JSONField is a list of strings naming top-level keys from
+    the event payload (or special tokens like 'event_type', 'tx_hash',
+    'ledger', 'event_index') that will be used to build the dedup material.
+    """
+
+    contract = models.OneToOneField(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name="dedup_config",
+        help_text="Contract this dedup config applies to",
+    )
+    enabled = models.BooleanField(default=True, help_text="Enable deduplication for this contract")
+    # list of field names to include when computing dedup fingerprint
+    fields = models.JSONField(default=list, blank=True, help_text="List of event fields (or special tokens) to include in dedup key")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Event Deduplication Config"
+        verbose_name_plural = "Event Deduplication Configs"
+
+    def __str__(self):
+        return f"Dedup config for {self.contract.name} (enabled={self.enabled})"
 
 
 # ---------------------------------------------------------------------------
@@ -1765,6 +1812,36 @@ class ContractMetadata(models.Model):
         verbose_name = "Contract Metadata"
         verbose_name_plural = "Contract Metadata"
 
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        errors = {}
+        
+        # Validate name is not empty or just whitespace
+        if not self.name or not self.name.strip():
+            errors["name"] = "Name cannot be empty or just whitespace."
+        
+        # Validate tags is a list of strings
+        if not isinstance(self.tags, list):
+            errors["tags"] = "Tags must be a list of strings."
+        else:
+            for i, tag in enumerate(self.tags):
+                if not isinstance(tag, str):
+                    errors["tags"] = f"All tags must be strings. Tag at index {i} is not a string."
+                    break
+                if len(tag) > 100:
+                    errors["tags"] = f"Tag at index {i} is too long (max 100 characters)."
+                    break
+                if not tag.strip():
+                    errors["tags"] = f"Tag at index {i} cannot be empty or just whitespace."
+                    break
+        
+        # Validate description length (optional, but reasonable limit)
+        if len(self.description) > 10000:
+            errors["description"] = "Description is too long (max 10000 characters)."
+        
+        if errors:
+            raise ValidationError(errors)
+
     def __str__(self):
         return f"Metadata({self.contract.contract_id[:8]}...)"
 
@@ -2111,3 +2188,48 @@ class ContractABIVersion(models.Model):
 
     def __str__(self):
         return f"ABI v{self.version_number} for {self.contract.contract_id[:8]}... (ledger {self.valid_from_ledger}–{self.valid_to_ledger or '∞'})"
+
+
+class BlacklistedContract(models.Model):
+    """
+    Contracts whose events must not be indexed.
+
+    Any contract_id present in this table is silently skipped by the
+    ingestion loop, regardless of whether it also exists in
+    TrackedContract.  A log entry is written each time a skip occurs
+    so operators can audit the decision.
+    """
+
+    contract_id = models.CharField(
+        max_length=56,
+        unique=True,
+        db_index=True,
+        validators=[
+            RegexValidator(
+                regex=r"^C[A-Z2-7]{55}$",
+                message="Contract address must start with 'C' and be exactly 56 characters using valid Base32 characters (A-Z, 2-7).",
+            )
+        ],
+        help_text="Stellar contract address to block from indexing (C...)",
+    )
+    reason = models.TextField(
+        blank=True,
+        help_text="Human-readable explanation of why this contract is blacklisted",
+    )
+    added_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="blacklisted_contracts",
+        help_text="User who added this entry",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = "Blacklisted Contract"
+        verbose_name_plural = "Blacklisted Contracts"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Blacklisted({self.contract_id[:8]}...)"
