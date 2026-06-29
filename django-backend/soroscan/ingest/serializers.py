@@ -19,6 +19,7 @@ from .models import (
     Team,
     TeamMembership,
     TrackedContract,
+    TransactionCost,
     WebhookSubscription,
 )
 
@@ -493,3 +494,34 @@ class ContractVerificationSerializer(serializers.ModelSerializer):
             "error_message",
         ]
         read_only_fields = ["id", "verified_at"]
+
+
+class TransactionCostSerializer(serializers.ModelSerializer):
+    contract_id = serializers.CharField(source="contract.contract_id", read_only=True)
+
+    class Meta:
+        model = TransactionCost
+        fields = [
+            "id",
+            "tx_hash",
+            "contract_id",
+            "function_name",
+            "ledger_sequence",
+            "total_fee_stroops",
+            "cpu_instructions_used",
+            "memory_bytes_used",
+            "network_bytes_used",
+            "is_outlier",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class CostAnalyticsQuerySerializer(serializers.Serializer):
+    contract_id = serializers.CharField(required=True)
+    groupby = serializers.ChoiceField(
+        choices=["function", "day"], default="function"
+    )
+    range = serializers.ChoiceField(
+        choices=["7d", "30d", "90d"], default="7d"
+    )

@@ -2186,3 +2186,36 @@ class ContractABIVersion(models.Model):
 
     def __str__(self):
         return f"ABI v{self.version_number} for {self.contract.contract_id[:8]}... (ledger {self.valid_from_ledger}–{self.valid_to_ledger or '∞'})"
+
+
+class TransactionCost(models.Model):
+    """
+    Tracks Soroban transaction resource costs per contract interaction.
+    Enables cost analytics, outlier detection, and optimization suggestions.
+    """
+
+    tx_hash = models.CharField(max_length=64, unique=True)
+    contract = models.ForeignKey(
+        TrackedContract,
+        on_delete=models.CASCADE,
+        related_name="transaction_costs",
+    )
+    function_name = models.CharField(max_length=128, blank=True, db_index=True)
+    ledger_sequence = models.PositiveIntegerField()
+    total_fee_stroops = models.BigIntegerField()
+    cpu_instructions_used = models.BigIntegerField(default=0)
+    memory_bytes_used = models.BigIntegerField(default=0)
+    network_bytes_used = models.BigIntegerField(default=0)
+    is_outlier = models.BooleanField(default=False, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["contract", "-created_at"]),
+            models.Index(fields=["function_name"]),
+            models.Index(fields=["contract", "function_name", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"${self.total_fee_stroops} stroops | {self.function_name} @ ledger {self.ledger_sequence}"

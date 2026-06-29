@@ -10,7 +10,7 @@ import time
 from datetime import datetime, time as datetime_time, timedelta
 
 from django.conf import settings
-from django.db.models import Avg, Count, Max, Min, Q, Sum
+from django.db.models import Avg, Count, Max, Min, Q, StdDev, Sum, Variance
 from django.db.models.functions import Cast
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
@@ -47,6 +47,7 @@ from .models import (
     Team,
     TeamMembership,
     TrackedContract,
+    TransactionCost,
     WebhookDeliveryLog,
     WebhookSubscription,
 )
@@ -57,6 +58,7 @@ from .serializers import (
     ContractInvocationSerializer,
     ContractSourceSerializer,
     ContractVerificationSerializer,
+    CostAnalyticsQuerySerializer,
     EventSearchSerializer,
     OrganizationBudgetSerializer,
     OrganizationCostSnapshotSerializer,
@@ -64,6 +66,7 @@ from .serializers import (
     TeamMemberAddSerializer,
     TeamSerializer,
     TrackedContractSerializer,
+    TransactionCostSerializer,
     WebhookSubscriptionSerializer,
 )
 from .stellar_client import SorobanClient
@@ -2001,3 +2004,264 @@ def contract_identity_view(request):
         "network_passphrase": getattr(settings, "STELLAR_NETWORK_PASSPHRASE", ""),
         "rpc_url": getattr(settings, "SOROBAN_RPC_URL", ""),
     })
+
+
+# ---------------------------------------------------------------------------
+# Transaction Cost Analytics (Issue #804)
+# ---------------------------------------------------------------------------
+
+
+class CostAnalyticsViewSet(viewsets.ViewSet):
+    """
+    ViewSet for transaction cost analytics.
+
+    Endpoints:
+    - GET /api/analytics/costs/ - Cost breakdown by function or day
+    - GET /api/analytics/costs/trends/ - Week-over-week and month-over-month trends
+    - GET /api/analytics/costs/suggestions/ - Optimization suggestions
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[CostAnalyticsQuerySerializer],
+        responses=inline_serializer(
+            name="CostAnalyticsResponse",
+            fields={
+                "data": serializers.ListField(
+                    child=inline_serializer(
+                        name="CostBreakdownItem",
+                        fields={
+                            "function": serializers.CharField(required=False),
+                            "date": serializers.CharField(required=False),
+                            "avgCost": serializers.FloatField(),
+                            "minCost": serializers.FloatField(),
+                            "maxCost": serializers.FloatField(),
+                            "totalCost": serializers.FloatField(),
+                            "callCount": serializers.IntegerField(),
+                        },
+                    )
+                ),
+                "contract_id": serializers.CharField(),
+                "range": serializers.CharField(),
+            },
+        ),
+    )
+    def list(self, request):
+        """
+        GET /api/analytics/costs/
+
+        Query params:
+        - contract_id (required): Contract ID to analyze
+        - groupby (optional): "function" (default) or "day"
+        - range (optional): "7d" (default), "30d", or "90d"
+        """
+        serializer = CostAnalyticsQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+
+        contract_id = serializer.validated_data["contract_id"]
+        groupby = serializer.validated_data["groupby"]
+        range_days = {"7d": 7, "30d": 30, "90d": 90}[serializer.validated_data["range"]]
+
+        contract = get_cached_contract(contract_id)
+        if not contract:
+            return Response(
+                {"detail": "Contract not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        since = timezone.now() - timedelta(days=range_days)
+        qs = TransactionCost.objects.filter(
+            contract=contract, created_at__gte=since
+        )
+
+        from django.db.models import Avg, Count, Max, Min, Sum
+        from django.db.models.functions import TruncDate
+
+        if groupby == "function":
+            results = (
+                qs.values("function_name")
+                .annotate(
+                    avg_cost=Avg("total_fee_stroops"),
+                    min_cost=Min("total_fee_stroops"),
+                    max_cost=Max("total_fee_stroops"),
+                    total_cost=Sum("total_fee_stroops"),
+                    call_count=Count("id"),
+                )
+                .order_by("-total_cost")
+            )
+            data = [
+                {
+                    "function": r["function_name"],
+                    "avgCost": round(float(r["avg_cost"]), 2) if r["avg_cost"] else 0,
+                    "minCost": float(r["min_cost"]) if r["min_cost"] else 0,
+                    "maxCost": float(r["max_cost"]) if r["max_cost"] else 0,
+                    "totalCost": float(r["total_cost"]) if r["total_cost"] else 0,
+                    "callCount": r["call_count"],
+                }
+                for r in results
+            ]
+        else:
+            results = (
+                qs.annotate(date=TruncDate("created_at"))
+                .values("date")
+                .annotate(
+                    avg_cost=Avg("total_fee_stroops"),
+                    min_cost=Min("total_fee_stroops"),
+                    max_cost=Max("total_fee_stroops"),
+                    total_cost=Sum("total_fee_stroops"),
+                    call_count=Count("id"),
+                )
+                .order_by("date")
+            )
+            data = [
+                {
+                    "date": r["date"].isoformat() if r["date"] else "",
+                    "avgCost": round(float(r["avg_cost"]), 2) if r["avg_cost"] else 0,
+                    "minCost": float(r["min_cost"]) if r["min_cost"] else 0,
+                    "maxCost": float(r["max_cost"]) if r["max_cost"] else 0,
+                    "totalCost": float(r["total_cost"]) if r["total_cost"] else 0,
+                    "callCount": r["call_count"],
+                }
+                for r in results
+            ]
+
+        return Response({
+            "data": data,
+            "contract_id": contract_id,
+            "range": serializer.validated_data["range"],
+        })
+
+    @extend_schema(
+        responses=inline_serializer(
+            name="CostTrendsResponse",
+            fields={
+                "current_7d_total_stroops": serializers.FloatField(),
+                "previous_7d_total_stroops": serializers.FloatField(),
+                "week_over_week_change_pct": serializers.FloatField(),
+                "current_30d_total_stroops": serializers.FloatField(),
+                "previous_30d_total_stroops": serializers.FloatField(),
+                "month_over_month_change_pct": serializers.FloatField(),
+            },
+        )
+    )
+    @action(detail=False, methods=["get"])
+    def trends(self, request):
+        """
+        GET /api/analytics/costs/trends/
+
+        Returns week-over-week and month-over-month cost trends.
+        """
+        now = timezone.now()
+
+        # Week-over-week
+        seven_days_ago = now - timedelta(days=7)
+        fourteen_days_ago = now - timedelta(days=14)
+        current_week = TransactionCost.objects.filter(
+            created_at__gte=seven_days_ago
+        ).aggregate(total=Sum("total_fee_stroops"))["total"] or 0
+        prev_week = TransactionCost.objects.filter(
+            created_at__gte=fourteen_days_ago,
+            created_at__lt=seven_days_ago,
+        ).aggregate(total=Sum("total_fee_stroops"))["total"] or 0
+
+        # Month-over-month
+        thirty_days_ago = now - timedelta(days=30)
+        sixty_days_ago = now - timedelta(days=60)
+        current_month = TransactionCost.objects.filter(
+            created_at__gte=thirty_days_ago
+        ).aggregate(total=Sum("total_fee_stroops"))["total"] or 0
+        prev_month = TransactionCost.objects.filter(
+            created_at__gte=sixty_days_ago,
+            created_at__lt=thirty_days_ago,
+        ).aggregate(total=Sum("total_fee_stroops"))["total"] or 0
+
+        def pct_change(current, previous):
+            if previous > 0:
+                return round((current - previous) / previous * 100, 2)
+            return 0.0
+
+        return Response({
+            "current_7d_total_stroops": float(current_week),
+            "previous_7d_total_stroops": float(prev_week),
+            "week_over_week_change_pct": pct_change(current_week, prev_week),
+            "current_30d_total_stroops": float(current_month),
+            "previous_30d_total_stroops": float(prev_month),
+            "month_over_month_change_pct": pct_change(current_month, prev_month),
+        })
+
+    @extend_schema(
+        responses=inline_serializer(
+            name="CostSuggestionsResponse",
+            fields={
+                "suggestions": serializers.ListField(
+                    child=inline_serializer(
+                        name="OptimizationSuggestion",
+                        fields={
+                            "function_name": serializers.CharField(),
+                            "avg_cost_stroops": serializers.FloatField(),
+                            "max_cost_stroops": serializers.FloatField(),
+                            "call_count": serializers.IntegerField(),
+                            "cost_variance": serializers.FloatField(),
+                            "suggestion": serializers.CharField(),
+                        },
+                    )
+                )
+            },
+        )
+    )
+    @action(detail=False, methods=["get"])
+    def suggestions(self, request):
+        """
+        GET /api/analytics/costs/suggestions/
+
+        Returns optimization suggestions for high-variance functions.
+        Identifies functions with high cost variance that could be optimized.
+        """
+        seven_days_ago = timezone.now() - timedelta(days=7)
+        function_stats = (
+            TransactionCost.objects.filter(created_at__gte=seven_days_ago)
+            .values("function_name")
+            .annotate(
+                avg_cost=Avg("total_fee_stroops"),
+                max_cost=Max("total_fee_stroops"),
+                min_cost=Min("total_fee_stroops"),
+                total_cost=Sum("total_fee_stroops"),
+                call_count=Count("id"),
+                cost_stddev=StdDev("total_fee_stroops"),
+            )
+            .filter(call_count__gte=5)
+            .order_by("-cost_stddev")
+        )
+
+        suggestions = []
+        for r in function_stats:
+            avg = float(r["avg_cost"] or 0)
+            stddev = float(r["cost_stddev"] or 0)
+            variance = stddev / avg if avg > 0 else 0
+            max_cost = float(r["max_cost"] or 0)
+
+            if variance > 0.5 and max_cost > avg * 2:
+                suggestion = (
+                    f"High cost variance detected for '{r['function_name']}'. "
+                    f"Max cost ({max_cost:.0f} stroops) is >2x average ({avg:.0f} stroops). "
+                    "Review parameter sizes and loop bounds for optimization opportunities."
+                )
+            elif avg > 1000000:
+                suggestion = (
+                    f"'{r['function_name']}' has high average cost ({avg:.0f} stroops). "
+                    "Consider caching results or batching calls to reduce fees."
+                )
+            else:
+                continue
+
+            suggestions.append({
+                "function_name": r["function_name"],
+                "avg_cost_stroops": avg,
+                "max_cost_stroops": max_cost,
+                "call_count": r["call_count"],
+                "cost_variance": round(variance, 4),
+                "suggestion": suggestion,
+            })
+
+        return Response({"suggestions": suggestions})

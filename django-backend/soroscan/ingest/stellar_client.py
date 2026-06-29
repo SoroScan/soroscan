@@ -35,6 +35,16 @@ class TransactionResult:
 
 
 @dataclass
+class CostData:
+    """Parsed cost information from Soroban transaction metadata."""
+
+    cpu_instructions: int
+    memory_bytes: int
+    network_bytes: int
+    total_fee_stroops: int
+
+
+@dataclass
 class InvocationData:
     """Parsed invocation metadata from transaction response."""
 
@@ -472,5 +482,113 @@ class SorobanClient:
                 ledger_sequence=0,
                 success=False,
                 error=str(e),
+            )
+
+    def extract_transaction_costs(self, tx_response) -> CostData:
+        """
+        Extract resource fee information from a Soroban transaction response.
+
+        Parses the sorobanMeta from the transaction result metadata to
+        extract CPU instructions, memory bytes, and network bytes used.
+        Falls back to the transaction fee field when meta parsing fails.
+        """
+        try:
+            if isinstance(tx_response, dict):
+                soroban_meta = (
+                    tx_response.get("result", {})
+                    .get("result", {})
+                    .get("txMeta", {})
+                    .get("v3", {})
+                    .get("sorobanMeta", {})
+                )
+                if soroban_meta:
+                    resources = soroban_meta.get("resources", {})
+                    return CostData(
+                        cpu_instructions=int(resources.get("cpuInstructions", 0)),
+                        memory_bytes=int(resources.get("memBytes", 0)),
+                        network_bytes=int(resources.get("netBytes", 0)),
+                        total_fee_stroops=int(
+                            tx_response.get("tx", {})
+                            .get("fee", {})
+                            .get("amount", 0)
+                        ),
+                    )
+            else:
+                soroban_meta = getattr(tx_response, "sorobanMeta", None)
+                if soroban_meta:
+                    resources = getattr(soroban_meta, "resources", {})
+                    return CostData(
+                        cpu_instructions=int(getattr(resources, "cpuInstructions", 0)),
+                        memory_bytes=int(getattr(resources, "memBytes", 0)),
+                        network_bytes=int(getattr(resources, "netBytes", 0)),
+                        total_fee_stroops=int(getattr(tx_response, "fee", 0)),
+                    )
+        except (AttributeError, KeyError, TypeError, ValueError):
+            logger.debug("Could not parse sorobanMeta from tx_response", exc_info=True)
+
+        try:
+            if isinstance(tx_response, dict):
+                fee_meta = tx_response.get("fee_charged") or tx_response.get("fee")
+            else:
+                fee_meta = getattr(tx_response, "fee_charged", None) or getattr(
+                    tx_response, "fee", None
+                )
+            if fee_meta is not None:
+                return CostData(
+                    cpu_instructions=0,
+                    memory_bytes=0,
+                    network_bytes=0,
+                    total_fee_stroops=int(fee_meta),
+                )
+        except (AttributeError, TypeError, ValueError):
+            pass
+
+        return CostData(
+            cpu_instructions=0,
+            memory_bytes=0,
+            network_bytes=0,
+            total_fee_stroops=0,
+        )
+
+    def get_transaction_cost(self, tx_hash: str) -> CostData:
+        """
+        Fetch and parse cost data for a specific transaction.
+
+        Uses the same caching layer as get_invocation to avoid
+        redundant RPC calls.
+
+        Args:
+            tx_hash: Transaction hash to fetch
+
+        Returns:
+            CostData with resource usage metrics
+        """
+        try:
+            self._rate_limiter.acquire()
+            tx_response = self.server.get_transaction(tx_hash)
+
+            if not tx_response or getattr(tx_response, "status", None) == "NOT_FOUND":
+                return CostData(
+                    cpu_instructions=0,
+                    memory_bytes=0,
+                    network_bytes=0,
+                    total_fee_stroops=0,
+                )
+
+            if hasattr(tx_response, "to_dict"):
+                raw = tx_response.to_dict()
+            else:
+                raw = tx_response
+
+            return self.extract_transaction_costs(raw)
+        except Exception as e:
+            logger.exception(
+                "Failed to fetch transaction cost for tx_hash=%s", tx_hash
+            )
+            return CostData(
+                cpu_instructions=0,
+                memory_bytes=0,
+                network_bytes=0,
+                total_fee_stroops=0,
             )
 

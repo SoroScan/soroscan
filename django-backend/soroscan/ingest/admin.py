@@ -50,6 +50,7 @@ from .models import (
     Team,
     TeamMembership,
     TrackedContract,
+    TransactionCost,
     WebhookDeadLetter,
     WebhookDeliveryLog,
     WebhookSubscription,
@@ -1370,3 +1371,54 @@ class EventDeduplicationConfigAdmin(AdminAuditMixin, admin.ModelAdmin):
             json.dumps({"dedup_hash": dedup_hash, "material": material}),
             content_type="application/json",
         )
+
+
+# ---------------------------------------------------------------------------
+# Transaction Cost Analysis (Issue #804)
+# ---------------------------------------------------------------------------
+
+
+@admin.register(TransactionCost)
+class TransactionCostAdmin(admin.ModelAdmin):
+    list_display = [
+        "tx_hash_short",
+        "contract",
+        "function_name",
+        "total_fee_stroops",
+        "is_outlier",
+        "ledger_sequence",
+        "created_at",
+    ]
+    list_filter = ["is_outlier", "function_name", "created_at"]
+    search_fields = [
+        "tx_hash",
+        "contract__contract_id",
+        "contract__name",
+        "function_name",
+    ]
+    readonly_fields = [
+        "tx_hash",
+        "contract",
+        "function_name",
+        "ledger_sequence",
+        "total_fee_stroops",
+        "cpu_instructions_used",
+        "memory_bytes_used",
+        "network_bytes_used",
+        "is_outlier",
+        "created_at",
+    ]
+
+    def tx_hash_short(self, obj):
+        return obj.tx_hash[:16] + "..."
+    tx_hash_short.short_description = "TX Hash"
+    tx_hash_short.admin_order_field = "tx_hash"
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

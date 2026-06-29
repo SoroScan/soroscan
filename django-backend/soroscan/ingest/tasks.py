@@ -27,7 +27,7 @@ from cryptography.hazmat.primitives.asymmetric import ec, ed25519
 from celery.signals import task_postrun, task_prerun, task_retry
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Count, F, Max, Min
+from django.db.models import Avg, Count, F, Max, Min, StdDev, Sum
 from django.utils import timezone
 
 from .cache_utils import (
@@ -56,6 +56,7 @@ from .models import (
     Organization,
     OrganizationBudget,
     OrganizationCostSnapshot,
+    TransactionCost,
     WebhookDeadLetter,
 )
 from .rate_limit import check_ingest_rate
@@ -2113,6 +2114,31 @@ def ingest_latest_events() -> int:
                     exc_info=True,
                 )
 
+            # --- TransactionCost tracking (Issue #804) ---
+            try:
+                cost_data = client.get_transaction_cost(event.tx_hash)
+                if cost_data.total_fee_stroops > 0:
+                    TransactionCost.objects.get_or_create(
+                        tx_hash=event.tx_hash,
+                        defaults={
+                            "contract": contract,
+                            "function_name": invocation_data.function_name
+                            if invocation_data and invocation_data.success
+                            else "",
+                            "ledger_sequence": event.ledger,
+                            "total_fee_stroops": cost_data.total_fee_stroops,
+                            "cpu_instructions_used": cost_data.cpu_instructions,
+                            "memory_bytes_used": cost_data.memory_bytes,
+                            "network_bytes_used": cost_data.network_bytes,
+                        },
+                    )
+            except Exception:
+                logger.warning(
+                    "Failed to record transaction cost for tx=%s",
+                    event.tx_hash,
+                    exc_info=True,
+                )
+
             event_record, created = ContractEvent.objects.get_or_create(
                 tx_hash=event.tx_hash,
                 ledger=event.ledger,
@@ -3839,3 +3865,98 @@ def detect_contract_upgrades() -> dict[str, Any]:
             ).update(valid_to_ledger=ledger - 1)
 
     return summary
+
+
+# ---------------------------------------------------------------------------
+# Transaction Cost Analysis (Issue #804)
+# ---------------------------------------------------------------------------
+
+
+@shared_task(name="ingest.tasks.analyze_transaction_costs")
+def analyze_transaction_costs() -> dict[str, Any]:
+    """
+    Aggregate transaction costs by contract, function, and time period.
+
+    Runs hourly to:
+    - Compute per-function cost statistics (avg, min, max, total)
+    - Flag outlier transactions (>2 stddev from mean)
+    - Generate trend data for the cost dashboard
+
+    Returns:
+        dict with summary of aggregations performed
+    """
+    _start = time.monotonic()
+    now = timezone.now()
+    seven_days_ago = now - timedelta(days=7)
+    thirty_days_ago = now - timedelta(days=30)
+    stats: dict[str, Any] = {
+        "transactions_analyzed": 0,
+        "outliers_flagged": 0,
+        "functions_aggregated": 0,
+        "contracts_analyzed": 0,
+    }
+
+    # Analyze costs per contract
+    contracts = TrackedContract.objects.filter(is_active=True)
+    stats["contracts_analyzed"] = contracts.count()
+
+    for contract in contracts:
+        costs_qs = TransactionCost.objects.filter(contract=contract)
+
+        # Flag outliers: transactions with total_fee > 2 stddev from contract mean
+        agg = costs_qs.aggregate(
+            mean_fee=Avg("total_fee_stroops"),
+            stddev_fee=StdDev("total_fee_stroops"),
+        )
+        mean_fee = agg["mean_fee"] or 0
+        stddev_fee = agg["stddev_fee"] or 0
+        threshold = mean_fee + 2 * stddev_fee
+
+        if threshold > 0:
+            outliers = costs_qs.filter(
+                total_fee_stroops__gt=threshold, is_outlier=False
+            )
+            count = outliers.update(is_outlier=True)
+            stats["outliers_flagged"] += count
+
+        # Compute per-function statistics for the last 7 days
+        recent_costs = costs_qs.filter(created_at__gte=seven_days_ago)
+        function_stats = (
+            recent_costs.values("function_name")
+            .annotate(
+                avg_cost=Avg("total_fee_stroops"),
+                min_cost=Min("total_fee_stroops"),
+                max_cost=Max("total_fee_stroops"),
+                total_cost=Sum("total_fee_stroops"),
+                call_count=Count("id"),
+            )
+            .order_by("-total_cost")
+        )
+        stats["functions_aggregated"] += len(function_stats)
+
+    # Week-over-week trend comparison
+    last_week = now - timedelta(days=14)
+    this_week_costs = TransactionCost.objects.filter(
+        created_at__gte=seven_days_ago
+    ).aggregate(total=Sum("total_fee_stroops"))["total"] or 0
+    prev_week_costs = TransactionCost.objects.filter(
+        created_at__gte=last_week, created_at__lt=seven_days_ago
+    ).aggregate(total=Sum("total_fee_stroops"))["total"] or 0
+
+    stats["total_cost_7d_stroops"] = this_week_costs
+    stats["total_cost_prev_7d_stroops"] = prev_week_costs
+    stats["week_over_week_change_pct"] = (
+        ((this_week_costs - prev_week_costs) / prev_week_costs * 100)
+        if prev_week_costs > 0
+        else 0
+    )
+
+    elapsed = time.monotonic() - _start
+    logger.info(
+        "Transaction cost analysis completed in %.2fs: %s",
+        elapsed,
+        stats,
+        extra={"stats": stats, "duration_seconds": round(elapsed, 3)},
+    )
+
+    return stats
