@@ -5,6 +5,13 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  /* ── Mobile-first breakpoints ───────────────────────────────────────
+     xs=375 (iPhone SE), sm=640 (small tablet portrait), md=768 (iPad portrait),
+     lg=1024 (iPad Pro / small desktop), xl=1280 (desktop)
+     Tailwind v4 defaults match `sm/md/lg/xl`; we only add `xs`.
+  ──────────────────────────────────────────────────────────────────── */
+  --breakpoint-xs: 375px;
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
@@ -152,12 +159,30 @@
   --sidebar-ring: var(--color-terminal-green);
 }
 
+@layer utilities {
+  /* ── WCAG 2.5.5 / Apple HIG ─────────────────────────────────────────
+     Minimum 44×44px tap target for any interactive surface.
+     Use as: `className="touch-target"` standalone or compose with sizes.
+  ──────────────────────────────────────────────────────────────────── */
+  .touch-target {
+    @apply min-h-[44px] min-w-[44px];
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
   body {
     @apply bg-background text-foreground;
+  }
+
+  /* Root font scaling: smaller on mobile to prevent horizontal overflow,
+     scales up at the md breakpoint. Keeps JetBrains Mono readable. */
+  html {
+    @apply text-[14px] md:text-[16px];
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   /* ── WCAG 2.1 AA §2.4.11 – Focus Appearance ───────────────────────

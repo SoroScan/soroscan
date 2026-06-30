@@ -1,4 +1,4 @@
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Inter, JetBrains_Mono } from "next/font/google"
 import "./globals.css"
 import { Providers } from "./providers"
@@ -49,6 +49,19 @@ export const metadata: Metadata = {
     images: ["/og-image.png"],
   },
   robots: { index: true, follow: true },
+}
+
+// ── Mobile-friendly viewport ──────────────────────────────────────────────
+// `themeColor` is read by Chrome/Edge Android to color the
+// browser UI to match the terminal-black background.
+// We deliberately do NOT set `maximumScale: 1` — it blocks low-vision users
+// from zooming (WCAG 1.4.4). The iOS input-auto-zoom fight is instead won by
+// making inputs ≥16px (handled per-component) and the root html font-size.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#0a0e27",
+  colorScheme: "dark",
 }
 
 const jsonLd = {

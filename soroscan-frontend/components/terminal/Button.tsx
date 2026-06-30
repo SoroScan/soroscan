@@ -15,10 +15,12 @@ const buttonVariants = cva(
           "bg-transparent border-terminal border-terminal-danger text-terminal-danger hover:shadow-glow-danger hover:bg-terminal-danger/10",
       },
       size: {
-        default: "h-10 px-4 py-2",
-        sm: "h-9 px-3",
-        lg: "h-11 px-8",
-        icon: "h-10 w-10",
+        // min-h-[44px] enforces WCAG 2.5.5 / Apple HIG 44pt tap target on
+        // mobile; manual sizes above 44 are preserved on sm+ breakpoints.
+        default: "min-h-[44px] px-4 py-2 md:min-h-[40px]",
+        sm: "min-h-[44px] px-3 md:min-h-[36px]",
+        lg: "min-h-[44px] px-8 md:min-h-[44px]",
+        icon: "min-h-[44px] min-w-[44px] md:min-h-[40px] md:min-w-[40px]",
       },
     },
     defaultVariants: {

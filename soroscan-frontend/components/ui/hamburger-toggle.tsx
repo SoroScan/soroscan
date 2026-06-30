@@ -20,7 +20,10 @@ export function HamburgerToggle({
   return (
     <button
       className={cn(
-        "md:hidden text-terminal-green hover:text-terminal-cyan transition-colors p-2",
+        // `touch-target` enforces WCAG 2.5.5 / Apple HIG 44pt tap target.
+        // Replaces the old `p-2`-only layout that measured ~36px with a
+        // 20px icon — too small for thumbs on real devices.
+        "md:hidden touch-target flex items-center justify-center text-terminal-green hover:text-terminal-cyan transition-colors",
         "focus:outline-none focus:ring-1 focus:ring-terminal-green/50 rounded-sm",
         className
       )}
