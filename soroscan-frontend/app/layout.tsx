@@ -1,8 +1,11 @@
 import type { Metadata } from "next"
 import { Inter, JetBrains_Mono } from "next/font/google"
+import { cookies } from "next/headers"
+import { NextIntlClientProvider } from "next-intl"
 import "./globals.css"
 import { Providers } from "./providers"
 import { SkipToContent } from "@/components/ui/SkipToContent"
+import { locales, defaultLocale } from "@/lib/locales"
 
 const inter = Inter({
   variable: "--font-inter",
@@ -70,13 +73,19 @@ const jsonLd = {
   },
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const cookieLocale = (await cookies()).get("NEXT_LOCALE")?.value
+  const locale = locales.includes(cookieLocale as (typeof locales)[number])
+    ? (cookieLocale as (typeof locales)[number])
+    : defaultLocale
+  const messages = (await import(`../messages/${locale}.json`)).default
+
   return (
-    <html lang="en" className="dark">
+    <html lang={locale} className="dark">
       <head>
         <script
           type="application/ld+json"
@@ -87,11 +96,13 @@ export default function RootLayout({
         className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased bg-terminal-black text-terminal-green`}
       >
         <SkipToContent />
-        <Providers>
-          <main id="main-content">
-            {children}
-          </main>
-        </Providers>
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          <Providers>
+            <main id="main-content">
+              {children}
+            </main>
+          </Providers>
+        </NextIntlClientProvider>
       </body>
     </html>
   )
