@@ -6,15 +6,18 @@ import "./globals.css"
 import { Providers } from "./providers"
 import { SkipToContent } from "@/components/ui/SkipToContent"
 import { locales, defaultLocale } from "@/lib/locales"
+import { WebVitalsReporter } from "@/components/WebVitalsReporter"
 
 const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],
+  display: "swap",
 })
 
 const jetbrainsMono = JetBrains_Mono({
   variable: "--font-jetbrains-mono",
   subsets: ["latin"],
+  display: "swap",
 })
 
 const BASE_URL = "https://soroscan.io"
@@ -96,6 +99,7 @@ export default async function RootLayout({
         className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased bg-terminal-black text-terminal-green`}
       >
         <SkipToContent />
+        <WebVitalsReporter />
         <NextIntlClientProvider locale={locale} messages={messages}>
           <Providers>
             <main id="main-content">
