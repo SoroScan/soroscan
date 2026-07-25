@@ -53,21 +53,21 @@ class Migration(migrations.Migration):
             model_name="transactioncost",
             index=models.Index(
                 fields=["contract", "created_at"],
-                name="ingest_tc_contract_createdat_idx",
+                name="ingest_tc_ctr_cat_idx",
             ),
         ),
         migrations.AddIndex(
             model_name="transactioncost",
             index=models.Index(
                 fields=["contract", "function_name", "created_at"],
-                name="ingest_tc_contract_fn_createdat_idx",
+                name="ingest_tc_ctr_fn_cat_idx",
             ),
         ),
         migrations.AddIndex(
             model_name="transactioncost",
             index=models.Index(
                 fields=["function_name"],
-                name="ingest_tc_function_idx",
+                name="ingest_tc_fn_idx",
             ),
         ),
         migrations.AddIndex(

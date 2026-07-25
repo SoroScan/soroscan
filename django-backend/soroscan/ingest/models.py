@@ -2586,11 +2586,11 @@ class TransactionCost(models.Model):
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["contract", "created_at"],
-                         name="ingest_tc_contract_createdat_idx"),
+                         name="ingest_tc_ctr_cat_idx"),
             models.Index(fields=["contract", "function_name", "created_at"],
-                         name="ingest_tc_contract_fn_createdat_idx"),
+                         name="ingest_tc_ctr_fn_cat_idx"),
             models.Index(fields=["function_name"],
-                         name="ingest_tc_function_idx"),
+                         name="ingest_tc_fn_idx"),
             models.Index(fields=["is_outlier", "created_at"],
                          name="ingest_tc_outlier_idx"),
         ]
