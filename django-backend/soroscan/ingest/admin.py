@@ -1714,7 +1714,7 @@ class EventAggregationAdmin(AdminAuditMixin, admin.ModelAdmin):
         and event-type breakdown — all from EventAggregation rows.
         """
         from django.utils import timezone as tz
-        from django.db.models import Sum, Count, Q
+        from django.db.models import Sum
 
         now = tz.now()
         cutoff_24h = now - timedelta(hours=24)
@@ -1777,7 +1777,7 @@ class EventAggregationAdmin(AdminAuditMixin, admin.ModelAdmin):
             )
 
         def _table_rows(rows, cols, col_labels):
-            ths = "".join(f"<th>{l}</th>" for l in col_labels)
+            ths = "".join(f"<th>{label}</th>" for label in col_labels)
             trs = ""
             for r in rows:
                 tds = "".join(f"<td>{r.get(c, '')}</td>" for c in cols)

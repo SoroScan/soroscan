@@ -130,7 +130,7 @@ class TestCheckContractHealthTask:
         for _ in range(6):
             _event_at(contract, minutes_ago=10, decoding_status="failed")
 
-        result = check_contract_health.apply().get()
+        check_contract_health.apply().get()
 
         health = ContractHealthCheck.objects.get(contract=contract)
         assert health.status == ContractHealthCheck.Status.DEGRADED
@@ -155,7 +155,7 @@ class TestCheckContractHealthTask:
         type(contract).objects.filter(pk=contract.pk).update(created_at=past)
         contract.refresh_from_db()
 
-        result = check_contract_health.apply().get()
+        check_contract_health.apply().get()
 
         health = ContractHealthCheck.objects.get(contract=contract)
         assert health.status == ContractHealthCheck.Status.FAILED
@@ -296,8 +296,6 @@ class TestCheckContractHealthTask:
 class TestSendHealthAlertTask:
 
     def test_creates_notification_for_contract_owner(self, contract):
-        from soroscan.ingest.models import Notification
-
         with patch(
             "soroscan.ingest.services.notifications.create_and_push",
             wraps=lambda **kw: None,

@@ -16,7 +16,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from soroscan.ingest.models import EventAggregation, TrackedContract
+from soroscan.ingest.models import EventAggregation
 from soroscan.ingest.tasks import aggregate_event_statistics
 
 from .factories import (
@@ -159,7 +159,7 @@ class TestAggregateEventStatisticsTask:
             )
 
         # No events in the current hour → count=0, way below 50% of 100 avg
-        result = aggregate_event_statistics.apply().get()
+        aggregate_event_statistics.apply().get()
 
         # Task only creates rows when there ARE events in the bucket; with 0 events
         # no new row is written for this contract. Anomaly detection is exercised

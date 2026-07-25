@@ -4255,7 +4255,7 @@ def check_contract_health() -> dict:
         cannot block the rest of the sweep.
       - Completes in <5 s per contract on average (no RPC calls in the hot path).
     """
-    from .models import ContractHealthCheck, ContractEvent, TrackedContract  # noqa: PLC0415
+    from .models import TrackedContract  # noqa: PLC0415
 
     degraded_mins, failed_mins, abi_error_threshold = _health_check_thresholds()
     now = timezone.now()
