@@ -17,7 +17,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParameter
-from rest_framework import serializers, status, viewsets
+from rest_framework import renderers, serializers, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -2625,7 +2625,6 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 count=Sum("event_count"),
                 has_anomaly=Count("id", filter=Q(is_anomaly=True)),
             )
-            .select_related()
             .order_by("bucket")
         )
 
@@ -2805,11 +2804,12 @@ class AnalyticsViewSet(viewsets.ViewSet):
         parameters=[
             OpenApiParameter("range", str, default="30d"),
             OpenApiParameter("contract_id", str, required=False),
-            OpenApiParameter("format", str, description="csv or json", default="json"),
+            OpenApiParameter("export_format", str, description="csv or json", default="json"),
         ],
         responses={200: serializers.CharField()},
     )
-    @action(detail=False, methods=["get"], url_path="export")
+    @action(detail=False, methods=["get"], url_path="export",
+            renderer_classes=[renderers.JSONRenderer, renderers.BrowsableAPIRenderer])
     def export(self, request):
         """
         GET /api/ingest/analytics/export/
@@ -2823,7 +2823,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
 
         range_days = _parse_range(request.query_params.get("range", "30d"))
         since = timezone.now() - timedelta(days=range_days)
-        fmt = request.query_params.get("format", "json").lower()
+        fmt = request.query_params.get("export_format", request.query_params.get("format", "json")).lower()
 
         qs = (
             EventAggregation.objects.filter(timestamp__gte=since)

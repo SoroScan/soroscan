@@ -299,7 +299,7 @@ class TestSendHealthAlertTask:
         from soroscan.ingest.models import Notification
 
         with patch(
-            "soroscan.ingest.tasks.create_and_push",
+            "soroscan.ingest.services.notifications.create_and_push",
             wraps=lambda **kw: None,
         ) as mock_push:
             result = send_health_alert.apply(

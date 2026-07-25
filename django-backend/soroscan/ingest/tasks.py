@@ -2464,9 +2464,10 @@ def aggregate_event_statistics() -> dict[str, Any]:
     m = _get_metrics()
 
     now = timezone.now()
-    # Bucket = current hour floored to :00:00 UTC
-    bucket_start = now.replace(minute=0, second=0, microsecond=0)
-    bucket_end = bucket_start + timedelta(hours=1)
+    # Bucket = the most recently *completed* hour (standard for scheduled aggregations)
+    # e.g. if now = 16:35, bucket covers 15:00–16:00
+    bucket_end = now.replace(minute=0, second=0, microsecond=0)
+    bucket_start = bucket_end - timedelta(hours=1)
 
     # ── 1. Aggregate last-hour events by (contract, event_type) ──────────────
     raw_aggs = (

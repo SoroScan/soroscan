@@ -59,14 +59,23 @@ def contract(user):
 
 
 def _make_event(contract, minutes_ago: int, event_type: str = "swap"):
-    ts = timezone.now() - timedelta(minutes=minutes_ago)
+    # Place events in the last *completed* hour so the task's bucket window captures them.
+    # Task bucket: bucket_start = top-of-hour - 1h, bucket_end = top-of-hour.
+    bucket_end = timezone.now().replace(minute=0, second=0, microsecond=0)
+    bucket_start = bucket_end - timedelta(hours=1)
+    mid = bucket_start + timedelta(minutes=30)
+    ts = mid - timedelta(minutes=minutes_ago % 30)
     return ContractEventFactory(contract=contract, event_type=event_type, timestamp=ts)
 
 
 def _bucket(hours_ago: int = 0):
-    """Return a clean hour-truncated timestamp N hours in the past."""
-    now = timezone.now().replace(minute=0, second=0, microsecond=0)
-    return now - timedelta(hours=hours_ago)
+    """Return the start of the completed-hour bucket N additional hours before the last one.
+
+    hours_ago=0  → last completed bucket start  (= top-of-hour - 1h)
+    hours_ago=1  → two hours ago bucket start   (= top-of-hour - 2h)
+    """
+    bucket_end = timezone.now().replace(minute=0, second=0, microsecond=0)
+    return bucket_end - timedelta(hours=1 + hours_ago)
 
 
 # ---------------------------------------------------------------------------
@@ -499,7 +508,7 @@ class TestExport:
     def test_csv_export_returns_csv_content_type(self, authenticated_client, contract):
         self._seed(contract)
         url = reverse("analytics-export")
-        response = authenticated_client.get(url, {"range": "7d", "format": "csv"})
+        response = authenticated_client.get(url, {"range": "7d", "export_format": "csv"})
 
         assert response.status_code == status.HTTP_200_OK
         assert "text/csv" in response["Content-Type"]
@@ -508,7 +517,7 @@ class TestExport:
     def test_csv_has_header_and_data_row(self, authenticated_client, contract):
         self._seed(contract)
         url = reverse("analytics-export")
-        response = authenticated_client.get(url, {"range": "7d", "format": "csv"})
+        response = authenticated_client.get(url, {"range": "7d", "export_format": "csv"})
 
         content = b"".join(response.streaming_content).decode()
         reader = list(csv.reader(io.StringIO(content)))
@@ -524,7 +533,7 @@ class TestExport:
 
         url = reverse("analytics-export")
         response = authenticated_client.get(
-            url, {"range": "7d", "format": "csv", "contract_id": contract.contract_id}
+            url, {"range": "7d", "export_format": "csv", "contract_id": contract.contract_id}
         )
         content = b"".join(response.streaming_content).decode()
         rows = list(csv.reader(io.StringIO(content)))
