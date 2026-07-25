@@ -8,6 +8,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("ingest", "0047_trackedcontract_is_paused_and_more"),
+        ("ingest", "0048_merge_0046_webhookdeliverylog_0047_trackedcontract_pause"),
     ]
 
     operations = [
