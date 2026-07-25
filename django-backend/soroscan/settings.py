@@ -295,11 +295,19 @@ SIMPLE_JWT = {
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
-# CORS
-origins_str = env("ALLOWED_ORIGINS", default="")
-CORS_ALLOWED_ORIGINS = [o.strip() for o in origins_str.split(",") if o.strip()] if origins_str else []
-CORS_ALLOW_ALL_ORIGINS = DEBUG
-CORS_ALLOW_CREDENTIALS = True  # Required for Apollo Client with credentials: 'include'
+# CORS Configuration
+ALLOWED_ORIGINS_ENV = env.str("ALLOWED_ORIGINS", default="")
+if ALLOWED_ORIGINS_ENV:
+    CORS_ALLOWED_ORIGINS = [
+        origin.strip() 
+        for origin in ALLOWED_ORIGINS_ENV.split(",") 
+        if origin.strip()
+    ]
+else:
+    CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
+
+CORS_ALLOW_ALL_ORIGINS = DEBUG and not CORS_ALLOWED_ORIGINS
+CORS_ALLOW_CREDENTIALS = True
 
 # Channels
 CHANNEL_LAYERS = {
@@ -379,9 +387,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "ingest.tasks.auto_resume_paused_contracts",
         "schedule": 300,  # every 5 minutes
     },
-    "check-contract-health": {
-        "task": "ingest.tasks.check_contract_health",
-        "schedule": 300,  # every 5 minutes
+    # Issue #778 — warm contract name lookup cache daily
+    "warm-contract-name-cache": {
+        "task": "soroscan.ingest.tasks.warm_contract_name_cache",
+        "schedule": 86400,  # daily
     },
 }
 
@@ -406,6 +415,8 @@ HEALTH_ABI_ERROR_THRESHOLD = env.int("HEALTH_ABI_ERROR_THRESHOLD", default=5)
 DEDUP_LOG_RETENTION_DAYS = env("DEDUP_LOG_RETENTION_DAYS", default=90, cast=int)
 # Number of days to retain contract events before pruning
 EVENT_RETENTION_DAYS = env("EVENT_RETENTION_DAYS", default=30, cast=int)
+# Issue #765 — number of days to retain webhook delivery logs
+WEBHOOK_DELIVERY_RETENTION_DAYS = env.int("WEBHOOK_DELIVERY_RETENTION_DAYS", default=30)
 
 # Alert deduplication window
 ALERT_DEDUP_WINDOW_SECONDS = env.int("ALERT_DEDUP_WINDOW_SECONDS", default=300)
