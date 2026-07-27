@@ -13,9 +13,25 @@ type Query {
   recentErrors(limit: Int): [ErrorLog!]!
 }
 
+type DataExportResponse {
+  requestId: String!
+  status: String!
+  expiresAt: String!
+  downloadUrl: String
+}
+
+type DeletionRequestResponse {
+  requestId: String!
+  status: String!
+  approvalDate: String
+}
+
+
 type Mutation {
   login(email: String!, password: String!): AuthPayload!
   refreshToken(refresh: String!): AuthPayload!
+  requestGDPRDataExport(organizationId: String!, format: String!): DataExportResponse!
+  requestRightToBeForgotten(userId: String!, reason: String): DeletionRequestResponse!
 }
 
 type Subscription {
