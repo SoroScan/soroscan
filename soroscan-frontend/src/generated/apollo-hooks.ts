@@ -211,7 +211,7 @@ export function useGetSystemMetricsLazyQuery(baseOptions?: Apollo.LazyQueryHookO
           const options = {...defaultOptions, ...baseOptions}
           return Apollo.useLazyQuery<GetSystemMetricsQuery, GetSystemMetricsQueryVariables>(GetSystemMetricsDocument, options);
         }
-// @ts-ignore
+// @ts-expect-error Apollo overload typing for SuspenseQuery generated signatures
 export function useGetSystemMetricsSuspenseQuery(baseOptions?: Apollo.SuspenseQueryHookOptions<GetSystemMetricsQuery, GetSystemMetricsQueryVariables>): Apollo.UseSuspenseQueryResult<GetSystemMetricsQuery, GetSystemMetricsQueryVariables>;
 export function useGetSystemMetricsSuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<GetSystemMetricsQuery, GetSystemMetricsQueryVariables>): Apollo.UseSuspenseQueryResult<GetSystemMetricsQuery | undefined, GetSystemMetricsQueryVariables>;
 export function useGetSystemMetricsSuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<GetSystemMetricsQuery, GetSystemMetricsQueryVariables>) {
@@ -254,7 +254,7 @@ export function useSaveSearchPlaceholderLazyQuery(baseOptions?: Apollo.LazyQuery
           const options = {...defaultOptions, ...baseOptions}
           return Apollo.useLazyQuery<SaveSearchPlaceholderQuery, SaveSearchPlaceholderQueryVariables>(SaveSearchPlaceholderDocument, options);
         }
-// @ts-ignore
+// @ts-expect-error Apollo overload typing for SuspenseQuery generated signatures
 export function useSaveSearchPlaceholderSuspenseQuery(baseOptions?: Apollo.SuspenseQueryHookOptions<SaveSearchPlaceholderQuery, SaveSearchPlaceholderQueryVariables>): Apollo.UseSuspenseQueryResult<SaveSearchPlaceholderQuery, SaveSearchPlaceholderQueryVariables>;
 export function useSaveSearchPlaceholderSuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<SaveSearchPlaceholderQuery, SaveSearchPlaceholderQueryVariables>): Apollo.UseSuspenseQueryResult<SaveSearchPlaceholderQuery | undefined, SaveSearchPlaceholderQueryVariables>;
 export function useSaveSearchPlaceholderSuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<SaveSearchPlaceholderQuery, SaveSearchPlaceholderQueryVariables>) {
@@ -413,7 +413,7 @@ export function useGetEventsLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<
           const options = {...defaultOptions, ...baseOptions}
           return Apollo.useLazyQuery<GetEventsQuery, GetEventsQueryVariables>(GetEventsDocument, options);
         }
-// @ts-ignore
+// @ts-expect-error Apollo overload typing for SuspenseQuery generated signatures
 export function useGetEventsSuspenseQuery(baseOptions?: Apollo.SuspenseQueryHookOptions<GetEventsQuery, GetEventsQueryVariables>): Apollo.UseSuspenseQueryResult<GetEventsQuery, GetEventsQueryVariables>;
 export function useGetEventsSuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<GetEventsQuery, GetEventsQueryVariables>): Apollo.UseSuspenseQueryResult<GetEventsQuery | undefined, GetEventsQueryVariables>;
 export function useGetEventsSuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<GetEventsQuery, GetEventsQueryVariables>) {
