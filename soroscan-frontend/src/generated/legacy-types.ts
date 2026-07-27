@@ -30,6 +30,18 @@ export type ContractEvent = {
   timestamp: Scalars['String']['output'];
 };
 
+export type CreateOrganizationInput = {
+  billingContact: Scalars['String']['input'];
+  dataRegion: DataRegion;
+  name: Scalars['String']['input'];
+};
+
+export enum DataRegion {
+  ApSoutheast = 'ap_southeast',
+  EuWest = 'eu_west',
+  UsEast = 'us_east'
+}
+
 export type ErrorLog = {
   __typename?: 'ErrorLog';
   context?: Maybe<Scalars['String']['output']>;
@@ -58,10 +70,43 @@ export type EventEdge = {
   node: Event;
 };
 
+export type InviteResult = {
+  __typename?: 'InviteResult';
+  invitationId?: Maybe<Scalars['String']['output']>;
+  message: Scalars['String']['output'];
+  success: Scalars['Boolean']['output'];
+};
+
 export type Mutation = {
   __typename?: 'Mutation';
+  cancelInvitation: Scalars['Boolean']['output'];
+  createOrganization: Organization;
+  inviteTeamMember: InviteResult;
   login: AuthPayload;
   refreshToken: AuthPayload;
+  removeTeamMember: Scalars['Boolean']['output'];
+  resendInvitation: TeamInvitation;
+  switchOrganization: Organization;
+  updateOrganization: Organization;
+  updateTeamMemberRole: TeamMember;
+};
+
+
+export type MutationCancelInvitationArgs = {
+  invitationId: Scalars['String']['input'];
+  organizationId: Scalars['String']['input'];
+};
+
+
+export type MutationCreateOrganizationArgs = {
+  input: CreateOrganizationInput;
+};
+
+
+export type MutationInviteTeamMemberArgs = {
+  email: Scalars['String']['input'];
+  organizationId: Scalars['String']['input'];
+  role: OrgRole;
 };
 
 
@@ -75,12 +120,75 @@ export type MutationRefreshTokenArgs = {
   refresh: Scalars['String']['input'];
 };
 
+
+export type MutationRemoveTeamMemberArgs = {
+  memberId: Scalars['String']['input'];
+  organizationId: Scalars['String']['input'];
+};
+
+
+export type MutationResendInvitationArgs = {
+  invitationId: Scalars['String']['input'];
+  organizationId: Scalars['String']['input'];
+};
+
+
+export type MutationSwitchOrganizationArgs = {
+  organizationId: Scalars['String']['input'];
+};
+
+
+export type MutationUpdateOrganizationArgs = {
+  id: Scalars['String']['input'];
+  input: UpdateOrganizationInput;
+};
+
+
+export type MutationUpdateTeamMemberRoleArgs = {
+  memberId: Scalars['String']['input'];
+  organizationId: Scalars['String']['input'];
+  role: OrgRole;
+};
+
+export type OrgActivityEntry = {
+  __typename?: 'OrgActivityEntry';
+  action: Scalars['String']['output'];
+  actorEmail: Scalars['String']['output'];
+  detail: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  targetEmail?: Maybe<Scalars['String']['output']>;
+  timestamp: Scalars['String']['output'];
+};
+
+export enum OrgRole {
+  Admin = 'admin',
+  Operator = 'operator',
+  Owner = 'owner',
+  Viewer = 'viewer'
+}
+
+export type Organization = {
+  __typename?: 'Organization';
+  billingContact: Scalars['String']['output'];
+  contractCount: Scalars['Int']['output'];
+  createdAt: Scalars['String']['output'];
+  dataRegion: DataRegion;
+  id: Scalars['ID']['output'];
+  name: Scalars['String']['output'];
+  webhookLimit: Scalars['Int']['output'];
+};
+
 export type Query = {
   __typename?: 'Query';
   events: EventConnection;
   me?: Maybe<User>;
+  myOrganizations: Array<Organization>;
+  organization?: Maybe<Organization>;
+  organizationActivity: Array<OrgActivityEntry>;
   recentErrors: Array<ErrorLog>;
   systemMetrics: SystemMetrics;
+  teamInvitations: Array<TeamInvitation>;
+  teamMembers: Array<TeamMember>;
 };
 
 
@@ -90,8 +198,28 @@ export type QueryEventsArgs = {
 };
 
 
+export type QueryOrganizationArgs = {
+  id: Scalars['String']['input'];
+};
+
+
+export type QueryOrganizationActivityArgs = {
+  organizationId: Scalars['String']['input'];
+};
+
+
 export type QueryRecentErrorsArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type QueryTeamInvitationsArgs = {
+  organizationId: Scalars['String']['input'];
+};
+
+
+export type QueryTeamMembersArgs = {
+  organizationId: Scalars['String']['input'];
 };
 
 export type Subscription = {
@@ -116,8 +244,34 @@ export type SystemMetrics = {
   webhookSuccessRate: Scalars['Float']['output'];
 };
 
+export type TeamInvitation = {
+  __typename?: 'TeamInvitation';
+  email: Scalars['String']['output'];
+  expiresAt: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  invitedAt: Scalars['String']['output'];
+  role: OrgRole;
+  status: Scalars['String']['output'];
+};
+
+export type TeamMember = {
+  __typename?: 'TeamMember';
+  email: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  joinedAt: Scalars['String']['output'];
+  lastActiveAt?: Maybe<Scalars['String']['output']>;
+  role: OrgRole;
+};
+
+export type UpdateOrganizationInput = {
+  billingContact?: InputMaybe<Scalars['String']['input']>;
+  dataRegion?: InputMaybe<DataRegion>;
+  name?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type User = {
   __typename?: 'User';
+  activeOrganizationId?: Maybe<Scalars['String']['output']>;
   email: Scalars['String']['output'];
   id: Scalars['ID']['output'];
 };
@@ -156,3 +310,100 @@ export type GetEventsQueryVariables = Exact<{
 
 
 export type GetEventsQuery = { __typename?: 'Query', events: { __typename?: 'EventConnection', edges: Array<{ __typename?: 'EventEdge', node: { __typename?: 'Event', id: string, contractId: string, eventType: string, data: string, createdAt: string } }> } };
+
+export type MyOrganizationsQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type MyOrganizationsQuery = { __typename?: 'Query', myOrganizations: Array<{ __typename?: 'Organization', id: string, name: string, billingContact: string, dataRegion: DataRegion, createdAt: string, contractCount: number, webhookLimit: number }> };
+
+export type OrganizationDetailsQueryVariables = Exact<{
+  id: Scalars['String']['input'];
+}>;
+
+
+export type OrganizationDetailsQuery = { __typename?: 'Query', organization?: { __typename?: 'Organization', id: string, name: string, billingContact: string, dataRegion: DataRegion, createdAt: string, contractCount: number, webhookLimit: number } | null };
+
+export type TeamMembersQueryVariables = Exact<{
+  organizationId: Scalars['String']['input'];
+}>;
+
+
+export type TeamMembersQuery = { __typename?: 'Query', teamMembers: Array<{ __typename?: 'TeamMember', id: string, email: string, role: OrgRole, joinedAt: string, lastActiveAt?: string | null }> };
+
+export type TeamInvitationsQueryVariables = Exact<{
+  organizationId: Scalars['String']['input'];
+}>;
+
+
+export type TeamInvitationsQuery = { __typename?: 'Query', teamInvitations: Array<{ __typename?: 'TeamInvitation', id: string, email: string, role: OrgRole, invitedAt: string, expiresAt: string, status: string }> };
+
+export type OrganizationActivityQueryVariables = Exact<{
+  organizationId: Scalars['String']['input'];
+}>;
+
+
+export type OrganizationActivityQuery = { __typename?: 'Query', organizationActivity: Array<{ __typename?: 'OrgActivityEntry', id: string, action: string, actorEmail: string, targetEmail?: string | null, detail: string, timestamp: string }> };
+
+export type CreateOrganizationMutationVariables = Exact<{
+  input: CreateOrganizationInput;
+}>;
+
+
+export type CreateOrganizationMutation = { __typename?: 'Mutation', createOrganization: { __typename?: 'Organization', id: string, name: string, billingContact: string, dataRegion: DataRegion, createdAt: string, contractCount: number, webhookLimit: number } };
+
+export type UpdateOrganizationMutationVariables = Exact<{
+  id: Scalars['String']['input'];
+  input: UpdateOrganizationInput;
+}>;
+
+
+export type UpdateOrganizationMutation = { __typename?: 'Mutation', updateOrganization: { __typename?: 'Organization', id: string, name: string, billingContact: string, dataRegion: DataRegion, createdAt: string, contractCount: number, webhookLimit: number } };
+
+export type InviteTeamMemberMutationVariables = Exact<{
+  organizationId: Scalars['String']['input'];
+  email: Scalars['String']['input'];
+  role: OrgRole;
+}>;
+
+
+export type InviteTeamMemberMutation = { __typename?: 'Mutation', inviteTeamMember: { __typename?: 'InviteResult', success: boolean, invitationId?: string | null, message: string } };
+
+export type UpdateTeamMemberRoleMutationVariables = Exact<{
+  organizationId: Scalars['String']['input'];
+  memberId: Scalars['String']['input'];
+  role: OrgRole;
+}>;
+
+
+export type UpdateTeamMemberRoleMutation = { __typename?: 'Mutation', updateTeamMemberRole: { __typename?: 'TeamMember', id: string, email: string, role: OrgRole, joinedAt: string, lastActiveAt?: string | null } };
+
+export type RemoveTeamMemberMutationVariables = Exact<{
+  organizationId: Scalars['String']['input'];
+  memberId: Scalars['String']['input'];
+}>;
+
+
+export type RemoveTeamMemberMutation = { __typename?: 'Mutation', removeTeamMember: boolean };
+
+export type ResendInvitationMutationVariables = Exact<{
+  organizationId: Scalars['String']['input'];
+  invitationId: Scalars['String']['input'];
+}>;
+
+
+export type ResendInvitationMutation = { __typename?: 'Mutation', resendInvitation: { __typename?: 'TeamInvitation', id: string, email: string, role: OrgRole, invitedAt: string, expiresAt: string, status: string } };
+
+export type CancelInvitationMutationVariables = Exact<{
+  organizationId: Scalars['String']['input'];
+  invitationId: Scalars['String']['input'];
+}>;
+
+
+export type CancelInvitationMutation = { __typename?: 'Mutation', cancelInvitation: boolean };
+
+export type SwitchOrganizationMutationVariables = Exact<{
+  organizationId: Scalars['String']['input'];
+}>;
+
+
+export type SwitchOrganizationMutation = { __typename?: 'Mutation', switchOrganization: { __typename?: 'Organization', id: string, name: string, billingContact: string, dataRegion: DataRegion, createdAt: string, contractCount: number, webhookLimit: number } };
