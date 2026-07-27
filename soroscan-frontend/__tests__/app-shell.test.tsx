@@ -5,6 +5,13 @@ jest.mock("next/navigation", () => ({
   usePathname: () => "/dashboard",
 }));
 
+// The notification center talks to Apollo — stub the data layer so the shell
+// can be rendered without a live GraphQL client.
+const mockUseNotifications = jest.fn();
+jest.mock("@/components/notifications/useNotifications", () => ({
+  useNotifications: () => mockUseNotifications(),
+}));
+
 jest.mock("next/link", () => {
   const MockLink = ({
     href,
@@ -24,6 +31,18 @@ jest.mock("next/link", () => {
 });
 
 describe("AppShell mobile navigation", () => {
+  beforeEach(() => {
+    mockUseNotifications.mockReturnValue({
+      notifications: [],
+      unreadCount: 0,
+      loading: false,
+      markRead: jest.fn(),
+      markAllRead: jest.fn(),
+      clearAll: jest.fn(),
+      refetch: jest.fn(),
+    });
+  });
+
   it("renders the app header with logo", () => {
     render(
       <AppShell>
@@ -69,5 +88,52 @@ describe("AppShell mobile navigation", () => {
     );
 
     expect(screen.getByTestId("page-content")).toBeInTheDocument();
+  });
+
+  it("mounts the notification bell in the header", () => {
+    render(
+      <AppShell>
+        <div>Content</div>
+      </AppShell>,
+    );
+
+    expect(
+      screen.getByRole("button", { name: /notifications/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the unread count badge on the bell", () => {
+    mockUseNotifications.mockReturnValue({
+      notifications: [],
+      unreadCount: 3,
+      loading: false,
+      markRead: jest.fn(),
+      markAllRead: jest.fn(),
+      clearAll: jest.fn(),
+      refetch: jest.fn(),
+    });
+
+    render(
+      <AppShell>
+        <div>Content</div>
+      </AppShell>,
+    );
+
+    expect(
+      screen.getByRole("button", { name: /3 unread/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("3")).toBeInTheDocument();
+  });
+
+  it("links to the live event monitor", () => {
+    render(
+      <AppShell>
+        <div>Content</div>
+      </AppShell>,
+    );
+
+    expect(
+      screen.getAllByRole("link", { name: /monitor/i }).length,
+    ).toBeGreaterThan(0);
   });
 });

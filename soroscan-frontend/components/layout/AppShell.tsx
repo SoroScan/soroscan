@@ -9,13 +9,16 @@ import {
   Webhook,
   Settings,
   Shield,
+  Radio,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Drawer } from "@/components/ui/drawer";
 import { HamburgerToggle } from "@/components/ui/hamburger-toggle";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 
 const navItems = [
   { href: "/dashboard", label: "Events", icon: LayoutDashboard },
+  { href: "/monitor", label: "Monitor", icon: Radio },
   { href: "/contracts", label: "Contracts", icon: FileCode2 },
   { href: "/webhooks", label: "Webhooks", icon: Webhook },
   { href: "/admin", label: "Admin", icon: Shield },
@@ -111,7 +114,8 @@ export function AppShell({ children }: AppShellProps) {
           ◆ SoroScan
         </Link>
 
-        <div className="ml-auto hidden sm:flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-1">
+          <div className="hidden sm:flex items-center gap-1">
           {navItems.map((item) => {
             const isActive =
               pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -130,6 +134,9 @@ export function AppShell({ children }: AppShellProps) {
               </Link>
             );
           })}
+          </div>
+
+          <NotificationBell />
         </div>
       </header>
 
