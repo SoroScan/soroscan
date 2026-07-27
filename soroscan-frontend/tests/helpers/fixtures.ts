@@ -278,10 +278,10 @@ type Fixtures = {
 };
 
 export const test = base.extend<Fixtures>({
-  authenticatedPage: async ({ page }, use) => {
+  authenticatedPage: async ({ page }, provide) => {
     await seedAuth(page);
     await installGraphqlMocks(page);
-    await use(page);
+    await provide(page);
   },
 });
 
