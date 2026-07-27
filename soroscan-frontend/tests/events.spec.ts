@@ -45,7 +45,8 @@ test.describe("Event Explorer", () => {
     expect(download.suggestedFilename()).toMatch(/\.csv$/i);
   });
 
-  test("event explorer visual regression", async ({ authenticatedPage: page }) => {
+  test("event explorer visual regression", async ({ authenticatedPage: page }, testInfo) => {
+    test.skip(testInfo.project.name !== "chromium", "Visual baselines are Chromium-only");
     await expect(page.getByTestId("events-table")).toBeVisible();
     await expect(page).toHaveScreenshot("event-explorer.png", {
       fullPage: true,

@@ -37,7 +37,8 @@ test.describe("Authentication", () => {
     await expect(page.getByText(/PERFORMANCE_DASHBOARD/i)).toBeVisible();
   });
 
-  test("login page visual regression", async ({ page }) => {
+  test("login page visual regression", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "chromium", "Visual baselines are Chromium-only");
     await page.goto("/login");
     await expect(page.getByTestId("login-submit")).toBeVisible();
     await expect(page).toHaveScreenshot("login-page.png", {

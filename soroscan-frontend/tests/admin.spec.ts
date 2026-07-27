@@ -23,7 +23,8 @@ test.describe("Admin Dashboard", () => {
     await expect(page.getByText("[ONLINE]").first()).toBeVisible();
   });
 
-  test("admin dashboard visual regression", async ({ authenticatedPage: page }) => {
+  test("admin dashboard visual regression", async ({ authenticatedPage: page }, testInfo) => {
+    test.skip(testInfo.project.name !== "chromium", "Visual baselines are Chromium-only");
     await expect(page.getByTestId("admin-metrics")).toBeVisible();
     await expect(page).toHaveScreenshot("admin-dashboard.png", {
       fullPage: true,

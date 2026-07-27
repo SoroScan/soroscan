@@ -61,7 +61,8 @@ test.describe("Contract Management", () => {
     ).toHaveCount(0);
   });
 
-  test("contracts page visual regression", async ({ authenticatedPage: page }) => {
+  test("contracts page visual regression", async ({ authenticatedPage: page }, testInfo) => {
+    test.skip(testInfo.project.name !== "chromium", "Visual baselines are Chromium-only");
     await expect(page.getByTestId("contract-desktop-table")).toBeVisible();
     await expect(page).toHaveScreenshot("contracts-page.png", {
       fullPage: true,

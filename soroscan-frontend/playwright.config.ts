@@ -12,11 +12,13 @@ export default defineConfig({
   outputDir: "./test-results",
   snapshotPathTemplate:
     "{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}-{projectName}-{platform}{ext}",
-  // Create missing baselines (e.g. linux CI vs win32 local) without failing the suite.
+  // Prefer config-level "missing" so first CI runs can create linux baselines.
+  // Workflow also passes --update-snapshots missing because Playwright defaults to
+  // "none" under CI=true even when config says otherwise on some versions.
   updateSnapshots: process.env.UPDATE_E2E_SNAPSHOTS === "1" ? "all" : "missing",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? 2 : undefined,
   timeout: 60_000,
   expect: {

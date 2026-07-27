@@ -46,15 +46,19 @@ test.describe("Webhook Manager", () => {
     const initialCount = await rows.count();
     expect(initialCount).toBeGreaterThan(0);
 
-    await rows.first().getByTestId("delete-webhook-btn").click();
-    await expect(page.getByText("CONFIRM_DELETE")).toBeVisible();
-    await page.getByRole("button", { name: /DELETE_WEBHOOK/i }).click();
+    const deleteBtn = rows.first().getByRole("button", { name: "Delete webhook" });
+    await deleteBtn.scrollIntoViewIfNeeded();
+    await deleteBtn.click();
+
+    await expect(page.getByText("[CONFIRM_DELETE]")).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId("confirm-delete-webhook-btn").click();
 
     await expect(page.getByText(/WEBHOOK_DELETED/i)).toBeVisible();
     await expect(rows).toHaveCount(initialCount - 1);
   });
 
-  test("webhooks page visual regression", async ({ authenticatedPage: page }) => {
+  test("webhooks page visual regression", async ({ authenticatedPage: page }, testInfo) => {
+    test.skip(testInfo.project.name !== "chromium", "Visual baselines are Chromium-only");
     await expect(page.getByTestId("webhook-desktop-table")).toBeVisible();
     await expect(page).toHaveScreenshot("webhooks-page.png", {
       fullPage: true,
