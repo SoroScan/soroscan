@@ -42,4 +42,6 @@ Configured projects: **Chromium** and **Firefox**.
 
 ## CI
 
-`.github/workflows/e2e.yml` builds the frontend and runs `pnpm run test:e2e` on every pull request and push to main/develop.
+`.github/workflows/e2e.yml` builds the frontend and runs `pnpm run test:e2e` on every pull request and push to main/develop (Chromium + Firefox).
+
+Visual regression compares against committed Chromium baselines locally. In CI, the same visual tests attach full-page screenshots as artifacts instead of failing on missing linux baselines.

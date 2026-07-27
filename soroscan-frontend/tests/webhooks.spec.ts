@@ -1,4 +1,4 @@
-import { test, expect } from "./helpers/fixtures";
+import { test, expect, expectVisualSnapshot } from "./helpers/fixtures";
 
 test.describe("Webhook Manager", () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
@@ -42,13 +42,13 @@ test.describe("Webhook Manager", () => {
   });
 
   test("should delete a webhook", async ({ authenticatedPage: page }) => {
-    const rows = page.locator('[data-testid="webhook-desktop-table"] tbody tr');
+    const table = page.getByTestId("webhook-desktop-table");
+    const rows = table.locator("tbody tr");
     const initialCount = await rows.count();
     expect(initialCount).toBeGreaterThan(0);
 
-    const deleteBtn = rows.first().getByRole("button", { name: "Delete webhook" });
-    await deleteBtn.scrollIntoViewIfNeeded();
-    await deleteBtn.click();
+    // Click via DOM to avoid detach/scroll races on overflow tables in CI.
+    await rows.first().getByTestId("delete-webhook-btn").evaluate((el: HTMLButtonElement) => el.click());
 
     await expect(page.getByText("[CONFIRM_DELETE]")).toBeVisible({ timeout: 10_000 });
     await page.getByTestId("confirm-delete-webhook-btn").click();
@@ -58,10 +58,7 @@ test.describe("Webhook Manager", () => {
   });
 
   test("webhooks page visual regression", async ({ authenticatedPage: page }, testInfo) => {
-    test.skip(testInfo.project.name !== "chromium", "Visual baselines are Chromium-only");
     await expect(page.getByTestId("webhook-desktop-table")).toBeVisible();
-    await expect(page).toHaveScreenshot("webhooks-page.png", {
-      fullPage: true,
-    });
+    await expectVisualSnapshot(page, "webhooks-page.png", testInfo);
   });
 });

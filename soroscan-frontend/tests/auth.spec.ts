@@ -1,4 +1,4 @@
-import { test, expect, installGraphqlMocks, clearAuth } from "./helpers/fixtures";
+import { test, expect, installGraphqlMocks, clearAuth, expectVisualSnapshot } from "./helpers/fixtures";
 
 test.describe("Authentication", () => {
   test.beforeEach(async ({ page }) => {
@@ -38,11 +38,8 @@ test.describe("Authentication", () => {
   });
 
   test("login page visual regression", async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name !== "chromium", "Visual baselines are Chromium-only");
     await page.goto("/login");
     await expect(page.getByTestId("login-submit")).toBeVisible();
-    await expect(page).toHaveScreenshot("login-page.png", {
-      fullPage: true,
-    });
+    await expectVisualSnapshot(page, "login-page.png", testInfo);
   });
 });

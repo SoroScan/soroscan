@@ -50,13 +50,9 @@ jobs:
         run: pnpm run build
 
       - name: Run Playwright E2E tests
-        # Explicit --update-snapshots missing: Playwright forces "none" under CI=true,
-        # which fails on first-run linux baselines (win32 snapshots are committed locally).
-        run: pnpm exec playwright test --update-snapshots missing
+        run: pnpm run test:e2e
         env:
           CI: true
-          # Soften flaky antialiasing diffs once baselines exist in the runner workspace.
-          PLAYWRIGHT_BUNDLED_BROWSERS: "1"
 
       - name: Upload Playwright report
         if: always()

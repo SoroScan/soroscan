@@ -2,6 +2,7 @@ import {
   test,
   expect,
   CONTRACT_ID,
+  expectVisualSnapshot,
 } from "./helpers/fixtures";
 
 test.describe("Event Explorer", () => {
@@ -46,10 +47,7 @@ test.describe("Event Explorer", () => {
   });
 
   test("event explorer visual regression", async ({ authenticatedPage: page }, testInfo) => {
-    test.skip(testInfo.project.name !== "chromium", "Visual baselines are Chromium-only");
     await expect(page.getByTestId("events-table")).toBeVisible();
-    await expect(page).toHaveScreenshot("event-explorer.png", {
-      fullPage: true,
-    });
+    await expectVisualSnapshot(page, "event-explorer.png", testInfo);
   });
 });

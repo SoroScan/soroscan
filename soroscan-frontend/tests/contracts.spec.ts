@@ -1,4 +1,4 @@
-import { test, expect } from "./helpers/fixtures";
+import { test, expect, expectVisualSnapshot } from "./helpers/fixtures";
 
 test.describe("Contract Management", () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
@@ -62,10 +62,7 @@ test.describe("Contract Management", () => {
   });
 
   test("contracts page visual regression", async ({ authenticatedPage: page }, testInfo) => {
-    test.skip(testInfo.project.name !== "chromium", "Visual baselines are Chromium-only");
     await expect(page.getByTestId("contract-desktop-table")).toBeVisible();
-    await expect(page).toHaveScreenshot("contracts-page.png", {
-      fullPage: true,
-    });
+    await expectVisualSnapshot(page, "contracts-page.png", testInfo);
   });
 });

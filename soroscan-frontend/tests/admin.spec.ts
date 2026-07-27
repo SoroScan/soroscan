@@ -1,4 +1,4 @@
-import { test, expect } from "./helpers/fixtures";
+import { test, expect, expectVisualSnapshot } from "./helpers/fixtures";
 
 test.describe("Admin Dashboard", () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
@@ -24,10 +24,7 @@ test.describe("Admin Dashboard", () => {
   });
 
   test("admin dashboard visual regression", async ({ authenticatedPage: page }, testInfo) => {
-    test.skip(testInfo.project.name !== "chromium", "Visual baselines are Chromium-only");
     await expect(page.getByTestId("admin-metrics")).toBeVisible();
-    await expect(page).toHaveScreenshot("admin-dashboard.png", {
-      fullPage: true,
-    });
+    await expectVisualSnapshot(page, "admin-dashboard.png", testInfo);
   });
 });
