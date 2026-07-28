@@ -171,6 +171,10 @@ export type RequestRightToBeForgottenMutationVariables = Exact<{
 
 
 export type RequestRightToBeForgottenMutation = { __typename?: 'Mutation', requestRightToBeForgotten: { __typename?: 'DeletionRequestResponse', requestId: string, status: string, approvalDate?: string | null } };
+export type SaveSearchPlaceholderQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type SaveSearchPlaceholderQuery = { __typename?: 'Query', me?: { __typename?: 'User', id: string, email: string } | null };
 
 export type LoginMutationVariables = Exact<{
   email: Scalars['String']['input'];
