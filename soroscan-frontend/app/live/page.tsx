@@ -13,7 +13,6 @@ import {
   ArrowDownCircle,
   Terminal,
   Radio,
-  Search,
   X,
 } from "lucide-react";
 
@@ -25,7 +24,7 @@ interface StreamEvent {
   ledgerSequence: number;
   txHash: string;
   topics: string[];
-  payload: Record<string, any>;
+  payload: Record<string, unknown>;
 }
 
 const initialEvents: StreamEvent[] = [
