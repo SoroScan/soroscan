@@ -51,9 +51,6 @@ export default function AdminDashboard() {
     return () => clearInterval(interval)
   }, [loadData])
 
-  const chartData = React.useMemo(() => {
-    if (!data) return Array(24).fill(0).map((_, i) => ({ label: `${i}:00`, value: 0 }))
-    
   // Mock data for the chart (last 24h) — deterministic for stable visuals/tests
   const chartData = React.useMemo(() => {
     if (!data) return Array(24).fill(0).map((_, i) => ({ label: `${i}:00`, value: 0 }))
@@ -116,12 +113,6 @@ export default function AdminDashboard() {
       }
       metrics={
         <>
-
-        {/* Top Metrics Row */}
-        <div
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
-          data-testid="admin-metrics"
-        >
           <MetricsCard 
             title="Events Today" 
             value={metrics?.eventsIndexedToday ?? 0} 
@@ -179,7 +170,7 @@ export default function AdminDashboard() {
             />
           </div>
           <div className="space-y-6 min-w-0">
-            <DashboardPanel elevation="elevated" title="System Status">
+            <DashboardPanel elevation="elevated" title="[SYSTEM_STATUS]">
               <div className="space-y-4">
                 <div className="flex justify-between items-center bg-terminal-green/5 p-3 border border-terminal-green/10">
                   <div className="flex items-center gap-3">

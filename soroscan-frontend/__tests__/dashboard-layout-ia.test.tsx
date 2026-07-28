@@ -72,7 +72,7 @@ describe("AdminDashboardLayout (#910)", () => {
     );
 
     expect(screen.getByTestId("admin-dashboard-layout")).toBeInTheDocument();
-    expect(screen.getByTestId("admin-metrics-row")).toHaveTextContent("metric-a");
+    expect(screen.getByTestId("admin-metrics")).toHaveTextContent("metric-a");
     expect(screen.getByTestId("admin-charts-row")).toHaveTextContent("chart-a");
     expect(screen.getByTestId("admin-logs-row")).toHaveTextContent("log-a");
   });
