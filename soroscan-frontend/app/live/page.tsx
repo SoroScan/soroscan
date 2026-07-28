@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { Suspense, useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   Play,
@@ -60,7 +60,7 @@ const initialEvents: StreamEvent[] = [
   },
 ];
 
-export default function LiveStreamingPage() {
+function LiveStreamingContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -404,3 +404,18 @@ export default function LiveStreamingPage() {
     </div>
   );
 }
+
+export default function LiveStreamingPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-terminal-black p-8 text-terminal-green font-terminal-mono flex items-center justify-center">
+          <p className="text-sm text-terminal-gray animate-pulse">Loading live stream...</p>
+        </div>
+      }
+    >
+      <LiveStreamingContent />
+    </Suspense>
+  );
+}
+
