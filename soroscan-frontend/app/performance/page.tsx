@@ -16,11 +16,6 @@ interface CachePoint {
   misses: number;
 }
 
-interface VolumePoint {
-  time: string;
-  requests: number;
-}
-
 interface SlowQuery {
   id: string;
   queryName: string;
@@ -104,20 +99,22 @@ export default function PerformanceDashboardPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const metrics = useMemo(() => {
+    const is7d = timeRange === "7d";
+    const is30d = timeRange === "30d";
     return {
-      p50Latency: 42,
+      p50Latency: is30d ? 48 : is7d ? 45 : 42,
       p50Diff: -4.5,
-      p95Latency: 115,
+      p95Latency: is30d ? 128 : is7d ? 120 : 115,
       p95Diff: -2.1,
-      p99Latency: 230,
+      p99Latency: is30d ? 255 : is7d ? 240 : 230,
       p99Diff: +1.8,
-      cacheHitRate: 94.2,
+      cacheHitRate: is30d ? 92.8 : is7d ? 93.5 : 94.2,
       cacheHitDiff: +1.4,
       errorRate: 0.08,
       errorRateDiff: -0.02,
       uptime: 99.99,
       uptimeDiff: 0.0,
-      cpuUsage: 34.2,
+      cpuUsage: is30d ? 38.4 : is7d ? 36.1 : 34.2,
       memoryUsage: 58.6,
       diskUsage: 42.1,
     };
