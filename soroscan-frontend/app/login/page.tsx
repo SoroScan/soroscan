@@ -111,6 +111,7 @@ function LoginPageInner() {
           <ValidatedInput
             ref={emailRef}
             id="login-email"
+            data-testid="login-email"
             label="USER_EMAIL"
             type="email"
             placeholder="operator@soroscan.io"
@@ -127,6 +128,7 @@ function LoginPageInner() {
           <ValidatedInput
             ref={passwordRef}
             id="login-password"
+            data-testid="login-password"
             label="ACCESS_PASSWORD"
             type="password"
             placeholder="********"
@@ -139,43 +141,6 @@ function LoginPageInner() {
             }}
             hint="Minimum 8 characters"
           />
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          <div>
-            <label className="block text-[10px] text-terminal-green uppercase tracking-widest mb-2">
-              &gt; USER_EMAIL
-            </label>
-            <Input
-              {...register('email')}
-              data-testid="login-email"
-              placeholder="operator@soroscan.io"
-              className={errors.email ? 'border-terminal-danger text-terminal-danger' : ''}
-              autoComplete="email"
-            />
-            {errors.email && (
-              <p className="mt-1 text-[10px] text-terminal-danger">
-                {String(errors.email.message)}
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-[10px] text-terminal-green uppercase tracking-widest mb-2">
-              &gt; ACCESS_PASSWORD
-            </label>
-            <Input
-              {...register('password')}
-              data-testid="login-password"
-              type="password"
-              placeholder="********"
-              className={errors.password ? 'border-terminal-danger text-terminal-danger' : ''}
-              autoComplete="current-password"
-            />
-            {errors.password && (
-              <p className="mt-1 text-[10px] text-terminal-danger">
-                {String(errors.password.message)}
-              </p>
-            )}
-          </div>
 
           {error && (
             <div className="p-3 border border-terminal-danger bg-terminal-danger/10 text-terminal-danger text-xs text-center font-bold">

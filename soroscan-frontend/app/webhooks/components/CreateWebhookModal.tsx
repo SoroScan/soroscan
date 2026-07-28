@@ -153,6 +153,7 @@ export function CreateWebhookModal({ isOpen, onClose, onCreate }: CreateWebhookM
           <ValidatedInput
             ref={urlInputRef}
             id="webhook-url-input"
+            data-testid="webhook-url-input"
             label="ENDPOINT_URL *"
             type="url"
             placeholder="https://yourapp.io/webhook"
@@ -165,22 +166,6 @@ export function CreateWebhookModal({ isOpen, onClose, onCreate }: CreateWebhookM
             }}
             hint="HTTPS endpoint that receives signed event payloads"
           />
-          <div>
-            <Input
-              id="webhook-url-input"
-              data-testid="webhook-url-input"
-              label="ENDPOINT_URL *"
-              type="url"
-              placeholder="https://yourapp.io/webhook"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              onBlur={() => setUrlTouched(true)}
-              aria-invalid={!!urlError}
-            />
-            {urlError && (
-              <p className="text-terminal-danger text-[10px] mt-1 ml-1">{urlError}</p>
-            )}
-          </div>
 
           {/* Event timeout */}
           <div>
