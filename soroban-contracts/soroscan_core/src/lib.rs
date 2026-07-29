@@ -8,6 +8,7 @@ use soroban_sdk::{
 const ADMIN_KEY: Symbol = symbol_short!("admin");
 const INDEXERS_KEY: Symbol = symbol_short!("idxrs");
 const COUNTER_KEY: Symbol = symbol_short!("count");
+const INDEXER_COUNTS_KEY: Symbol = symbol_short!("idxcnt");
 
 /// Represents a recorded event from an indexed contract.
 #[contracttype]
@@ -175,7 +176,7 @@ impl SoroScanCore {
             .get(&INDEXERS_KEY)
             .ok_or(ContractError::NotInitialized)?;
 
-        let is_allowed = indexers.get(indexer).unwrap_or(false);
+        let is_allowed = indexers.get(indexer.clone()).unwrap_or(false);
         if !is_allowed {
             return Err(ContractError::IndexerNotFound);
         }
@@ -202,6 +203,8 @@ impl SoroScanCore {
         // Publish the event for off-chain indexers
         env.events()
             .publish((symbol_short!("soroscan"), event_type), record);
+
+        Self::bump_indexer_count(&env, &indexer, 1);
 
         Ok(count)
     }
@@ -242,6 +245,22 @@ impl SoroScanCore {
         match indexers {
             Some(map) => map.get(indexer).unwrap_or(false),
             None => false,
+        }
+    }
+
+    /// Get the number of events recorded by a specific indexer.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `indexer` - The indexer address to query
+    ///
+    /// # Returns
+    /// The total event count recorded by this indexer (0 if none)
+    pub fn events_recorded_by(env: Env, indexer: Address) -> u64 {
+        let counts: Option<Map<Address, u64>> = env.storage().instance().get(&INDEXER_COUNTS_KEY);
+        match counts {
+            Some(map) => map.get(indexer).unwrap_or(0),
+            None => 0,
         }
     }
 
@@ -303,6 +322,8 @@ impl SoroScanCore {
 
         env.storage().instance().set(&COUNTER_KEY, &count);
 
+        Self::bump_indexer_count(&env, &indexer, batch_len as u64);
+
         // Emit a single batch summary event
         env.events().publish(
             (symbol_short!("soroscan"), symbol_short!("batch")),
@@ -354,6 +375,18 @@ impl SoroScanCore {
     /// The admin address, or None if not initialized
     pub fn get_admin(env: Env) -> Option<Address> {
         env.storage().instance().get(&ADMIN_KEY)
+    }
+
+    /// Increment the recorded-event counter for a single indexer (SC-13).
+    fn bump_indexer_count(env: &Env, indexer: &Address, by: u64) {
+        let mut counts: Map<Address, u64> = env
+            .storage()
+            .instance()
+            .get(&INDEXER_COUNTS_KEY)
+            .unwrap_or_else(|| Map::new(env));
+        let current = counts.get(indexer.clone()).unwrap_or(0);
+        counts.set(indexer.clone(), current.saturating_add(by));
+        env.storage().instance().set(&INDEXER_COUNTS_KEY, &counts);
     }
 }
 
@@ -709,8 +742,8 @@ mod tests {
 
         // Find the event with topic "event1"
         let event1 = all_events.iter().find(|e| {
-            if e.topics.len() > 0 {
-                if let Ok(sym) = Symbol::try_from_val(&env, &e.topics.get(0).unwrap()) {
+            if e.1.len() > 0 {
+                if let Ok(sym) = Symbol::try_from_val(&env, &e.1.get(0).unwrap()) {
                     return sym == symbol_short!("event1");
                 }
             }
@@ -718,14 +751,14 @@ mod tests {
         }).expect("event1 should exist");
 
         // Verify topic extraction
-        assert_eq!(event1.topics.len(), 3);
-        let extracted_sym = Symbol::try_from_val(&env, &event1.topics.get(1).unwrap()).unwrap();
+        assert_eq!(event1.1.len(), 3);
+        let extracted_sym = Symbol::try_from_val(&env, &event1.1.get(1).unwrap()).unwrap();
         assert_eq!(extracted_sym, val_symbol);
-        let extracted_bool = bool::try_from_val(&env, &event1.topics.get(2).unwrap()).unwrap();
+        let extracted_bool = bool::try_from_val(&env, &event1.1.get(2).unwrap()).unwrap();
         assert_eq!(extracted_bool, val_bool);
 
         // Verify payload decoding
-        let payload1: (u32, i32, u64, i64) = TryFromVal::try_from_val(&env, &event1.value).unwrap();
+        let payload1: (u32, i32, u64, i64) = TryFromVal::try_from_val(&env, &event1.2).unwrap();
         assert_eq!(payload1.0, val_u32);
         assert_eq!(payload1.1, val_i32);
         assert_eq!(payload1.2, val_u64);
@@ -733,25 +766,25 @@ mod tests {
 
         // Find event2
         let event2 = all_events.iter().find(|e| {
-            if e.topics.len() > 0 {
-                if let Ok(sym) = Symbol::try_from_val(&env, &e.topics.get(0).unwrap()) {
+            if e.1.len() > 0 {
+                if let Ok(sym) = Symbol::try_from_val(&env, &e.1.get(0).unwrap()) {
                     return sym == symbol_short!("event2");
                 }
             }
             false
         }).expect("event2 should exist");
 
-        let extracted_addr = Address::try_from_val(&env, &event2.topics.get(1).unwrap()).unwrap();
+        let extracted_addr = Address::try_from_val(&env, &event2.1.get(1).unwrap()).unwrap();
         assert_eq!(extracted_addr, val_address);
 
-        let payload2: (u128, i128) = TryFromVal::try_from_val(&env, &event2.value).unwrap();
+        let payload2: (u128, i128) = TryFromVal::try_from_val(&env, &event2.2).unwrap();
         assert_eq!(payload2.0, val_u128);
         assert_eq!(payload2.1, val_i128);
 
         // Find event3
         let event3 = all_events.iter().find(|e| {
-            if e.topics.len() > 0 {
-                if let Ok(sym) = Symbol::try_from_val(&env, &e.topics.get(0).unwrap()) {
+            if e.1.len() > 0 {
+                if let Ok(sym) = Symbol::try_from_val(&env, &e.1.get(0).unwrap()) {
                     return sym == symbol_short!("event3");
                 }
             }
@@ -759,7 +792,7 @@ mod tests {
         }).expect("event3 should exist");
 
         let payload3: (soroban_sdk::Bytes, BytesN<32>, Map<Symbol, u32>, soroban_sdk::Vec<Symbol>) =
-            TryFromVal::try_from_val(&env, &event3.value).unwrap();
+            TryFromVal::try_from_val(&env, &event3.2).unwrap();
         assert_eq!(payload3.0, val_bytes);
         assert_eq!(payload3.1, val_bytes_n);
         assert_eq!(payload3.2.get(symbol_short!("key1")).unwrap(), 100);
@@ -767,26 +800,114 @@ mod tests {
 
         // Find empty event
         let event_empty = all_events.iter().find(|e| {
-            if e.topics.len() > 0 {
-                if let Ok(sym) = Symbol::try_from_val(&env, &e.topics.get(0).unwrap()) {
+            if e.1.len() > 0 {
+                if let Ok(sym) = Symbol::try_from_val(&env, &e.1.get(0).unwrap()) {
                     return sym == symbol_short!("empty");
                 }
             }
             false
         }).expect("empty event should exist");
-        assert_eq!(event_empty.topics.len(), 1); // just "empty"
+        assert_eq!(event_empty.1.len(), 1); // just "empty"
 
         // Find large event
         let event_large = all_events.iter().find(|e| {
-            if e.topics.len() > 0 {
-                if let Ok(sym) = Symbol::try_from_val(&env, &e.topics.get(0).unwrap()) {
+            if e.1.len() > 0 {
+                if let Ok(sym) = Symbol::try_from_val(&env, &e.1.get(0).unwrap()) {
                     return sym == symbol_short!("large");
                 }
             }
             false
         }).expect("large event should exist");
-        let payload_large: Map<u32, BytesN<32>> = TryFromVal::try_from_val(&env, &event_large.value).unwrap();
+        let payload_large: Map<u32, BytesN<32>> = TryFromVal::try_from_val(&env, &event_large.2).unwrap();
         assert_eq!(payload_large.len(), 10);
         assert_eq!(payload_large.get(5).unwrap(), BytesN::from_array(&env, &[5u8; 32]));
+    }
+
+    #[test]
+    fn test_events_recorded_by_tracks_single_indexer() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer) = setup_contract(&env);
+        client.add_indexer(&admin, &indexer);
+
+        assert_eq!(client.events_recorded_by(&indexer), 0);
+
+        let target = Address::generate(&env);
+        let payload_hash = BytesN::from_array(&env, &[0u8; 32]);
+
+        client.record_event(&indexer, &target, &symbol_short!("swap"), &payload_hash);
+        assert_eq!(client.events_recorded_by(&indexer), 1);
+
+        client.record_event(&indexer, &target, &symbol_short!("transfer"), &payload_hash);
+        client.record_event(&indexer, &target, &symbol_short!("mint"), &payload_hash);
+        assert_eq!(client.events_recorded_by(&indexer), 3);
+    }
+
+    #[test]
+    fn test_events_recorded_by_tracks_separate_indexers_independently() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer_a) = setup_contract(&env);
+        let indexer_b = Address::generate(&env);
+        let target = Address::generate(&env);
+        let payload_hash = BytesN::from_array(&env, &[0u8; 32]);
+
+        client.add_indexer(&admin, &indexer_a);
+        client.add_indexer(&admin, &indexer_b);
+
+        client.record_event(&indexer_a, &target, &symbol_short!("swap"), &payload_hash);
+        client.record_event(&indexer_a, &target, &symbol_short!("swap"), &payload_hash);
+        client.record_event(&indexer_b, &target, &symbol_short!("swap"), &payload_hash);
+
+        assert_eq!(client.events_recorded_by(&indexer_a), 2);
+        assert_eq!(client.events_recorded_by(&indexer_b), 1);
+    }
+
+    #[test]
+    fn test_events_recorded_by_batch_increments_by_batch_length() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer) = setup_contract(&env);
+        client.add_indexer(&admin, &indexer);
+
+        let mut entries = Vec::new(&env);
+        for _ in 0..5 {
+            entries.push_back(EventEntry {
+                contract_id: Address::generate(&env),
+                event_type: symbol_short!("ev"),
+                payload_hash: BytesN::from_array(&env, &[0u8; 32]),
+            });
+        }
+
+        client.record_events_batch(&indexer, &entries);
+        assert_eq!(client.events_recorded_by(&indexer), 5);
+
+        // A subsequent single record_event should add on top of the batch count.
+        let target = Address::generate(&env);
+        let payload_hash = BytesN::from_array(&env, &[0u8; 32]);
+        client.record_event(&indexer, &target, &symbol_short!("swap"), &payload_hash);
+        assert_eq!(client.events_recorded_by(&indexer), 6);
+    }
+
+    #[test]
+    fn test_events_recorded_by_unknown_indexer_returns_zero() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer) = setup_contract(&env);
+        let stranger = Address::generate(&env);
+
+        assert_eq!(client.events_recorded_by(&stranger), 0);
+
+        client.add_indexer(&admin, &indexer);
+        let target = Address::generate(&env);
+        let payload_hash = BytesN::from_array(&env, &[0u8; 32]);
+        client.record_event(&indexer, &target, &symbol_short!("swap"), &payload_hash);
+
+        // Other indexers recording events must not affect an untouched address.
+        assert_eq!(client.events_recorded_by(&stranger), 0);
     }
 }

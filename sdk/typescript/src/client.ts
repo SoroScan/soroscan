@@ -20,6 +20,7 @@ import type {
   PaginatedResponse,
   RecordEventsBatchParams,
   RecordEventsBatchResponse,
+  IndexerStats,
 } from "./types.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -256,6 +257,17 @@ export class SoroScanClient {
       "/v1/record-events-batch",
       { body: params }
     );
+  }
+
+  /**
+   * Get event recording statistics for a specific indexer (SC-13).
+   *
+   * @example
+   * const stats = await client.getIndexerStats('GABC...');
+   * console.log('Events recorded:', stats.eventsRecorded);
+   */
+  async getIndexerStats(indexer: string): Promise<IndexerStats> {
+    return this.#request<IndexerStats>("GET", `/v1/indexer-stats/${indexer}`);
   }
 
   /**

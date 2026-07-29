@@ -115,3 +115,12 @@ class RecordEventsBatchResponse(BaseModel):
     tx_hash: str | None = Field(None, description="Transaction hash")
     transaction_status: str | None = Field(None, description="Transaction status")
     error: str | None = Field(None, description="Error message if failed")
+
+
+# ── SC-13: Per-indexer event statistics ───────────────────────────────────────
+
+class IndexerStats(BaseModel):
+    """Per-indexer event recording statistics (SC-13)."""
+
+    indexer: str = Field(..., description="The indexer's Stellar address")
+    events_recorded: int = Field(..., description="Total events recorded by this indexer")

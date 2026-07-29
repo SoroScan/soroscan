@@ -21,6 +21,7 @@ from soroscan.models import (
     ContractEvent,
     ContractStats,
     EventEntry,
+    IndexerStats,
     PaginatedResponse,
     RecordEventRequest,
     RecordEventResponse,
@@ -419,6 +420,21 @@ class SoroScanClient:
         )
         data = self._handle_response(response)
         return RecordEventsBatchResponse.model_validate(data)
+
+    def get_indexer_stats(self, indexer: str) -> IndexerStats:
+        """
+        Get event recording statistics for a specific indexer (SC-13).
+
+        Args:
+            indexer: The indexer's Stellar address
+
+        Returns:
+            IndexerStats with the indexer's address and total events recorded
+        """
+        url = urljoin(self.base_url, f"/api/indexer-stats/{indexer}/")
+        response = self._client.get(url, headers=self._get_headers())
+        data = self._handle_response(response)
+        return IndexerStats.model_validate(data)
 
     def get_webhooks(
         self,
@@ -928,6 +944,21 @@ class AsyncSoroScanClient:
         )
         data = self._handle_response(response)
         return RecordEventsBatchResponse.model_validate(data)
+
+    async def get_indexer_stats(self, indexer: str) -> IndexerStats:
+        """
+        Get event recording statistics for a specific indexer (SC-13).
+
+        Args:
+            indexer: The indexer's Stellar address
+
+        Returns:
+            IndexerStats with the indexer's address and total events recorded
+        """
+        url = urljoin(self.base_url, f"/api/indexer-stats/{indexer}/")
+        response = await self._client.get(url, headers=self._get_headers())
+        data = self._handle_response(response)
+        return IndexerStats.model_validate(data)
 
     async def get_webhooks(
         self,

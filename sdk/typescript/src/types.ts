@@ -330,6 +330,17 @@ export interface RecordEventsBatchResponse {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SC-13: Per-indexer event statistics
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface IndexerStats {
+  /** The indexer's Stellar address */
+  indexer: string;
+  /** Total events recorded by this indexer */
+  eventsRecorded: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Errors
 // ─────────────────────────────────────────────────────────────────────────────
 

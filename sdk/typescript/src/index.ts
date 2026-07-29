@@ -51,6 +51,8 @@ export type {
   EventEntry,
   RecordEventsBatchParams,
   RecordEventsBatchResponse,
+  // SC-13: Per-indexer event statistics
+  IndexerStats,
   // Errors
   SoroScanApiError,
 } from "./types.js";
