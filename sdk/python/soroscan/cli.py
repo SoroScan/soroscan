@@ -74,6 +74,18 @@ def _build_client(args: argparse.Namespace) -> SoroScanClient:
 
 
 def _handle_events(args: argparse.Namespace) -> int:
+    if args.events_command == "types":
+        with _build_client(args) as client:
+            types = client.list_event_types()
+        if args.output == "json":
+            _print_json(types)
+        else:
+            _print_table(
+                types,
+                ["event_type", "name", "description", "version"],
+            )
+        return 0
+
     with _build_client(args) as client:
         response = client.get_events(
             contract_id=args.contract,
@@ -160,12 +172,17 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(dest="command", required=True)
 
     events = subcommands.add_parser("events", help="Query indexed events")
-    events.add_argument("--contract", help="Filter by contract ID/address")
-    events.add_argument("--event-type", help="Filter by event type")
-    events.add_argument("--limit", type=int, default=10, help="Maximum events to return")
-    events.add_argument("--ordering", default="-timestamp", help="API ordering expression")
-    events.add_argument("--output", choices=["table", "json"], default="table")
-    events.set_defaults(func=_handle_events)
+    events_sub = events.add_subparsers(dest="events_command", required=True)
+    events_list = events_sub.add_parser("list", help="List events with filters")
+    events_list.add_argument("--contract", help="Filter by contract ID/address")
+    events_list.add_argument("--event-type", help="Filter by event type")
+    events_list.add_argument("--limit", type=int, default=10, help="Maximum events to return")
+    events_list.add_argument("--ordering", default="-timestamp", help="API ordering expression")
+    events_list.add_argument("--output", choices=["table", "json"], default="table")
+    events_list.set_defaults(func=_handle_events)
+    events_types = events_sub.add_parser("types", help="List registered event types (SC-11)")
+    events_types.add_argument("--output", choices=["table", "json"], default="table")
+    events_types.set_defaults(func=_handle_events)
 
     webhooks = subcommands.add_parser("webhooks", help="Manage webhook subscriptions")
     webhook_subcommands = webhooks.add_subparsers(dest="webhook_command", required=True)

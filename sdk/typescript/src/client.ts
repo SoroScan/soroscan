@@ -1,6 +1,7 @@
 import type {
   SoroScanClientConfig,
   SoroScanApiError,
+  EventTypeInfo,
   GetEventsParams,
   GetEventsResponse,
   GetContractsParams,
@@ -147,6 +148,33 @@ export class SoroScanClient {
     return this.#request<GetEventsResponse>("GET", "/v1/events", {
       query: params as Record<string, unknown>,
     });
+  }
+
+  /**
+   * Get metadata for a registered event type (SC-11).
+   *
+   * @example
+   * const info = await client.getEventTypeInfo('swap');
+   * console.log(info.name, info.version);
+   */
+  async getEventTypeInfo(eventType: string): Promise<EventTypeInfo> {
+    return this.#request<EventTypeInfo>(
+      "GET",
+      `/v1/events/${encodeURIComponent(eventType)}/info`
+    );
+  }
+
+  /**
+   * List all registered event types (SC-11).
+   *
+   * @example
+   * const types = await client.listEventTypes();
+   * for (const t of types) {
+   *   console.log(t.eventType, t.name);
+   * }
+   */
+  async listEventTypes(): Promise<EventTypeInfo[]> {
+    return this.#request<EventTypeInfo[]>("GET", "/v1/events/types");
   }
 
   // ─── Contracts ─────────────────────────────────────────────────────────────

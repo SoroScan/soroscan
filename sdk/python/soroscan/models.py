@@ -115,3 +115,14 @@ class RecordEventsBatchResponse(BaseModel):
     tx_hash: str | None = Field(None, description="Transaction hash")
     transaction_status: str | None = Field(None, description="Transaction status")
     error: str | None = Field(None, description="Error message if failed")
+
+
+# ── SC-11: Event type registry ────────────────────────────────────────────────
+
+class EventTypeInfo(BaseModel):
+    """Metadata for a registered event type (SC-11)."""
+
+    event_type: str = Field(..., description="Event type symbol")
+    name: str = Field(..., description="Human-readable name")
+    description: str = Field(default="", description="Optional description")
+    version: int = Field(default=1, description="Schema version")

@@ -51,6 +51,8 @@ export type {
   EventEntry,
   RecordEventsBatchParams,
   RecordEventsBatchResponse,
+  // SC-11: Event type registry
+  EventTypeInfo,
   // Errors
   SoroScanApiError,
 } from "./types.js";

@@ -21,6 +21,7 @@ from soroscan.models import (
     ContractEvent,
     ContractStats,
     EventEntry,
+    EventTypeInfo,
     PaginatedResponse,
     RecordEventRequest,
     RecordEventResponse,
@@ -370,6 +371,33 @@ class SoroScanClient:
         response = self._client.get(url, headers=self._get_headers())
         data = self._handle_response(response)
         return ContractEvent.model_validate(data)
+
+    def get_event_type_info(self, event_type: str) -> EventTypeInfo:
+        """
+        Get metadata for an event type (SC-11).
+
+        Args:
+            event_type: The event type name
+
+        Returns:
+            Event type metadata from the Soroban contract registry
+        """
+        url = urljoin(self.base_url, f"/api/events/{event_type}/info/")
+        response = self._client.get(url, headers=self._get_headers())
+        data = self._handle_response(response)
+        return EventTypeInfo.model_validate(data)
+
+    def list_event_types(self) -> list[EventTypeInfo]:
+        """
+        List all registered event types (SC-11).
+
+        Returns:
+            List of registered event types with metadata
+        """
+        url = urljoin(self.base_url, "/api/events/types/")
+        response = self._client.get(url, headers=self._get_headers())
+        data = self._handle_response(response)
+        return [EventTypeInfo.model_validate(item) for item in data]
 
     def record_event(
         self,
@@ -877,6 +905,33 @@ class AsyncSoroScanClient:
         response = await self._client.get(url, headers=self._get_headers())
         data = self._handle_response(response)
         return ContractEvent.model_validate(data)
+
+    async def get_event_type_info(self, event_type: str) -> EventTypeInfo:
+        """
+        Get metadata for an event type (SC-11).
+
+        Args:
+            event_type: The event type name
+
+        Returns:
+            Event type metadata from the Soroban contract registry
+        """
+        url = urljoin(self.base_url, f"/api/events/{event_type}/info/")
+        response = await self._client.get(url, headers=self._get_headers())
+        data = self._handle_response(response)
+        return EventTypeInfo.model_validate(data)
+
+    async def list_event_types(self) -> list[EventTypeInfo]:
+        """
+        List all registered event types (SC-11).
+
+        Returns:
+            List of registered event types with metadata
+        """
+        url = urljoin(self.base_url, "/api/events/types/")
+        response = await self._client.get(url, headers=self._get_headers())
+        data = self._handle_response(response)
+        return [EventTypeInfo.model_validate(item) for item in data]
 
     async def record_event(
         self,

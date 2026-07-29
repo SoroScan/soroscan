@@ -303,6 +303,21 @@ export interface WebhookListResponse {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SC-11: Event type registry
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface EventTypeInfo {
+  /** Event type symbol */
+  eventType: string;
+  /** Human-readable name */
+  name: string;
+  /** Optional description */
+  description: string;
+  /** Schema version */
+  version: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SC-29: Batch event recording
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -8,6 +8,8 @@ use soroban_sdk::{
 const ADMIN_KEY: Symbol = symbol_short!("admin");
 const INDEXERS_KEY: Symbol = symbol_short!("idxrs");
 const COUNTER_KEY: Symbol = symbol_short!("count");
+const EVENT_TYPES_KEY: Symbol = symbol_short!("etypes");
+const EVENT_TYPES_LIST_KEY: Symbol = symbol_short!("et_lst");
 
 /// Represents a recorded event from an indexed contract.
 #[contracttype]
@@ -37,6 +39,18 @@ pub struct EventEntry {
     pub payload_hash: BytesN<32>,
 }
 
+/// Metadata for a registered event type (SC-11).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EventTypeInfo {
+    /// Human-readable name for the event type.
+    pub name: Symbol,
+    /// Optional description of the event type.
+    pub description: Symbol,
+    /// Schema version for events of this type.
+    pub version: u32,
+}
+
 /// Contract errors with explicit error codes.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -51,6 +65,8 @@ pub enum ContractError {
     NotInitialized = 4,
     /// Batch is empty or exceeds the maximum allowed size.
     InvalidBatchSize = 5,
+    /// Event type is already registered (SC-11).
+    EventTypeAlreadyRegistered = 6,
 }
 
 #[contract]
@@ -74,6 +90,12 @@ impl SoroScanCore {
             .instance()
             .set(&INDEXERS_KEY, &Map::<Address, bool>::new(&env));
         env.storage().instance().set(&COUNTER_KEY, &0u64);
+        env.storage()
+            .instance()
+            .set(&EVENT_TYPES_KEY, &Map::<Symbol, EventTypeInfo>::new(&env));
+        env.storage()
+            .instance()
+            .set(&EVENT_TYPES_LIST_KEY, &Vec::<Symbol>::new(&env));
 
         Ok(())
     }
@@ -146,6 +168,102 @@ impl SoroScanCore {
             .publish((symbol_short!("indexer"), symbol_short!("rem")), indexer);
 
         Ok(())
+    }
+
+    /// Register a new event type with metadata (SC-11).
+    /// Only the admin can register event types.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `admin` - The admin address (must match stored admin)
+    /// * `event_type` - The event type symbol to register
+    /// * `name` - Human-readable name for the event type
+    /// * `description` - Optional description
+    /// * `version` - Schema version for events of this type
+    pub fn register_event_type(
+        env: Env,
+        admin: Address,
+        event_type: Symbol,
+        name: Symbol,
+        description: Symbol,
+        version: u32,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&ADMIN_KEY)
+            .ok_or(ContractError::NotInitialized)?;
+
+        if admin != stored_admin {
+            return Err(ContractError::Unauthorized);
+        }
+
+        let mut types: Map<Symbol, EventTypeInfo> = env
+            .storage()
+            .instance()
+            .get(&EVENT_TYPES_KEY)
+            .ok_or(ContractError::NotInitialized)?;
+
+        if types.contains_key(event_type.clone()) {
+            return Err(ContractError::EventTypeAlreadyRegistered);
+        }
+
+        let info = EventTypeInfo {
+            name,
+            description,
+            version,
+        };
+        types.set(event_type.clone(), info);
+        env.storage().instance().set(&EVENT_TYPES_KEY, &types);
+
+        let mut type_list: Vec<Symbol> = env
+            .storage()
+            .instance()
+            .get(&EVENT_TYPES_LIST_KEY)
+            .ok_or(ContractError::NotInitialized)?;
+        type_list.push_back(event_type.clone());
+        env.storage()
+            .instance()
+            .set(&EVENT_TYPES_LIST_KEY, &type_list);
+
+        // Emit event for type registration
+        env.events()
+            .publish((symbol_short!("etype"), symbol_short!("reg")), event_type);
+
+        Ok(())
+    }
+
+    /// Get metadata for a registered event type (SC-11).
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `event_type` - The event type to query
+    ///
+    /// # Returns
+    /// The EventTypeInfo for the type, or None if not registered
+    pub fn get_event_type_info(env: Env, event_type: Symbol) -> Option<EventTypeInfo> {
+        let types: Map<Symbol, EventTypeInfo> = env
+            .storage()
+            .instance()
+            .get(&EVENT_TYPES_KEY)
+            .unwrap_or(Map::new(&env));
+        types.get(event_type)
+    }
+
+    /// List all registered event types (SC-11).
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    ///
+    /// # Returns
+    /// A vector of all registered event type symbols
+    pub fn list_registered_event_types(env: Env) -> Vec<Symbol> {
+        env.storage()
+            .instance()
+            .get(&EVENT_TYPES_LIST_KEY)
+            .unwrap_or(Vec::new(&env))
     }
 
     /// Record an event from an indexed contract.
