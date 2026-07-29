@@ -119,6 +119,19 @@ def _handle_contracts(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handle_indexers(args: argparse.Namespace) -> int:
+    with _build_client(args) as client:
+        result = client.add_indexer(args.indexer_address)
+    if args.output == "json":
+        _print_json(result)
+    else:
+        _print_table(
+            [result],
+            ["status", "tx_hash", "transaction_status", "error"],
+        )
+    return 0
+
+
 def _handle_webhooks(args: argparse.Namespace) -> int:
     with _build_client(args) as client:
         if args.webhook_command == "test":
@@ -190,6 +203,13 @@ def build_parser() -> argparse.ArgumentParser:
     contracts_get.add_argument("contract_id")
     contracts_get.add_argument("--output", choices=["table", "json"], default="table")
     contracts_get.set_defaults(func=_handle_contracts)
+
+    indexers = subcommands.add_parser("indexers", help="Manage Soroban contract indexers (SC-9)")
+    indexer_subcommands = indexers.add_subparsers(dest="indexer_command", required=True)
+    indexers_add = indexer_subcommands.add_parser("add", help="Authorize an indexer address")
+    indexers_add.add_argument("indexer_address", help="Stellar address of the indexer")
+    indexers_add.add_argument("--output", choices=["table", "json"], default="table")
+    indexers_add.set_defaults(func=_handle_indexers)
 
     return parser
 

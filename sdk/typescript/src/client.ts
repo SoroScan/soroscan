@@ -20,6 +20,8 @@ import type {
   PaginatedResponse,
   RecordEventsBatchParams,
   RecordEventsBatchResponse,
+  AddIndexerParams,
+  AddIndexerResponse,
 } from "./types.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -255,6 +257,26 @@ export class SoroScanClient {
       "POST",
       "/v1/record-events-batch",
       { body: params }
+    );
+  }
+
+  /**
+   * Authorize an indexer address on the SoroScan contract (SC-9).
+   *
+   * @example
+   * const result = await client.addIndexer({
+   *   indexerAddress: 'GABC...',
+   * });
+   */
+  async addIndexer(params: AddIndexerParams): Promise<AddIndexerResponse> {
+    return this.#request<AddIndexerResponse>(
+      "POST",
+      "/api/ingest/indexers/add/",
+      {
+        body: {
+          indexer_address: params.indexerAddress,
+        },
+      }
     );
   }
 
