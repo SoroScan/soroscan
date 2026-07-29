@@ -8,6 +8,7 @@ use soroban_sdk::{
 const ADMIN_KEY: Symbol = symbol_short!("admin");
 const INDEXERS_KEY: Symbol = symbol_short!("idxrs");
 const COUNTER_KEY: Symbol = symbol_short!("count");
+const PAUSED_KEY: Symbol = symbol_short!("paused");
 
 /// Represents a recorded event from an indexed contract.
 #[contracttype]
@@ -51,6 +52,8 @@ pub enum ContractError {
     NotInitialized = 4,
     /// Batch is empty or exceeds the maximum allowed size.
     InvalidBatchSize = 5,
+    /// Event recording is currently paused by the admin.
+    ContractPaused = 6,
 }
 
 #[contract]
@@ -169,6 +172,10 @@ impl SoroScanCore {
     ) -> Result<u64, ContractError> {
         indexer.require_auth();
 
+        if Self::is_paused(env.clone()) {
+            return Err(ContractError::ContractPaused);
+        }
+
         let indexers: Map<Address, bool> = env
             .storage()
             .instance()
@@ -263,6 +270,10 @@ impl SoroScanCore {
     ) -> Result<u64, ContractError> {
         indexer.require_auth();
 
+        if Self::is_paused(env.clone()) {
+            return Err(ContractError::ContractPaused);
+        }
+
         let batch_len = events.len();
         if batch_len == 0 || batch_len > 25 {
             return Err(ContractError::InvalidBatchSize);
@@ -354,6 +365,71 @@ impl SoroScanCore {
     /// The admin address, or None if not initialized
     pub fn get_admin(env: Env) -> Option<Address> {
         env.storage().instance().get(&ADMIN_KEY)
+    }
+
+    /// Pause event recording (SC-28).
+    /// While paused, `record_event` and `record_events_batch` are disabled.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `admin` - The admin address (must match stored admin)
+    pub fn pause(env: Env, admin: Address) -> Result<(), ContractError> {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&ADMIN_KEY)
+            .ok_or(ContractError::NotInitialized)?;
+
+        if admin != stored_admin {
+            return Err(ContractError::Unauthorized);
+        }
+
+        env.storage().instance().set(&PAUSED_KEY, &true);
+
+        env.events()
+            .publish((symbol_short!("admin"), symbol_short!("pause")), admin);
+
+        Ok(())
+    }
+
+    /// Unpause event recording (SC-28).
+    /// Restores normal operation of `record_event` and `record_events_batch`.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `admin` - The admin address (must match stored admin)
+    pub fn unpause(env: Env, admin: Address) -> Result<(), ContractError> {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&ADMIN_KEY)
+            .ok_or(ContractError::NotInitialized)?;
+
+        if admin != stored_admin {
+            return Err(ContractError::Unauthorized);
+        }
+
+        env.storage().instance().set(&PAUSED_KEY, &false);
+
+        env.events()
+            .publish((symbol_short!("admin"), symbol_short!("unpause")), admin);
+
+        Ok(())
+    }
+
+    /// Check whether event recording is currently paused (SC-28).
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    ///
+    /// # Returns
+    /// true if paused, false otherwise
+    pub fn is_paused(env: Env) -> bool {
+        env.storage().instance().get(&PAUSED_KEY).unwrap_or(false)
     }
 }
 
@@ -709,8 +785,8 @@ mod tests {
 
         // Find the event with topic "event1"
         let event1 = all_events.iter().find(|e| {
-            if e.topics.len() > 0 {
-                if let Ok(sym) = Symbol::try_from_val(&env, &e.topics.get(0).unwrap()) {
+            if e.1.len() > 0 {
+                if let Ok(sym) = Symbol::try_from_val(&env, &e.1.get(0).unwrap()) {
                     return sym == symbol_short!("event1");
                 }
             }
@@ -718,14 +794,14 @@ mod tests {
         }).expect("event1 should exist");
 
         // Verify topic extraction
-        assert_eq!(event1.topics.len(), 3);
-        let extracted_sym = Symbol::try_from_val(&env, &event1.topics.get(1).unwrap()).unwrap();
+        assert_eq!(event1.1.len(), 3);
+        let extracted_sym = Symbol::try_from_val(&env, &event1.1.get(1).unwrap()).unwrap();
         assert_eq!(extracted_sym, val_symbol);
-        let extracted_bool = bool::try_from_val(&env, &event1.topics.get(2).unwrap()).unwrap();
+        let extracted_bool = bool::try_from_val(&env, &event1.1.get(2).unwrap()).unwrap();
         assert_eq!(extracted_bool, val_bool);
 
         // Verify payload decoding
-        let payload1: (u32, i32, u64, i64) = TryFromVal::try_from_val(&env, &event1.value).unwrap();
+        let payload1: (u32, i32, u64, i64) = TryFromVal::try_from_val(&env, &event1.2).unwrap();
         assert_eq!(payload1.0, val_u32);
         assert_eq!(payload1.1, val_i32);
         assert_eq!(payload1.2, val_u64);
@@ -733,25 +809,25 @@ mod tests {
 
         // Find event2
         let event2 = all_events.iter().find(|e| {
-            if e.topics.len() > 0 {
-                if let Ok(sym) = Symbol::try_from_val(&env, &e.topics.get(0).unwrap()) {
+            if e.1.len() > 0 {
+                if let Ok(sym) = Symbol::try_from_val(&env, &e.1.get(0).unwrap()) {
                     return sym == symbol_short!("event2");
                 }
             }
             false
         }).expect("event2 should exist");
 
-        let extracted_addr = Address::try_from_val(&env, &event2.topics.get(1).unwrap()).unwrap();
+        let extracted_addr = Address::try_from_val(&env, &event2.1.get(1).unwrap()).unwrap();
         assert_eq!(extracted_addr, val_address);
 
-        let payload2: (u128, i128) = TryFromVal::try_from_val(&env, &event2.value).unwrap();
+        let payload2: (u128, i128) = TryFromVal::try_from_val(&env, &event2.2).unwrap();
         assert_eq!(payload2.0, val_u128);
         assert_eq!(payload2.1, val_i128);
 
         // Find event3
         let event3 = all_events.iter().find(|e| {
-            if e.topics.len() > 0 {
-                if let Ok(sym) = Symbol::try_from_val(&env, &e.topics.get(0).unwrap()) {
+            if e.1.len() > 0 {
+                if let Ok(sym) = Symbol::try_from_val(&env, &e.1.get(0).unwrap()) {
                     return sym == symbol_short!("event3");
                 }
             }
@@ -759,7 +835,7 @@ mod tests {
         }).expect("event3 should exist");
 
         let payload3: (soroban_sdk::Bytes, BytesN<32>, Map<Symbol, u32>, soroban_sdk::Vec<Symbol>) =
-            TryFromVal::try_from_val(&env, &event3.value).unwrap();
+            TryFromVal::try_from_val(&env, &event3.2).unwrap();
         assert_eq!(payload3.0, val_bytes);
         assert_eq!(payload3.1, val_bytes_n);
         assert_eq!(payload3.2.get(symbol_short!("key1")).unwrap(), 100);
@@ -767,26 +843,118 @@ mod tests {
 
         // Find empty event
         let event_empty = all_events.iter().find(|e| {
-            if e.topics.len() > 0 {
-                if let Ok(sym) = Symbol::try_from_val(&env, &e.topics.get(0).unwrap()) {
+            if e.1.len() > 0 {
+                if let Ok(sym) = Symbol::try_from_val(&env, &e.1.get(0).unwrap()) {
                     return sym == symbol_short!("empty");
                 }
             }
             false
         }).expect("empty event should exist");
-        assert_eq!(event_empty.topics.len(), 1); // just "empty"
+        assert_eq!(event_empty.1.len(), 1); // just "empty"
 
         // Find large event
         let event_large = all_events.iter().find(|e| {
-            if e.topics.len() > 0 {
-                if let Ok(sym) = Symbol::try_from_val(&env, &e.topics.get(0).unwrap()) {
+            if e.1.len() > 0 {
+                if let Ok(sym) = Symbol::try_from_val(&env, &e.1.get(0).unwrap()) {
                     return sym == symbol_short!("large");
                 }
             }
             false
         }).expect("large event should exist");
-        let payload_large: Map<u32, BytesN<32>> = TryFromVal::try_from_val(&env, &event_large.value).unwrap();
+        let payload_large: Map<u32, BytesN<32>> = TryFromVal::try_from_val(&env, &event_large.2).unwrap();
         assert_eq!(payload_large.len(), 10);
         assert_eq!(payload_large.get(5).unwrap(), BytesN::from_array(&env, &[5u8; 32]));
+    }
+
+    #[test]
+    fn test_pause_blocks_record_event() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer) = setup_contract(&env);
+        let target = Address::generate(&env);
+
+        client.add_indexer(&admin, &indexer);
+        client.pause(&admin);
+        assert!(client.is_paused());
+
+        let event_type = symbol_short!("swap");
+        let payload_hash = BytesN::from_array(&env, &[0u8; 32]);
+
+        let result = client.try_record_event(&indexer, &target, &event_type, &payload_hash);
+        assert_eq!(result, Err(Ok(ContractError::ContractPaused)));
+        assert_eq!(client.total_events(), 0);
+    }
+
+    #[test]
+    fn test_pause_blocks_record_events_batch() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer) = setup_contract(&env);
+
+        client.add_indexer(&admin, &indexer);
+        client.pause(&admin);
+
+        let mut entries = Vec::new(&env);
+        entries.push_back(EventEntry {
+            contract_id: Address::generate(&env),
+            event_type: symbol_short!("swap"),
+            payload_hash: BytesN::from_array(&env, &[0u8; 32]),
+        });
+
+        let result = client.try_record_events_batch(&indexer, &entries);
+        assert_eq!(result, Err(Ok(ContractError::ContractPaused)));
+        assert_eq!(client.total_events(), 0);
+    }
+
+    #[test]
+    fn test_unpause_restores_recording() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer) = setup_contract(&env);
+        let target = Address::generate(&env);
+
+        client.add_indexer(&admin, &indexer);
+        client.pause(&admin);
+
+        let event_type = symbol_short!("swap");
+        let payload_hash = BytesN::from_array(&env, &[0u8; 32]);
+
+        let blocked = client.try_record_event(&indexer, &target, &event_type, &payload_hash);
+        assert_eq!(blocked, Err(Ok(ContractError::ContractPaused)));
+
+        client.unpause(&admin);
+        assert!(!client.is_paused());
+
+        let count = client.record_event(&indexer, &target, &event_type, &payload_hash);
+        assert_eq!(count, 1);
+        assert_eq!(client.total_events(), 1);
+    }
+
+    #[test]
+    fn test_pause_unauthorized() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _admin, _indexer) = setup_contract(&env);
+        let non_admin = Address::generate(&env);
+
+        let result = client.try_pause(&non_admin);
+        assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+        assert!(!client.is_paused());
+    }
+
+    #[test]
+    fn test_is_paused_default_false() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SoroScanCore);
+        let client = SoroScanCoreClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.init(&admin);
+
+        assert!(!client.is_paused());
     }
 }

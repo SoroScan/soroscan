@@ -20,6 +20,7 @@ import type {
   PaginatedResponse,
   RecordEventsBatchParams,
   RecordEventsBatchResponse,
+  ContractStatus,
 } from "./types.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -256,6 +257,17 @@ export class SoroScanClient {
       "/v1/record-events-batch",
       { body: params }
     );
+  }
+
+  /**
+   * Get the contract's current pause/health status (SC-28).
+   *
+   * @example
+   * const status = await client.getContractStatus();
+   * console.log('Paused:', status.paused);
+   */
+  async getContractStatus(): Promise<ContractStatus> {
+    return this.#request<ContractStatus>("GET", "/v1/contract-status");
   }
 
   /**

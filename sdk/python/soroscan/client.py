@@ -20,6 +20,7 @@ from soroscan.exceptions import (
 from soroscan.models import (
     ContractEvent,
     ContractStats,
+    ContractStatus,
     EventEntry,
     PaginatedResponse,
     RecordEventRequest,
@@ -419,6 +420,18 @@ class SoroScanClient:
         )
         data = self._handle_response(response)
         return RecordEventsBatchResponse.model_validate(data)
+
+    def get_contract_status(self) -> ContractStatus:
+        """
+        Get the contract's current pause/health status (SC-28).
+
+        Returns:
+            ContractStatus with paused flag, admin address, and total event count
+        """
+        url = urljoin(self.base_url, "/api/contract-status/")
+        response = self._client.get(url, headers=self._get_headers())
+        data = self._handle_response(response)
+        return ContractStatus.model_validate(data)
 
     def get_webhooks(
         self,
@@ -928,6 +941,18 @@ class AsyncSoroScanClient:
         )
         data = self._handle_response(response)
         return RecordEventsBatchResponse.model_validate(data)
+
+    async def get_contract_status(self) -> ContractStatus:
+        """
+        Get the contract's current pause/health status (SC-28).
+
+        Returns:
+            ContractStatus with paused flag, admin address, and total event count
+        """
+        url = urljoin(self.base_url, "/api/contract-status/")
+        response = await self._client.get(url, headers=self._get_headers())
+        data = self._handle_response(response)
+        return ContractStatus.model_validate(data)
 
     async def get_webhooks(
         self,

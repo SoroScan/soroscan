@@ -51,6 +51,8 @@ export type {
   EventEntry,
   RecordEventsBatchParams,
   RecordEventsBatchResponse,
+  // SC-28: Contract pause status
+  ContractStatus,
   // Errors
   SoroScanApiError,
 } from "./types.js";
