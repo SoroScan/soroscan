@@ -107,6 +107,7 @@ export function AppShell({ children }: AppShellProps) {
 
   return (
     <div className="min-h-screen bg-terminal-black text-terminal-green font-terminal-mono transition-colors duration-200">
+    <div className="min-h-screen bg-terminal-black text-terminal-green font-terminal-mono">
       {/* Skip to main content link for screen reader and keyboard accessibility */}
       <a
         href="#main-content"
