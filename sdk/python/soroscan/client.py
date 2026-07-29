@@ -19,6 +19,7 @@ from soroscan.exceptions import (
 )
 from soroscan.models import (
     ContractEvent,
+    ContractHealth,
     ContractStats,
     EventEntry,
     PaginatedResponse,
@@ -301,6 +302,42 @@ class SoroScanClient:
         response = self._client.get(url, headers=self._get_headers())
         data = self._handle_response(response)
         return ContractStats.model_validate(data)
+
+    def get_contract_events(
+        self,
+        contract_id: str,
+        limit: int = 100,
+    ) -> list[ContractEvent]:
+        """
+        Get recent events for a specific contract (SC-16).
+
+        Args:
+            contract_id: Contract address (C...)
+            limit: Maximum number of events to return (default 100)
+
+        Returns:
+            List of contract events ordered by recency
+        """
+        params: dict[str, Any] = {"limit": limit}
+        url = urljoin(self.base_url, f"/api/contracts/{contract_id}/events/")
+        response = self._client.get(url, headers=self._get_headers(), params=params)
+        data = self._handle_response(response)
+        return [ContractEvent.model_validate(item) for item in data]
+
+    def get_contract_health(self, contract_id: str) -> ContractHealth:
+        """
+        Get health status for a tracked contract (SC-16).
+
+        Args:
+            contract_id: Contract address (C...)
+
+        Returns:
+            Contract health status including error counts and last event time
+        """
+        url = urljoin(self.base_url, f"/api/contracts/{contract_id}/health/")
+        response = self._client.get(url, headers=self._get_headers())
+        data = self._handle_response(response)
+        return ContractHealth.model_validate(data)
 
     def get_events(
         self,
@@ -808,6 +845,42 @@ class AsyncSoroScanClient:
         response = await self._client.get(url, headers=self._get_headers())
         data = self._handle_response(response)
         return ContractStats.model_validate(data)
+
+    async def get_contract_events(
+        self,
+        contract_id: str,
+        limit: int = 100,
+    ) -> list[ContractEvent]:
+        """
+        Get recent events for a specific contract (SC-16).
+
+        Args:
+            contract_id: Contract address (C...)
+            limit: Maximum number of events to return (default 100)
+
+        Returns:
+            List of contract events ordered by recency
+        """
+        params: dict[str, Any] = {"limit": limit}
+        url = urljoin(self.base_url, f"/api/contracts/{contract_id}/events/")
+        response = await self._client.get(url, headers=self._get_headers(), params=params)
+        data = self._handle_response(response)
+        return [ContractEvent.model_validate(item) for item in data]
+
+    async def get_contract_health(self, contract_id: str) -> ContractHealth:
+        """
+        Get health status for a tracked contract (SC-16).
+
+        Args:
+            contract_id: Contract address (C...)
+
+        Returns:
+            Contract health status including error counts and last event time
+        """
+        url = urljoin(self.base_url, f"/api/contracts/{contract_id}/health/")
+        response = await self._client.get(url, headers=self._get_headers())
+        data = self._handle_response(response)
+        return ContractHealth.model_validate(data)
 
     async def get_events(
         self,

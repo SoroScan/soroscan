@@ -51,6 +51,8 @@ export type {
   EventEntry,
   RecordEventsBatchParams,
   RecordEventsBatchResponse,
+  // SC-16: Contract health
+  ContractHealth,
   // Errors
   SoroScanApiError,
 } from "./types.js";

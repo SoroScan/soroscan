@@ -115,3 +115,18 @@ class RecordEventsBatchResponse(BaseModel):
     tx_hash: str | None = Field(None, description="Transaction hash")
     transaction_status: str | None = Field(None, description="Transaction status")
     error: str | None = Field(None, description="Error message if failed")
+
+
+# ── SC-16: Contract health ─────────────────────────────────────────────────────
+
+class ContractHealth(BaseModel):
+    """Health status for a tracked contract (SC-16)."""
+
+    contract_id: str = Field(..., description="Contract address")
+    status: str = Field(..., description="Health status (healthy/unhealthy)")
+    last_event_time: datetime | None = Field(None, description="Timestamp of last event")
+    minutes_since_last_event: int | None = Field(None, description="Minutes since last event")
+    abi_decode_errors_1h: int = Field(default=0, description="ABI decode errors in last hour")
+    consecutive_failures: int = Field(default=0, description="Consecutive indexing failures")
+    error_message: str = Field(default="", description="Error message if unhealthy")
+    checked_at: datetime | None = Field(None, description="When health was last checked")

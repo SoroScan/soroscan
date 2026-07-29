@@ -1,6 +1,7 @@
 import type {
   SoroScanClientConfig,
   SoroScanApiError,
+  ContractHealth,
   GetEventsParams,
   GetEventsResponse,
   GetContractsParams,
@@ -176,6 +177,41 @@ export class SoroScanClient {
     return this.#request<Contract>(
       "GET",
       `/v1/contracts/${encodeURIComponent(contractId)}`
+    );
+  }
+
+  /**
+   * Get recent events for a specific contract (SC-16).
+   *
+   * @example
+   * const events = await client.getContractEvents('CCAAA...', 20);
+   * for (const event of events) {
+   *   console.log(event.event_type, event.timestamp);
+   * }
+   */
+  async getContractEvents(
+    contractId: string,
+    limit: number = 100
+  ): Promise<import("./types.js").ContractEvent[]> {
+    return this.#request<import("./types.js").ContractEvent[]>(
+      "GET",
+      `/v1/contracts/${encodeURIComponent(contractId)}/events`,
+      { query: { limit } }
+    );
+  }
+
+  /**
+   * Get health status for a tracked contract (SC-16).
+   *
+   * @example
+   * const health = await client.getContractHealth('CCAAA...');
+   * console.log('Status:', health.status);
+   * console.log('Consecutive failures:', health.consecutiveFailures);
+   */
+  async getContractHealth(contractId: string): Promise<ContractHealth> {
+    return this.#request<ContractHealth>(
+      "GET",
+      `/v1/contracts/${encodeURIComponent(contractId)}/health`
     );
   }
 

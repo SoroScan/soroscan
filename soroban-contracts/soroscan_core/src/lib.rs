@@ -184,7 +184,7 @@ impl SoroScanCore {
         let timestamp = env.ledger().timestamp();
 
         let record = EventRecord {
-            contract_id,
+            contract_id: contract_id.clone(),
             event_type: event_type.clone(),
             payload_hash,
             ledger,
@@ -198,6 +198,9 @@ impl SoroScanCore {
 
         // Store latest event by type
         env.storage().instance().set(&event_type, &record);
+
+        // Store latest event by contract (SC-16)
+        env.storage().instance().set(&contract_id, &record);
 
         // Publish the event for off-chain indexers
         env.events()
@@ -216,6 +219,18 @@ impl SoroScanCore {
     /// The latest EventRecord for the type, or None if not found
     pub fn latest_by_type(env: Env, event_type: Symbol) -> Option<EventRecord> {
         env.storage().instance().get(&event_type)
+    }
+
+    /// Get the latest event record for a specific contract (SC-16).
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `contract_id` - The contract address to query
+    ///
+    /// # Returns
+    /// The latest EventRecord for the contract, or None if not found
+    pub fn latest_by_contract(env: Env, contract_id: Address) -> Option<EventRecord> {
+        env.storage().instance().get(&contract_id)
     }
 
     /// Get the total number of events recorded.
@@ -294,6 +309,9 @@ impl SoroScanCore {
 
             count = count.saturating_add(1);
             env.storage().instance().set(&entry.event_type, &record);
+
+            // Store latest event by contract (SC-16)
+            env.storage().instance().set(&entry.contract_id, &record);
 
             env.events().publish(
                 (symbol_short!("soroscan"), entry.event_type.clone()),
