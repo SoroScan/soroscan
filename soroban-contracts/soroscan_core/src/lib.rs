@@ -27,6 +27,16 @@ pub struct EventRecord {
     pub timestamp: u64,
 }
 
+/// Indexer registration status (SC-10).
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum IndexerStatus {
+    /// Indexer is active and can record events.
+    Active = 0,
+    /// Indexer is paused; it remains registered but cannot record events.
+    Paused = 1,
+}
+
 /// A single event entry used in batch recording (SC-29).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -88,7 +98,7 @@ impl SoroScanCore {
         env.storage().instance().set(&ADMIN_KEY, &admin);
         env.storage()
             .instance()
-            .set(&INDEXERS_KEY, &Map::<Address, bool>::new(&env));
+            .set(&INDEXERS_KEY, &Map::<Address, IndexerStatus>::new(&env));
         env.storage().instance().set(&COUNTER_KEY, &0u64);
         env.storage()
             .instance()
@@ -119,13 +129,13 @@ impl SoroScanCore {
             return Err(ContractError::Unauthorized);
         }
 
-        let mut indexers: Map<Address, bool> = env
+        let mut indexers: Map<Address, IndexerStatus> = env
             .storage()
             .instance()
             .get(&INDEXERS_KEY)
             .ok_or(ContractError::NotInitialized)?;
 
-        indexers.set(indexer.clone(), true);
+        indexers.set(indexer.clone(), IndexerStatus::Active);
         env.storage().instance().set(&INDEXERS_KEY, &indexers);
 
         // Emit event for indexer addition
@@ -154,7 +164,7 @@ impl SoroScanCore {
             return Err(ContractError::Unauthorized);
         }
 
-        let mut indexers: Map<Address, bool> = env
+        let mut indexers: Map<Address, IndexerStatus> = env
             .storage()
             .instance()
             .get(&INDEXERS_KEY)
@@ -287,15 +297,16 @@ impl SoroScanCore {
     ) -> Result<u64, ContractError> {
         indexer.require_auth();
 
-        let indexers: Map<Address, bool> = env
+        let indexers: Map<Address, IndexerStatus> = env
             .storage()
             .instance()
             .get(&INDEXERS_KEY)
             .ok_or(ContractError::NotInitialized)?;
 
-        let is_allowed = indexers.get(indexer).unwrap_or(false);
-        if !is_allowed {
-            return Err(ContractError::IndexerNotFound);
+        match indexers.get(indexer) {
+            Some(IndexerStatus::Active) => {}
+            Some(IndexerStatus::Paused) => return Err(ContractError::IndexerPaused),
+            None => return Err(ContractError::IndexerNotFound),
         }
 
         let ledger = env.ledger().sequence();
@@ -350,6 +361,79 @@ impl SoroScanCore {
             .publish((symbol_short!("soroscan"), event_type), record);
 
         Ok(count)
+    }
+
+    /// Record an SC-38 structured event.
+    ///
+    /// `correlation_id` makes producer retries safe: a duplicate is rejected
+    /// before incrementing the counter or publishing a second event.
+    pub fn record_structured_event(
+        env: Env,
+        indexer: Address,
+        contract_id: Address,
+        event_type: Symbol,
+        payload_hash: BytesN<32>,
+        schema_version: u32,
+        correlation_id: BytesN<32>,
+    ) -> Result<u64, ContractError> {
+        indexer.require_auth();
+
+        if schema_version == 0 {
+            return Err(ContractError::InvalidSchemaVersion);
+        }
+
+        let indexers: Map<Address, bool> = env
+            .storage()
+            .instance()
+            .get(&INDEXERS_KEY)
+            .ok_or(ContractError::NotInitialized)?;
+        if !indexers.get(indexer).unwrap_or(false) {
+            return Err(ContractError::IndexerNotFound);
+        }
+
+        let correlation_key = DataKey::StructuredByCorrelation(correlation_id.clone());
+        if env.storage().instance().has(&correlation_key) {
+            return Err(ContractError::DuplicateCorrelation);
+        }
+
+        let record = StructuredEventRecord {
+            contract_id,
+            event_type: event_type.clone(),
+            payload_hash,
+            schema_version,
+            correlation_id,
+            ledger: env.ledger().sequence(),
+            timestamp: env.ledger().timestamp(),
+        };
+
+        let count = env
+            .storage()
+            .instance()
+            .get::<Symbol, u64>(&COUNTER_KEY)
+            .unwrap_or(0)
+            .saturating_add(1);
+        env.storage().instance().set(&COUNTER_KEY, &count);
+        env.storage().instance().set(&correlation_key, &record);
+        env.storage().instance().set(
+            &DataKey::LatestStructuredByType(event_type.clone()),
+            &record,
+        );
+        env.events().publish(
+            (symbol_short!("soroscan"), symbol_short!("sc38"), event_type),
+            record,
+        );
+
+        Ok(count)
+    }
+
+    /// Get a structured event by its SC-38 correlation ID.
+    pub fn structured_by_correlation(
+        env: Env,
+        correlation_id: BytesN<32>,
+    ) -> Option<StructuredEventRecord> {
+        env.storage()
+            .instance()
+            .get(&DataKey::StructuredByCorrelation(correlation_id))
     }
 
     /// Get the latest event record for a specific event type.
@@ -416,11 +500,12 @@ impl SoroScanCore {
     /// * `indexer` - The address to check
     ///
     /// # Returns
-    /// true if the address is authorized, false otherwise
+    /// true if the address is registered and active, false otherwise
     pub fn is_indexer(env: Env, indexer: Address) -> bool {
-        let indexers: Option<Map<Address, bool>> = env.storage().instance().get(&INDEXERS_KEY);
+        let indexers: Option<Map<Address, IndexerStatus>> =
+            env.storage().instance().get(&INDEXERS_KEY);
         match indexers {
-            Some(map) => map.get(indexer).unwrap_or(false),
+            Some(map) => map.get(indexer) == Some(IndexerStatus::Active),
             None => false,
         }
     }
@@ -448,15 +533,16 @@ impl SoroScanCore {
             return Err(ContractError::InvalidBatchSize);
         }
 
-        let indexers: Map<Address, bool> = env
+        let indexers: Map<Address, IndexerStatus> = env
             .storage()
             .instance()
             .get(&INDEXERS_KEY)
             .ok_or(ContractError::NotInitialized)?;
 
-        let is_allowed = indexers.get(indexer.clone()).unwrap_or(false);
-        if !is_allowed {
-            return Err(ContractError::IndexerNotFound);
+        match indexers.get(indexer.clone()) {
+            Some(IndexerStatus::Active) => {}
+            Some(IndexerStatus::Paused) => return Err(ContractError::IndexerPaused),
+            None => return Err(ContractError::IndexerNotFound),
         }
 
         let ledger = env.ledger().sequence();
@@ -519,6 +605,101 @@ impl SoroScanCore {
         );
 
         Ok(count)
+    }
+
+    /// Pause an indexer, preventing it from recording events (SC-10).
+    /// The indexer remains registered and can be resumed.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `admin` - The admin address (must match stored admin)
+    /// * `indexer` - The indexer address to pause
+    pub fn pause_indexer(env: Env, admin: Address, indexer: Address) -> Result<(), ContractError> {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&ADMIN_KEY)
+            .ok_or(ContractError::NotInitialized)?;
+
+        if admin != stored_admin {
+            return Err(ContractError::Unauthorized);
+        }
+
+        let mut indexers: Map<Address, IndexerStatus> = env
+            .storage()
+            .instance()
+            .get(&INDEXERS_KEY)
+            .ok_or(ContractError::NotInitialized)?;
+
+        if !indexers.contains_key(indexer.clone()) {
+            return Err(ContractError::IndexerNotFound);
+        }
+
+        indexers.set(indexer.clone(), IndexerStatus::Paused);
+        env.storage().instance().set(&INDEXERS_KEY, &indexers);
+
+        env.events()
+            .publish((symbol_short!("indexer"), symbol_short!("pause")), indexer);
+
+        Ok(())
+    }
+
+    /// Resume a paused indexer, allowing it to record events again (SC-10).
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `admin` - The admin address (must match stored admin)
+    /// * `indexer` - The indexer address to resume
+    pub fn resume_indexer(
+        env: Env,
+        admin: Address,
+        indexer: Address,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&ADMIN_KEY)
+            .ok_or(ContractError::NotInitialized)?;
+
+        if admin != stored_admin {
+            return Err(ContractError::Unauthorized);
+        }
+
+        let mut indexers: Map<Address, IndexerStatus> = env
+            .storage()
+            .instance()
+            .get(&INDEXERS_KEY)
+            .ok_or(ContractError::NotInitialized)?;
+
+        if !indexers.contains_key(indexer.clone()) {
+            return Err(ContractError::IndexerNotFound);
+        }
+
+        indexers.set(indexer.clone(), IndexerStatus::Active);
+        env.storage().instance().set(&INDEXERS_KEY, &indexers);
+
+        env.events()
+            .publish((symbol_short!("indexer"), symbol_short!("resume")), indexer);
+
+        Ok(())
+    }
+
+    /// Get the status of a specific indexer (SC-10).
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `indexer` - The indexer address to query
+    ///
+    /// # Returns
+    /// The IndexerStatus if registered, or None if not found
+    pub fn get_indexer_status(env: Env, indexer: Address) -> Option<IndexerStatus> {
+        let indexers: Option<Map<Address, IndexerStatus>> =
+            env.storage().instance().get(&INDEXERS_KEY);
+        indexers.and_then(|map| map.get(indexer))
     }
 
     /// Transfer admin rights to a new address (SC-29).
@@ -1164,5 +1345,131 @@ mod tests {
         let payload_large: Map<u32, BytesN<32>> = TryFromVal::try_from_val(&env, &event_large.value).unwrap();
         assert_eq!(payload_large.len(), 10);
         assert_eq!(payload_large.get(5).unwrap(), BytesN::from_array(&env, &[5u8; 32]));
+    }
+
+    // ── SC-10: pause/resume indexer ─────────────────────────────────────────
+
+    #[test]
+    fn test_pause_and_resume_indexer() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer) = setup_contract(&env);
+        client.add_indexer(&admin, &indexer);
+
+        // Initially active
+        assert_eq!(client.get_indexer_status(&indexer), Some(IndexerStatus::Active));
+        assert!(client.is_indexer(&indexer));
+
+        // Pause
+        client.pause_indexer(&admin, &indexer);
+        assert_eq!(client.get_indexer_status(&indexer), Some(IndexerStatus::Paused));
+        // is_indexer returns false for paused indexers
+        assert!(!client.is_indexer(&indexer));
+
+        // Resume
+        client.resume_indexer(&admin, &indexer);
+        assert_eq!(client.get_indexer_status(&indexer), Some(IndexerStatus::Active));
+        assert!(client.is_indexer(&indexer));
+    }
+
+    #[test]
+    fn test_paused_indexer_cannot_record_event() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer) = setup_contract(&env);
+        let target = Address::generate(&env);
+
+        client.add_indexer(&admin, &indexer);
+        client.pause_indexer(&admin, &indexer);
+
+        let result = client.try_record_event(
+            &indexer,
+            &target,
+            &symbol_short!("swap"),
+            &BytesN::from_array(&env, &[0u8; 32]),
+        );
+        assert_eq!(result, Err(Ok(ContractError::IndexerPaused)));
+        assert_eq!(client.total_events(), 0);
+    }
+
+    #[test]
+    fn test_paused_indexer_cannot_record_batch() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer) = setup_contract(&env);
+        client.add_indexer(&admin, &indexer);
+        client.pause_indexer(&admin, &indexer);
+
+        let mut entries = Vec::new(&env);
+        entries.push_back(EventEntry {
+            contract_id: Address::generate(&env),
+            event_type: symbol_short!("swap"),
+            payload_hash: BytesN::from_array(&env, &[0u8; 32]),
+        });
+
+        let result = client.try_record_events_batch(&indexer, &entries);
+        assert_eq!(result, Err(Ok(ContractError::IndexerPaused)));
+    }
+
+    #[test]
+    fn test_pause_indexer_unauthorized() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer) = setup_contract(&env);
+        let non_admin = Address::generate(&env);
+        client.add_indexer(&admin, &indexer);
+
+        let result = client.try_pause_indexer(&non_admin, &indexer);
+        assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+        // Still active
+        assert_eq!(client.get_indexer_status(&indexer), Some(IndexerStatus::Active));
+    }
+
+    #[test]
+    fn test_pause_nonexistent_indexer() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, _) = setup_contract(&env);
+        let ghost = Address::generate(&env);
+
+        let result = client.try_pause_indexer(&admin, &ghost);
+        assert_eq!(result, Err(Ok(ContractError::IndexerNotFound)));
+    }
+
+    #[test]
+    fn test_get_indexer_status_unknown() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _, _) = setup_contract(&env);
+        let unknown = Address::generate(&env);
+
+        assert_eq!(client.get_indexer_status(&unknown), None);
+    }
+
+    #[test]
+    fn test_resumed_indexer_can_record_event() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer) = setup_contract(&env);
+        let target = Address::generate(&env);
+
+        client.add_indexer(&admin, &indexer);
+        client.pause_indexer(&admin, &indexer);
+        client.resume_indexer(&admin, &indexer);
+
+        let count = client.record_event(
+            &indexer,
+            &target,
+            &symbol_short!("swap"),
+            &BytesN::from_array(&env, &[0u8; 32]),
+        );
+        assert_eq!(count, 1);
     }
 }
