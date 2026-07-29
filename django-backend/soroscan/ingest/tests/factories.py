@@ -84,6 +84,8 @@ class ContractEventFactory(DjangoModelFactory):
     event_index = factory.Sequence(lambda n: n)
     timestamp = factory.Faker("date_time")
     tx_hash = factory.Sequence(lambda n: f"{'b' * 64}")
+    # SC-8: None for plain events; set to ≥ 1 for annotated events
+    schema_version = None
 
 
 class WebhookSubscriptionFactory(DjangoModelFactory):

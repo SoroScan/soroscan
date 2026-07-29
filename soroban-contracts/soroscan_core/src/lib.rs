@@ -8,6 +8,10 @@ use soroban_sdk::{
 const ADMIN_KEY: Symbol = symbol_short!("admin");
 const INDEXERS_KEY: Symbol = symbol_short!("idxrs");
 const COUNTER_KEY: Symbol = symbol_short!("count");
+// SC-8: per-type event count map key
+const TYPE_COUNTS_KEY: Symbol = symbol_short!("tycnts");
+// SC-8: prefix used to store annotated events; combined with event_type at runtime
+const ANNOTATED_KEY_PREFIX: Symbol = symbol_short!("ann");
 
 /// Represents a recorded event from an indexed contract.
 #[contracttype]
@@ -37,6 +41,25 @@ pub struct EventEntry {
     pub payload_hash: BytesN<32>,
 }
 
+/// An annotated event record that carries an explicit schema version tag (SC-8).
+/// Extends EventRecord with a version field for schema evolution tracking.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AnnotatedEventRecord {
+    /// The contract that emitted the original event.
+    pub contract_id: Address,
+    /// The type/category of the event.
+    pub event_type: Symbol,
+    /// SHA-256 hash of the event payload for verification.
+    pub payload_hash: BytesN<32>,
+    /// Ledger sequence number when recorded.
+    pub ledger: u32,
+    /// Unix timestamp when recorded.
+    pub timestamp: u64,
+    /// Schema version tag for off-chain decoder selection (SC-8).
+    pub schema_version: u32,
+}
+
 /// Contract errors with explicit error codes.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -51,6 +74,8 @@ pub enum ContractError {
     NotInitialized = 4,
     /// Batch is empty or exceeds the maximum allowed size.
     InvalidBatchSize = 5,
+    /// Schema version 0 is reserved and not allowed (SC-8).
+    InvalidSchemaVersion = 6,
 }
 
 #[contract]
@@ -354,6 +379,136 @@ impl SoroScanCore {
     /// The admin address, or None if not initialized
     pub fn get_admin(env: Env) -> Option<Address> {
         env.storage().instance().get(&ADMIN_KEY)
+    }
+
+    // -------------------------------------------------------------------------
+    // SC-8: Annotated event emission with schema version tracking
+    // -------------------------------------------------------------------------
+
+    /// Emit an annotated event carrying an explicit schema version tag.
+    ///
+    /// Unlike `record_event`, this function stores and publishes an
+    /// `AnnotatedEventRecord` so off-chain indexers can select the correct
+    /// ABI decoder without a separate schema-registry lookup.
+    ///
+    /// # Arguments
+    /// * `env`            - The contract environment
+    /// * `indexer`        - The indexer address (must be authorized)
+    /// * `contract_id`    - The contract that emitted the original event
+    /// * `event_type`     - The type/category of the event
+    /// * `payload_hash`   - SHA-256 hash of the event payload
+    /// * `schema_version` - Positive integer identifying the schema (≥ 1)
+    ///
+    /// # Returns
+    /// The new total event count
+    ///
+    /// # Errors
+    /// * `InvalidSchemaVersion` — when `schema_version == 0`
+    /// * `IndexerNotFound`      — when `indexer` is not whitelisted
+    /// * `NotInitialized`       — when contract has not been initialized
+    pub fn emit_annotated_event(
+        env: Env,
+        indexer: Address,
+        contract_id: Address,
+        event_type: Symbol,
+        payload_hash: BytesN<32>,
+        schema_version: u32,
+    ) -> Result<u64, ContractError> {
+        indexer.require_auth();
+
+        if schema_version == 0 {
+            return Err(ContractError::InvalidSchemaVersion);
+        }
+
+        let indexers: Map<Address, bool> = env
+            .storage()
+            .instance()
+            .get(&INDEXERS_KEY)
+            .ok_or(ContractError::NotInitialized)?;
+
+        if !indexers.get(indexer).unwrap_or(false) {
+            return Err(ContractError::IndexerNotFound);
+        }
+
+        let ledger = env.ledger().sequence();
+        let timestamp = env.ledger().timestamp();
+
+        let record = AnnotatedEventRecord {
+            contract_id,
+            event_type: event_type.clone(),
+            payload_hash,
+            ledger,
+            timestamp,
+            schema_version,
+        };
+
+        // Increment global counter
+        let mut count: u64 = env.storage().instance().get(&COUNTER_KEY).unwrap_or(0);
+        count = count.saturating_add(1);
+        env.storage().instance().set(&COUNTER_KEY, &count);
+
+        // Update per-type counter map (SC-8)
+        let mut type_counts: Map<Symbol, u64> = env
+            .storage()
+            .instance()
+            .get(&TYPE_COUNTS_KEY)
+            .unwrap_or_else(|| Map::new(&env));
+        let prev: u64 = type_counts.get(event_type.clone()).unwrap_or(0);
+        type_counts.set(event_type.clone(), prev.saturating_add(1));
+        env.storage().instance().set(&TYPE_COUNTS_KEY, &type_counts);
+
+        // Store annotated record under a composite key (prefix + event_type)
+        // We reuse the event_type symbol directly as a namespaced key here
+        // (collision-free because annotated records and plain records use
+        // distinct key spaces: plain uses raw event_type, annotated uses ANNOTATED_KEY_PREFIX tuple).
+        env.storage()
+            .instance()
+            .set(&(ANNOTATED_KEY_PREFIX, event_type.clone()), &record);
+
+        // Publish annotated event — subscribers can distinguish from plain
+        // events by inspecting the "ann" topic prefix.
+        env.events().publish(
+            (symbol_short!("ann"), event_type),
+            record,
+        );
+
+        Ok(count)
+    }
+
+    /// Return the number of times a specific event type has been recorded
+    /// via `emit_annotated_event` (SC-8).
+    ///
+    /// # Arguments
+    /// * `env`        - The contract environment
+    /// * `event_type` - The event type to query
+    ///
+    /// # Returns
+    /// Count of annotated emissions for the type, or 0 if never emitted
+    pub fn event_count_by_type(env: Env, event_type: Symbol) -> u64 {
+        let type_counts: Option<Map<Symbol, u64>> =
+            env.storage().instance().get(&TYPE_COUNTS_KEY);
+        match type_counts {
+            Some(map) => map.get(event_type).unwrap_or(0),
+            None => 0,
+        }
+    }
+
+    /// Retrieve the latest annotated event record for a specific event type
+    /// (SC-8).
+    ///
+    /// # Arguments
+    /// * `env`        - The contract environment
+    /// * `event_type` - The event type to query
+    ///
+    /// # Returns
+    /// The latest `AnnotatedEventRecord` for the type, or `None` if not found
+    pub fn latest_annotated_by_type(
+        env: Env,
+        event_type: Symbol,
+    ) -> Option<AnnotatedEventRecord> {
+        env.storage()
+            .instance()
+            .get(&(ANNOTATED_KEY_PREFIX, event_type))
     }
 }
 
@@ -788,5 +943,216 @@ mod tests {
         let payload_large: Map<u32, BytesN<32>> = TryFromVal::try_from_val(&env, &event_large.value).unwrap();
         assert_eq!(payload_large.len(), 10);
         assert_eq!(payload_large.get(5).unwrap(), BytesN::from_array(&env, &[5u8; 32]));
+    }
+
+    // -------------------------------------------------------------------------
+    // SC-8 tests: annotated event emission, per-type counts, latest query
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_emit_annotated_event_basic() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer) = setup_contract(&env);
+        let target = Address::generate(&env);
+
+        client.add_indexer(&admin, &indexer);
+
+        let event_type = symbol_short!("swap");
+        let payload_hash = BytesN::from_array(&env, &[1u8; 32]);
+        let schema_version: u32 = 2;
+
+        let count = client.emit_annotated_event(
+            &indexer,
+            &target,
+            &event_type,
+            &payload_hash,
+            &schema_version,
+        );
+        assert_eq!(count, 1);
+        assert_eq!(client.total_events(), 1);
+
+        // Per-type count is tracked
+        assert_eq!(client.event_count_by_type(&event_type), 1);
+
+        // Latest annotated record is stored
+        let record = client
+            .latest_annotated_by_type(&event_type)
+            .expect("annotated record should exist");
+        assert_eq!(record.event_type, event_type);
+        assert_eq!(record.contract_id, target);
+        assert_eq!(record.payload_hash, payload_hash);
+        assert_eq!(record.schema_version, schema_version);
+    }
+
+    #[test]
+    fn test_emit_annotated_event_invalid_schema_version() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer) = setup_contract(&env);
+        let target = Address::generate(&env);
+
+        client.add_indexer(&admin, &indexer);
+
+        let result = client.try_emit_annotated_event(
+            &indexer,
+            &target,
+            &symbol_short!("swap"),
+            &BytesN::from_array(&env, &[0u8; 32]),
+            &0u32, // schema_version 0 is invalid
+        );
+        assert_eq!(result, Err(Ok(ContractError::InvalidSchemaVersion)));
+        // counter must not have been incremented
+        assert_eq!(client.total_events(), 0);
+    }
+
+    #[test]
+    fn test_emit_annotated_event_unauthorized_indexer() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _admin, _indexer) = setup_contract(&env);
+        let rogue = Address::generate(&env);
+        let target = Address::generate(&env);
+
+        let result = client.try_emit_annotated_event(
+            &rogue,
+            &target,
+            &symbol_short!("burn"),
+            &BytesN::from_array(&env, &[0u8; 32]),
+            &1u32,
+        );
+        assert_eq!(result, Err(Ok(ContractError::IndexerNotFound)));
+        assert_eq!(client.total_events(), 0);
+    }
+
+    #[test]
+    fn test_emit_annotated_event_increments_type_count() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer) = setup_contract(&env);
+        let target = Address::generate(&env);
+
+        client.add_indexer(&admin, &indexer);
+
+        let swap = symbol_short!("swap");
+        let mint = symbol_short!("mint");
+        let hash = BytesN::from_array(&env, &[7u8; 32]);
+
+        // Emit swap twice, mint once
+        client.emit_annotated_event(&indexer, &target, &swap, &hash, &1u32);
+        client.emit_annotated_event(&indexer, &target, &swap, &hash, &1u32);
+        client.emit_annotated_event(&indexer, &target, &mint, &hash, &1u32);
+
+        assert_eq!(client.event_count_by_type(&swap), 2);
+        assert_eq!(client.event_count_by_type(&mint), 1);
+        // Type not yet emitted returns 0
+        assert_eq!(client.event_count_by_type(&symbol_short!("burn")), 0);
+        // Global counter covers all annotated events
+        assert_eq!(client.total_events(), 3);
+    }
+
+    #[test]
+    fn test_emit_annotated_event_publishes_ann_topic() {
+        use soroban_sdk::TryFromVal;
+
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer) = setup_contract(&env);
+        let target = Address::generate(&env);
+
+        client.add_indexer(&admin, &indexer);
+
+        let event_type = symbol_short!("xfer");
+        client.emit_annotated_event(
+            &indexer,
+            &target,
+            &event_type,
+            &BytesN::from_array(&env, &[5u8; 32]),
+            &3u32,
+        );
+
+        // The emitted chain event must carry "ann" as first topic
+        let all_events = env.events().all();
+        let ann_event = all_events
+            .iter()
+            .find(|e| {
+                if e.topics.len() >= 2 {
+                    if let Ok(sym) =
+                        Symbol::try_from_val(&env, &e.topics.get(0).unwrap())
+                    {
+                        return sym == symbol_short!("ann");
+                    }
+                }
+                false
+            })
+            .expect("annotated event should be published with 'ann' topic");
+
+        // Second topic is the event_type
+        let topic_type =
+            Symbol::try_from_val(&env, &ann_event.topics.get(1).unwrap()).unwrap();
+        assert_eq!(topic_type, event_type);
+    }
+
+    #[test]
+    fn test_event_count_by_type_no_events() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SoroScanCore);
+        let client = SoroScanCoreClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.init(&admin);
+
+        // No events emitted yet — must return 0 without panicking
+        assert_eq!(client.event_count_by_type(&symbol_short!("any")), 0);
+    }
+
+    #[test]
+    fn test_latest_annotated_by_type_none_before_emit() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SoroScanCore);
+        let client = SoroScanCoreClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.init(&admin);
+
+        assert!(client.latest_annotated_by_type(&symbol_short!("swap")).is_none());
+    }
+
+    #[test]
+    fn test_annotated_and_plain_events_coexist() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer) = setup_contract(&env);
+        let target = Address::generate(&env);
+
+        client.add_indexer(&admin, &indexer);
+
+        let swap = symbol_short!("swap");
+        let hash = BytesN::from_array(&env, &[9u8; 32]);
+
+        // Record one plain event and one annotated event
+        client.record_event(&indexer, &target, &swap, &hash);
+        client.emit_annotated_event(&indexer, &target, &swap, &hash, &1u32);
+
+        // Global counter covers both
+        assert_eq!(client.total_events(), 2);
+
+        // Plain event is accessible via latest_by_type
+        assert!(client.latest_by_type(&swap).is_some());
+
+        // Annotated event is accessible via latest_annotated_by_type
+        let ann = client
+            .latest_annotated_by_type(&swap)
+            .expect("annotated record must exist");
+        assert_eq!(ann.schema_version, 1);
+
+        // Per-type count only tracks annotated emissions
+        assert_eq!(client.event_count_by_type(&swap), 1);
     }
 }

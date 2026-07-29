@@ -551,6 +551,10 @@ class RecordEventRequestSerializer(serializers.Serializer):
     """
     Serializer for incoming event recording requests.
     Used to submit a transaction to the SoroScan contract for indexing.
+
+    When ``schema_version`` is provided (≥ 1), the request is routed to the
+    on-chain ``emit_annotated_event`` function instead of ``record_event``.
+    schema_version 0 is explicitly rejected (reserved by the contract).
     """
 
     contract_id = serializers.CharField(
@@ -564,6 +568,18 @@ class RecordEventRequestSerializer(serializers.Serializer):
     payload_hash = serializers.CharField(
         max_length=64,
         help_text="SHA-256 hash of payload (hex)",
+    )
+    # SC-8: optional schema version for annotated event emission
+    schema_version = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        default=None,
+        min_value=1,
+        help_text=(
+            "Schema version tag (≥ 1) for annotated event emission (SC-8). "
+            "When present, routes to emit_annotated_event on-chain. "
+            "Version 0 is reserved and will be rejected."
+        ),
     )
 
 

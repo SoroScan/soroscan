@@ -20,6 +20,13 @@ import type {
   PaginatedResponse,
   RecordEventsBatchParams,
   RecordEventsBatchResponse,
+  // SC-8
+  EmitAnnotatedEventParams,
+  EmitAnnotatedEventResponse,
+  GetEventCountByTypeParams,
+  EventCountByTypeResponse,
+  StreamedEvent,
+  StreamEventsParams,
 } from "./types.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -312,6 +319,162 @@ export class SoroScanClient {
       "DELETE",
       `/v1/webhooks/${encodeURIComponent(webhookId)}`
     );
+  }
+
+  // ── SC-8: Annotated event emission & per-type counts ───────────────────────
+
+  /**
+   * Emit an annotated event carrying an explicit schema version tag (SC-8).
+   *
+   * The `schemaVersion` must be ≥ 1; version 0 is reserved by the on-chain
+   * contract and will be rejected with a validation error.
+   *
+   * Off-chain indexers use the schema version to select the correct ABI
+   * decoder without a separate schema-registry lookup.
+   *
+   * @example
+   * const result = await client.emitAnnotatedEvent({
+   *   contractId: 'CCAAA...',
+   *   eventType: 'transfer',
+   *   payloadHash: 'abc123...',
+   *   schemaVersion: 2,
+   * });
+   * console.log('total events:', result.totalEvents);
+   */
+  async emitAnnotatedEvent(
+    params: EmitAnnotatedEventParams
+  ): Promise<EmitAnnotatedEventResponse> {
+    return this.#request<EmitAnnotatedEventResponse>(
+      "POST",
+      "/v1/record",
+      { body: params }
+    );
+  }
+
+  /**
+   * Return per-event-type event counts, optionally scoped to a contract and
+   * broken down by schema version (SC-8).
+   *
+   * @example
+   * const result = await client.getEventCountByType({
+   *   contractId: 'CCAAA...',
+   *   includeSchemaVersions: true,
+   * });
+   * for (const entry of result.counts) {
+   *   console.log(entry.eventType, entry.count, entry.schemaVersions);
+   * }
+   */
+  async getEventCountByType(
+    params: GetEventCountByTypeParams = {}
+  ): Promise<EventCountByTypeResponse> {
+    const query: Record<string, unknown> = {};
+    if (params.contractId) query["contract_id"] = params.contractId;
+    if (params.includeSchemaVersions) query["include_schema_versions"] = "true";
+    return this.#request<EventCountByTypeResponse>(
+      "GET",
+      "/v1/events/count-by-type",
+      { query }
+    );
+  }
+
+  /**
+   * Stream new contract events via Server-Sent Events (SC-8).
+   *
+   * Returns an `AsyncGenerator` that yields `StreamedEvent` objects as they
+   * arrive from the server.  The server closes the connection after ~60 s;
+   * pass the last received `id` as `sinceId` when you reconnect.
+   *
+   * @example
+   * let cursor = 0;
+   * while (true) {
+   *   for await (const ev of client.streamEvents({ contractId: 'CCAAA...', sinceId: cursor })) {
+   *     console.log(ev.type, ev.ledger);
+   *     cursor = ev.id;
+   *   }
+   *   // server closed — wait a moment, then the loop reconnects automatically
+   *   await new Promise(r => setTimeout(r, 2000));
+   * }
+   */
+  async *streamEvents(
+    params: StreamEventsParams = {}
+  ): AsyncGenerator<StreamedEvent, void, unknown> {
+    const query: Record<string, unknown> = {};
+    if (params.contractId) query["contract_id"] = params.contractId;
+    if (params.eventType) query["event_type"] = params.eventType;
+    if (params.sinceId) query["since_id"] = params.sinceId;
+
+    const url =
+      this.#baseUrl + "/v1/events/stream" + toQueryString(query);
+
+    const headers: Record<string, string> = {
+      Accept: "text/event-stream",
+      "Cache-Control": "no-cache",
+    };
+    if (this.#apiKey) {
+      headers["Authorization"] = `Bearer ${this.#apiKey}`;
+    }
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers,
+      signal: params.signal as RequestInit["signal"],
+    });
+
+    if (!response.ok || !response.body) {
+      const json = await response.json().catch(() => null);
+      const apiError: SoroScanApiError = json ?? {
+        code: "UNKNOWN_ERROR",
+        message: `HTTP ${response.status} ${response.statusText}`,
+      };
+      throw new SoroScanError(response.status, apiError);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let eventName = "event";
+    const dataLines: string[] = [];
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        // Keep the last (potentially incomplete) line in the buffer
+        buffer = lines.pop() ?? "";
+
+        for (const rawLine of lines) {
+          const line = rawLine.trimEnd();
+
+          if (line.startsWith("event:")) {
+            eventName = line.slice(6).trim();
+          } else if (line.startsWith("data:")) {
+            dataLines.push(line.slice(5).trim());
+          } else if (line === "") {
+            // End of SSE frame
+            if (dataLines.length > 0) {
+              const raw = dataLines.join("\n");
+              dataLines.length = 0;
+              if (eventName === "event") {
+                try {
+                  const parsed = JSON.parse(raw) as StreamedEvent;
+                  if (parsed.id !== undefined) {
+                    yield parsed;
+                  }
+                } catch {
+                  // Skip malformed frames
+                }
+              }
+            }
+            eventName = "event";
+          }
+        }
+      }
+    } finally {
+      reader.cancel().catch(() => undefined);
+    }
   }
 }
 

@@ -1,7 +1,7 @@
 """Pydantic models for SoroScan API responses."""
 
 from datetime import datetime
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Iterator, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -115,3 +115,64 @@ class RecordEventsBatchResponse(BaseModel):
     tx_hash: str | None = Field(None, description="Transaction hash")
     transaction_status: str | None = Field(None, description="Transaction status")
     error: str | None = Field(None, description="Error message if failed")
+
+
+# ── SC-8: Annotated event emission & per-type counts ─────────────────────────
+
+
+class EmitAnnotatedEventRequest(BaseModel):
+    """Request model for emitting an annotated event with a schema version (SC-8)."""
+
+    contract_id: str = Field(..., max_length=56, description="Target contract address")
+    event_type: str = Field(..., max_length=100, description="Event type name")
+    payload_hash: str = Field(..., max_length=64, description="SHA-256 hash of payload (hex)")
+    schema_version: int = Field(
+        ..., ge=1, description="Schema version tag (≥ 1). Version 0 is reserved."
+    )
+
+
+class EmitAnnotatedEventResponse(BaseModel):
+    """Response from emitting an annotated event (SC-8)."""
+
+    status: str = Field(..., description="Submission status")
+    total_events: int = Field(..., description="New total event count after emission")
+    tx_hash: str | None = Field(None, description="Transaction hash")
+    transaction_status: str | None = Field(None, description="Transaction status")
+    error: str | None = Field(None, description="Error message if failed")
+
+
+class EventTypeCountEntry(BaseModel):
+    """A single event-type count entry returned by the count-by-type endpoint (SC-8)."""
+
+    event_type: str = Field(..., description="Event type name")
+    count: int = Field(..., description="Number of events of this type")
+    schema_versions: list[dict] | None = Field(
+        None, description="Per-schema-version sub-counts when requested"
+    )
+
+
+class EventCountByTypeResponse(BaseModel):
+    """Response from the per-type event count endpoint (SC-8)."""
+
+    contract_id: str | None = Field(None, description="Contract filter (None = all)")
+    total_events: int = Field(..., description="Sum of all event counts in the response")
+    counts: list[EventTypeCountEntry] = Field(
+        ..., description="Per-event-type counts ordered by descending count"
+    )
+
+
+class StreamedEvent(BaseModel):
+    """A single event frame received from the SSE stream (SC-8)."""
+
+    id: int = Field(..., description="ContractEvent primary key — use as since_id on reconnect")
+    contract_id: str = Field(..., description="Contract address that emitted the event")
+    contract_name: str = Field(default="", description="Human-readable contract name")
+    event_type: str = Field(..., description="Event type name")
+    payload: dict = Field(default_factory=dict, description="Decoded event payload")
+    ledger: int = Field(..., description="Ledger sequence number")
+    event_index: int = Field(default=0, description="Event index within the ledger")
+    tx_hash: str = Field(default="", description="Transaction hash")
+    timestamp: datetime = Field(..., description="Event timestamp")
+    schema_version: int | None = Field(None, description="Schema version (SC-8)")
+    validation_status: str = Field(default="passed", description="Validation result")
+    signature_status: str = Field(default="missing", description="Signature verification result")

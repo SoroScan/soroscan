@@ -51,6 +51,14 @@ export type {
   EventEntry,
   RecordEventsBatchParams,
   RecordEventsBatchResponse,
+  // SC-8: Annotated event emission & per-type counts
+  EmitAnnotatedEventParams,
+  EmitAnnotatedEventResponse,
+  GetEventCountByTypeParams,
+  EventCountByTypeResponse,
+  EventTypeCountEntry,
+  StreamedEvent,
+  StreamEventsParams,
   // Errors
   SoroScanApiError,
 } from "./types.js";

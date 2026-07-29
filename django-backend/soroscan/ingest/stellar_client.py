@@ -240,6 +240,121 @@ class SorobanClient:
                 error=str(e),
             )
 
+    def emit_annotated_event(
+        self,
+        target_contract_id: str,
+        event_type: str,
+        payload_hash_hex: str,
+        schema_version: int,
+    ) -> TransactionResult:
+        """
+        Submit an emit_annotated_event transaction to the SoroScan contract (SC-8).
+
+        This calls the ``emit_annotated_event`` function on-chain which stores an
+        ``AnnotatedEventRecord`` and publishes it under the ``("ann", event_type)``
+        topic so off-chain indexers can select the right ABI decoder without a
+        separate schema-registry lookup.
+
+        Args:
+            target_contract_id: The contract that emitted the original event.
+            event_type:         The type/category of the event.
+            payload_hash_hex:   SHA-256 hash of the payload (hex string, 64 chars).
+            schema_version:     Positive schema version integer (≥ 1).
+
+        Returns:
+            TransactionResult with status and hash.
+        """
+        if schema_version < 1:
+            return TransactionResult(
+                success=False,
+                tx_hash="",
+                status="error",
+                error="schema_version must be >= 1",
+            )
+
+        if not self.keypair:
+            return TransactionResult(
+                success=False,
+                tx_hash="",
+                status="error",
+                error="No keypair configured",
+            )
+
+        try:
+            account = self.server.load_account(self.keypair.public_key)
+
+            payload_hash_bytes = bytes.fromhex(payload_hash_hex)
+            if len(payload_hash_bytes) != 32:
+                raise ValueError("Payload hash must be 32 bytes")
+
+            from stellar_sdk.xdr import SCVal, SCValType, SCUint32
+
+            def _u32_to_sc_val(value: int) -> SCVal:
+                return SCVal(
+                    type=SCValType.SCV_U32,
+                    u32=SCUint32(value),
+                )
+
+            tx_builder = TransactionBuilder(
+                source_account=account,
+                network_passphrase=self.network_passphrase,
+                base_fee=100000,
+            )
+
+            tx_builder.append_invoke_contract_function_op(
+                contract_id=self.contract_id,
+                function_name="emit_annotated_event",
+                parameters=[
+                    self._address_to_sc_val(self.keypair.public_key),  # indexer
+                    self._address_to_sc_val(target_contract_id),       # contract_id
+                    self._symbol_to_sc_val(event_type),                # event_type
+                    self._bytes_to_sc_val(payload_hash_bytes),         # payload_hash
+                    _u32_to_sc_val(schema_version),                    # schema_version
+                ],
+            )
+
+            tx = tx_builder.set_timeout(30).build()
+            simulate_response = self.server.simulate_transaction(tx)
+
+            if simulate_response.error:
+                return TransactionResult(
+                    success=False,
+                    tx_hash="",
+                    status="simulation_failed",
+                    error=simulate_response.error,
+                )
+
+            prepared_tx = self.server.prepare_transaction(tx, simulate_response)
+            prepared_tx.sign(self.keypair)
+
+            send_response = self.server.send_transaction(prepared_tx)
+
+            logger.info(
+                "Annotated event transaction submitted: %s (schema_version=%s)",
+                send_response.hash,
+                schema_version,
+                extra={"contract_id": target_contract_id},
+            )
+
+            return TransactionResult(
+                success=send_response.status == "PENDING",
+                tx_hash=send_response.hash,
+                status=send_response.status,
+                result_xdr=getattr(send_response, "result_xdr", None),
+            )
+
+        except Exception as e:
+            logger.exception(
+                "Failed to emit annotated event",
+                extra={"contract_id": target_contract_id, "schema_version": schema_version},
+            )
+            return TransactionResult(
+                success=False,
+                tx_hash="",
+                status="error",
+                error=str(e),
+            )
+
     def get_total_events(self) -> Optional[int]:
         """
         Query the total_events function on the contract.

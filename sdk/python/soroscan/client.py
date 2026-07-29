@@ -21,6 +21,10 @@ from soroscan.models import (
     ContractEvent,
     ContractStats,
     EventEntry,
+    EmitAnnotatedEventRequest,
+    EmitAnnotatedEventResponse,
+    EventCountByTypeResponse,
+    StreamedEvent,
     PaginatedResponse,
     RecordEventRequest,
     RecordEventResponse,
@@ -543,6 +547,161 @@ class SoroScanClient:
         response = self._client.post(url, headers=self._get_headers())
         return self._handle_response(response)
 
+    # ── SC-8: Annotated event emission ────────────────────────────────────────
+
+    def emit_annotated_event(
+        self,
+        contract_id: str,
+        event_type: str,
+        payload_hash: str,
+        schema_version: int,
+    ) -> EmitAnnotatedEventResponse:
+        """
+        Emit an annotated event carrying an explicit schema version tag (SC-8).
+
+        The schema_version must be ≥ 1 (version 0 is reserved by the contract).
+        Off-chain indexers use this tag to select the correct ABI decoder without
+        a separate schema-registry lookup.
+
+        Args:
+            contract_id:    Target contract address (C...)
+            event_type:     Event type name (e.g. "transfer")
+            payload_hash:   SHA-256 hex digest of the event payload
+            schema_version: Schema version integer ≥ 1
+
+        Returns:
+            EmitAnnotatedEventResponse with submission status and new total count
+
+        Raises:
+            SoroScanValidationError: when schema_version == 0 or fields are invalid
+        """
+        url = urljoin(self.base_url, "/api/record/")
+        request = EmitAnnotatedEventRequest(
+            contract_id=contract_id,
+            event_type=event_type,
+            payload_hash=payload_hash,
+            schema_version=schema_version,
+        )
+        payload: dict[str, Any] = request.model_dump()
+        response = self._client.post(url, headers=self._get_headers(), json=payload)
+        data = self._handle_response(response)
+        return EmitAnnotatedEventResponse.model_validate(data)
+
+    def get_event_count_by_type(
+        self,
+        contract_id: str | None = None,
+        include_schema_versions: bool = False,
+    ) -> EventCountByTypeResponse:
+        """
+        Return per-event-type event counts, optionally scoped to a contract
+        and broken down by schema version (SC-8).
+
+        Args:
+            contract_id:              Filter counts to a single contract address.
+                                      Pass None for platform-wide counts.
+            include_schema_versions:  When True, each entry includes a
+                                      ``schema_versions`` list with per-version
+                                      sub-counts for schema migration visibility.
+
+        Returns:
+            EventCountByTypeResponse with total_events and per-type counts
+        """
+        params: dict[str, Any] = {}
+        if contract_id:
+            params["contract_id"] = contract_id
+        if include_schema_versions:
+            params["include_schema_versions"] = "true"
+
+        url = urljoin(self.base_url, "/api/events/count-by-type/")
+        response = self._client.get(url, headers=self._get_headers(), params=params)
+        data = self._handle_response(response)
+        return EventCountByTypeResponse.model_validate(data)
+
+    def stream_events(
+        self,
+        contract_id: str | None = None,
+        event_type: str | None = None,
+        since_id: int = 0,
+        timeout: float = 70.0,
+    ):
+        """
+        Stream new contract events via Server-Sent Events (SC-8).
+
+        This is a **synchronous generator** that yields :class:`StreamedEvent`
+        objects as they arrive from the SSE endpoint.  The server closes the
+        connection after ~60 seconds; call this function again (passing the
+        ``id`` of the last received event as ``since_id``) to resume.
+
+        Args:
+            contract_id: Filter stream to a single contract address.
+            event_type:  Filter stream to a specific event type.
+            since_id:    Resume from events with id > this value.
+                         Pass 0 (default) to start from the latest event.
+            timeout:     HTTP read timeout in seconds (default 70 — slightly
+                         longer than the server's 60-second window).
+
+        Yields:
+            StreamedEvent — one per "event:" SSE frame received
+
+        Example::
+
+            cursor = 0
+            while True:
+                for ev in client.stream_events(contract_id="CCAAA...", since_id=cursor):
+                    print(ev.event_type, ev.ledger)
+                    cursor = ev.id
+        """
+        import json as _json
+
+        params: dict[str, Any] = {}
+        if contract_id:
+            params["contract_id"] = contract_id
+        if event_type:
+            params["event_type"] = event_type
+        if since_id:
+            params["since_id"] = since_id
+
+        url = urljoin(self.base_url, "/api/events/stream/")
+        headers = {**self._get_headers(), "Accept": "text/event-stream"}
+
+        with self._client.stream(
+            "GET", url, headers=headers, params=params, timeout=timeout
+        ) as resp:
+            if not resp.is_success:
+                # Consume to allow error parsing
+                resp.read()
+                self._handle_response(resp)
+
+            event_name: str = "event"
+            data_lines: list[str] = []
+
+            for raw_line in resp.iter_lines():
+                line = raw_line.strip()
+
+                if line.startswith("event:"):
+                    event_name = line[len("event:"):].strip()
+                elif line.startswith("data:"):
+                    data_lines.append(line[len("data:"):].strip())
+                elif line == "":
+                    # Empty line = end of SSE frame
+                    if data_lines:
+                        raw_data = "\n".join(data_lines)
+                        try:
+                            parsed = _json.loads(raw_data)
+                        except _json.JSONDecodeError:
+                            data_lines = []
+                            event_name = "event"
+                            continue
+
+                        if event_name == "event" and "id" in parsed:
+                            try:
+                                yield StreamedEvent.model_validate(parsed)
+                            except Exception:
+                                pass  # Skip malformed frames silently
+
+                    data_lines = []
+                    event_name = "event"
+
 
 class AsyncSoroScanClient:
     """
@@ -1051,3 +1210,64 @@ class AsyncSoroScanClient:
         url = urljoin(self.base_url, f"/api/webhooks/{webhook_id}/test/")
         response = await self._client.post(url, headers=self._get_headers())
         return self._handle_response(response)
+
+    # ── SC-8: Annotated event emission ────────────────────────────────────────
+
+    async def emit_annotated_event(
+        self,
+        contract_id: str,
+        event_type: str,
+        payload_hash: str,
+        schema_version: int,
+    ) -> EmitAnnotatedEventResponse:
+        """
+        Emit an annotated event carrying an explicit schema version tag (SC-8).
+
+        Args:
+            contract_id:    Target contract address (C...)
+            event_type:     Event type name
+            payload_hash:   SHA-256 hex digest of the event payload
+            schema_version: Schema version integer ≥ 1
+
+        Returns:
+            EmitAnnotatedEventResponse
+        """
+        url = urljoin(self.base_url, "/api/record/")
+        request = EmitAnnotatedEventRequest(
+            contract_id=contract_id,
+            event_type=event_type,
+            payload_hash=payload_hash,
+            schema_version=schema_version,
+        )
+        response = await self._client.post(
+            url, headers=self._get_headers(), json=request.model_dump()
+        )
+        data = self._handle_response(response)
+        return EmitAnnotatedEventResponse.model_validate(data)
+
+    async def get_event_count_by_type(
+        self,
+        contract_id: str | None = None,
+        include_schema_versions: bool = False,
+    ) -> EventCountByTypeResponse:
+        """
+        Return per-event-type event counts, optionally scoped to a contract
+        and broken down by schema version (SC-8).
+
+        Args:
+            contract_id:             Filter counts to a single contract address.
+            include_schema_versions: Include per-schema-version sub-counts.
+
+        Returns:
+            EventCountByTypeResponse
+        """
+        params: dict[str, Any] = {}
+        if contract_id:
+            params["contract_id"] = contract_id
+        if include_schema_versions:
+            params["include_schema_versions"] = "true"
+
+        url = urljoin(self.base_url, "/api/events/count-by-type/")
+        response = await self._client.get(url, headers=self._get_headers(), params=params)
+        data = self._handle_response(response)
+        return EventCountByTypeResponse.model_validate(data)

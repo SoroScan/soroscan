@@ -330,6 +330,86 @@ export interface RecordEventsBatchResponse {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SC-8: Annotated event emission and per-type counts
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Request body for emitting an annotated event with a schema version (SC-8). */
+export interface EmitAnnotatedEventParams {
+  /** Target contract address (C…) */
+  contractId: ContractId;
+  /** Event type name (e.g. "transfer") */
+  eventType: EventType;
+  /** SHA-256 hex digest of the event payload */
+  payloadHash: string;
+  /**
+   * Schema version integer ≥ 1.
+   * Version 0 is reserved by the on-chain contract and will be rejected.
+   */
+  schemaVersion: number;
+}
+
+/** Response from emitting an annotated event (SC-8). */
+export interface EmitAnnotatedEventResponse {
+  status: string;
+  /** New total event count after emission */
+  totalEvents: number;
+  txHash: string | null;
+  transactionStatus: string | null;
+  error: string | null;
+}
+
+/** A single entry in the per-type count list (SC-8). */
+export interface EventTypeCountEntry {
+  eventType: EventType;
+  count: number;
+  /** Per-schema-version sub-counts; present only when requested. */
+  schemaVersions?: Array<{ schemaVersion: number | null; count: number }>;
+}
+
+/** Response from the per-type event count endpoint (SC-8). */
+export interface EventCountByTypeResponse {
+  /** Contract filter applied, or null for platform-wide counts. */
+  contractId: ContractId | null;
+  totalEvents: number;
+  counts: EventTypeCountEntry[];
+}
+
+/** Query parameters for the per-type count endpoint (SC-8). */
+export interface GetEventCountByTypeParams {
+  /** Filter counts to a single contract address. */
+  contractId?: ContractId;
+  /** When true, each entry includes a schemaVersions breakdown. */
+  includeSchemaVersions?: boolean;
+}
+
+/** A single event received from the SSE stream (SC-8). */
+export interface StreamedEvent {
+  /** ContractEvent primary key — use as sinceId on reconnect. */
+  id: number;
+  contractId: ContractId;
+  contractName: string;
+  type: EventType;
+  payload: unknown;
+  ledger: number;
+  eventIndex: number;
+  txHash: string;
+  ledgerClosedAt: ISODateString;
+  schemaVersion: number | null;
+  validationStatus: string;
+  signatureStatus: string;
+}
+
+/** Options for the streaming helper (SC-8). */
+export interface StreamEventsParams {
+  contractId?: ContractId;
+  eventType?: EventType;
+  /** Resume from events with id > sinceId (default: latest). */
+  sinceId?: number;
+  /** Abort signal to close the connection programmatically. */
+  signal?: AbortSignal;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Errors
 // ─────────────────────────────────────────────────────────────────────────────
 

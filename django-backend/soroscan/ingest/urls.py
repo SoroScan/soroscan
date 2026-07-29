@@ -33,6 +33,7 @@ from .views import (
     vulnerability_impact_view,
     webhook_signing_public_key_view,
 )
+from .views_sc8 import event_stream_view, event_count_by_type_view
 
 router = DefaultRouter()
 router.register(r"contracts", TrackedContractViewSet, basename="contract")
@@ -103,4 +104,7 @@ urlpatterns = [
     path("compliance-export/", compliance_export_view, name="compliance-export"),
     path("networks/", networks_view, name="networks"),
     path("contract/identity/", contract_identity_view, name="contract-identity"),
+    # SC-8: annotated event streaming and per-type counts
+    path("events/stream/", event_stream_view, name="event-stream"),
+    path("events/count-by-type/", event_count_by_type_view, name="event-count-by-type"),
 ]

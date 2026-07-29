@@ -24,15 +24,20 @@ from soroscan.webhook_verification import verify_webhook_signature
 from soroscan.models import (
     ContractEvent,
     ContractStats,
+    EmitAnnotatedEventRequest,
+    EmitAnnotatedEventResponse,
+    EventCountByTypeResponse,
     EventEntry,
+    EventTypeCountEntry,
     PaginatedResponse,
     RecordEventsBatchRequest,
     RecordEventsBatchResponse,
+    StreamedEvent,
     TrackedContract,
     WebhookSubscription,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __all__ = [
     "SoroScanClient",
     "AsyncSoroScanClient",
@@ -50,6 +55,12 @@ __all__ = [
     "EventEntry",
     "RecordEventsBatchRequest",
     "RecordEventsBatchResponse",
+    # SC-8
+    "EmitAnnotatedEventRequest",
+    "EmitAnnotatedEventResponse",
+    "EventCountByTypeResponse",
+    "EventTypeCountEntry",
+    "StreamedEvent",
     "SoroScanError",
     "SoroScanAPIError",
     "SoroScanAuthError",

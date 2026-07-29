@@ -976,11 +976,20 @@ def record_event_view(request):
     """
     Record a new event by submitting a transaction to the SoroScan contract.
 
+    When ``schema_version`` is provided (≥ 1) the request is routed to the
+    on-chain ``emit_annotated_event`` function (SC-8), which stores an
+    ``AnnotatedEventRecord`` and publishes it under the ``("ann", event_type)``
+    topic so off-chain indexers can select the correct ABI decoder without a
+    separate schema-registry lookup.
+
+    Without ``schema_version`` the legacy ``record_event`` path is used.
+
     Request body:
     {
-        "contract_id": "CABC...",
-        "event_type": "swap",
-        "payload_hash": "abc123..."  // 64-char hex string
+        "contract_id":    "CABC...",
+        "event_type":     "swap",
+        "payload_hash":   "abc123..."  // 64-char hex string
+        "schema_version": 2            // optional; ≥ 1 → annotated event (SC-8)
     }
     """
     serializer = RecordEventRequestSerializer(data=request.data)
@@ -989,14 +998,26 @@ def record_event_view(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     data = serializer.validated_data
+    schema_version = data.get("schema_version")  # None for plain events
 
     try:
         client = SorobanClient()
-        result = client.record_event(
-            target_contract_id=data["contract_id"],
-            event_type=data["event_type"],
-            payload_hash_hex=data["payload_hash"],
-        )
+
+        if schema_version is not None:
+            # SC-8: annotated event path
+            result = client.emit_annotated_event(
+                target_contract_id=data["contract_id"],
+                event_type=data["event_type"],
+                payload_hash_hex=data["payload_hash"],
+                schema_version=schema_version,
+            )
+        else:
+            # Legacy plain event path
+            result = client.record_event(
+                target_contract_id=data["contract_id"],
+                event_type=data["event_type"],
+                payload_hash_hex=data["payload_hash"],
+            )
 
         if result.success:
             return Response(
@@ -1004,6 +1025,8 @@ def record_event_view(request):
                     "status": "submitted",
                     "tx_hash": result.tx_hash,
                     "transaction_status": result.status,
+                    "total_events": None,  # populated by the on-chain counter on ingestion
+                    "error": None,
                 },
                 status=status.HTTP_202_ACCEPTED,
             )
@@ -1011,8 +1034,10 @@ def record_event_view(request):
             return Response(
                 {
                     "status": "failed",
-                    "error": result.error,
+                    "tx_hash": None,
                     "transaction_status": result.status,
+                    "total_events": 0,
+                    "error": result.error,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )

@@ -91,6 +91,69 @@ def _handle_events(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handle_events_watch(args: argparse.Namespace) -> int:
+    """
+    Tail new contract events in real time using the SC-8 SSE stream.
+
+    Reconnects automatically when the server closes the connection (every ~60 s).
+    Press Ctrl-C to stop.
+    """
+    import sys
+
+    since_id = args.since_id
+    reconnect_delay = 2  # seconds between reconnects
+
+    print(
+        f"Watching events"
+        f"{' for contract ' + args.contract if args.contract else ''}"
+        f"{' of type ' + args.event_type if args.event_type else ''}"
+        " (Ctrl-C to stop)...",
+        flush=True,
+    )
+
+    while True:
+        try:
+            with _build_client(args) as client:
+                for ev in client.stream_events(
+                    contract_id=args.contract or None,
+                    event_type=args.event_type or None,
+                    since_id=since_id,
+                    timeout=70.0,
+                ):
+                    since_id = ev.id  # advance cursor for reconnect
+                    if args.output == "json":
+                        _print_json(ev)
+                    else:
+                        print(
+                            f"[{ev.timestamp}] "
+                            f"id={ev.id} "
+                            f"contract={ev.contract_id[:12]}… "
+                            f"type={ev.event_type} "
+                            f"ledger={ev.ledger} "
+                            f"schema_v={ev.schema_version or '-'}",
+                            flush=True,
+                        )
+            # Server closed connection — reconnect
+            print(
+                f"Stream closed; reconnecting in {reconnect_delay}s "
+                f"(cursor={since_id})…",
+                file=sys.stderr,
+                flush=True,
+            )
+        except KeyboardInterrupt:
+            print("\nStopped.", flush=True)
+            return 0
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"Stream error: {exc}; retrying in {reconnect_delay}s…",
+                file=sys.stderr,
+                flush=True,
+            )
+
+        import time as _time
+        _time.sleep(reconnect_delay)
+
+
 def _handle_contracts(args: argparse.Namespace) -> int:
     with _build_client(args) as client:
         if args.contract_command == "get":
@@ -140,6 +203,24 @@ def _handle_webhooks(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handle_events_count_by_type(args: argparse.Namespace) -> int:
+    with _build_client(args) as client:
+        response = client.get_event_count_by_type(
+            contract_id=args.contract or None,
+            include_schema_versions=args.schema_versions,
+        )
+    if args.output == "json":
+        _print_json(response)
+    else:
+        print(f"Total events: {response.total_events}")
+        _print_table(
+            response.counts,
+            ["event_type", "count"]
+            + (["schema_versions"] if args.schema_versions else []),
+        )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="soroscan",
@@ -166,6 +247,39 @@ def build_parser() -> argparse.ArgumentParser:
     events.add_argument("--ordering", default="-timestamp", help="API ordering expression")
     events.add_argument("--output", choices=["table", "json"], default="table")
     events.set_defaults(func=_handle_events)
+
+    # SC-8: live event watch subcommand
+    events_sub = events.add_subparsers(dest="events_command")
+
+    events_watch = events_sub.add_parser(
+        "watch",
+        help="Stream new events in real time (SC-8 SSE)",
+    )
+    events_watch.add_argument("--contract", help="Filter by contract ID/address")
+    events_watch.add_argument("--event-type", help="Filter by event type")
+    events_watch.add_argument(
+        "--since-id",
+        type=int,
+        default=0,
+        help="Resume from events with id > N (default: latest)",
+    )
+    events_watch.add_argument("--output", choices=["table", "json"], default="table")
+    events_watch.set_defaults(func=_handle_events_watch)
+
+    # SC-8: per-type counts subcommand
+    events_count = events_sub.add_parser(
+        "count-by-type",
+        help="Show per-event-type counts (SC-8)",
+    )
+    events_count.add_argument("--contract", help="Filter by contract ID/address")
+    events_count.add_argument(
+        "--schema-versions",
+        action="store_true",
+        default=False,
+        help="Include per-schema-version sub-counts",
+    )
+    events_count.add_argument("--output", choices=["table", "json"], default="table")
+    events_count.set_defaults(func=_handle_events_count_by_type)
 
     webhooks = subcommands.add_parser("webhooks", help="Manage webhook subscriptions")
     webhook_subcommands = webhooks.add_subparsers(dest="webhook_command", required=True)
@@ -197,6 +311,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    # If the user ran `soroscan events` without a subcommand, fall back to listing
+    if not hasattr(args, "func"):
+        parser.print_help()
+        return 1
     try:
         return args.func(args)
     except SoroScanError as exc:
