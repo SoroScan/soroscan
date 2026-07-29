@@ -329,6 +329,17 @@ export interface RecordEventsBatchResponse {
   error: string | null;
 }
 
+export interface RemoveIndexerParams {
+  indexerAddress: StellarAddress;
+}
+
+export interface RemoveIndexerResponse {
+  status: string;
+  txHash: string | null;
+  transactionStatus: string | null;
+  error: string | null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Errors
 // ─────────────────────────────────────────────────────────────────────────────

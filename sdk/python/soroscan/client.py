@@ -24,6 +24,8 @@ from soroscan.models import (
     PaginatedResponse,
     RecordEventRequest,
     RecordEventResponse,
+    RemoveIndexerRequest,
+    RemoveIndexerResponse,
     RecordEventsBatchRequest,
     RecordEventsBatchResponse,
     TrackedContract,
@@ -397,6 +399,24 @@ class SoroScanClient:
         response = self._client.post(url, headers=self._get_headers(), json=request.model_dump())
         data = self._handle_response(response)
         return RecordEventResponse.model_validate(data)
+
+    def remove_indexer(self, indexer_address: str) -> RemoveIndexerResponse:
+        """
+        Revoke an indexer address on the SoroScan contract (SC-14).
+
+        Args:
+            indexer_address: Stellar address of the indexer to remove
+
+        Returns:
+            Submission result with transaction hash
+        """
+        url = urljoin(self.base_url, "/api/ingest/indexers/remove/")
+        request = RemoveIndexerRequest(indexer_address=indexer_address)
+        response = self._client.post(
+            url, headers=self._get_headers(), json=request.model_dump()
+        )
+        data = self._handle_response(response)
+        return RemoveIndexerResponse.model_validate(data)
 
     def record_events_batch(
         self,
@@ -906,6 +926,18 @@ class AsyncSoroScanClient:
         )
         data = self._handle_response(response)
         return RecordEventResponse.model_validate(data)
+
+    async def remove_indexer(self, indexer_address: str) -> RemoveIndexerResponse:
+        """
+        Revoke an indexer address on the SoroScan contract (SC-14).
+        """
+        url = urljoin(self.base_url, "/api/ingest/indexers/remove/")
+        request = RemoveIndexerRequest(indexer_address=indexer_address)
+        response = await self._client.post(
+            url, headers=self._get_headers(), json=request.model_dump()
+        )
+        data = self._handle_response(response)
+        return RemoveIndexerResponse.model_validate(data)
 
     async def record_events_batch(
         self,

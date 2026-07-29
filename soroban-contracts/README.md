@@ -32,6 +32,15 @@ Unit tests live in `soroscan_core/src/lib.rs` under `#[cfg(test)]` and use
 | `test_record_event_not_whitelisted` | Non-whitelisted address records | `ContractError::IndexerNotFound` |
 | `test_remove_indexer` | Admin removes indexer | Indexer no longer whitelisted |
 
+### SC-14: Indexer deauthorization
+
+The `remove_indexer` contract function is exposed via:
+
+- Django: `POST /api/ingest/indexers/remove/`
+- Python SDK: `client.remove_indexer(indexer_address)`
+- TypeScript SDK: `client.removeIndexer({ indexerAddress })`
+- CLI: `soroscan indexers remove <address>`
+
 Run all tests:
 
 ```bash

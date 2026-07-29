@@ -20,6 +20,8 @@ import type {
   PaginatedResponse,
   RecordEventsBatchParams,
   RecordEventsBatchResponse,
+  RemoveIndexerParams,
+  RemoveIndexerResponse,
 } from "./types.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -255,6 +257,21 @@ export class SoroScanClient {
       "POST",
       "/v1/record-events-batch",
       { body: params }
+    );
+  }
+
+  /**
+   * Revoke an indexer address on the SoroScan contract (SC-14).
+   */
+  async removeIndexer(params: RemoveIndexerParams): Promise<RemoveIndexerResponse> {
+    return this.#request<RemoveIndexerResponse>(
+      "POST",
+      "/api/ingest/indexers/remove/",
+      {
+        body: {
+          indexer_address: params.indexerAddress,
+        },
+      }
     );
   }
 

@@ -113,7 +113,7 @@ impl SoroScanCore {
         Ok(())
     }
 
-    /// Remove an authorized indexer address.
+    /// Remove an authorized indexer address (SC-14).
     ///
     /// # Arguments
     /// * `env` - The contract environment
