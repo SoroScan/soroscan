@@ -51,6 +51,8 @@ export type {
   EventEntry,
   RecordEventsBatchParams,
   RecordEventsBatchResponse,
+  GetAdminResponse,
+  IsIndexerResponse,
   // Errors
   SoroScanApiError,
 } from "./types.js";

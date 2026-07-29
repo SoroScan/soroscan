@@ -20,6 +20,8 @@ import type {
   PaginatedResponse,
   RecordEventsBatchParams,
   RecordEventsBatchResponse,
+  GetAdminResponse,
+  IsIndexerResponse,
 } from "./types.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -256,6 +258,18 @@ export class SoroScanClient {
       "/v1/record-events-batch",
       { body: params }
     );
+  }
+
+  /** Check whether an address is an authorized indexer (SC-15). */
+  async isIndexer(indexerAddress: string): Promise<IsIndexerResponse> {
+    return this.#request<IsIndexerResponse>("GET", "/api/ingest/indexers/check/", {
+      query: { indexer_address: indexerAddress },
+    });
+  }
+
+  /** Return the current SoroScan contract admin address (SC-15). */
+  async getAdmin(): Promise<GetAdminResponse> {
+    return this.#request<GetAdminResponse>("GET", "/api/ingest/contract/admin/");
   }
 
   /**

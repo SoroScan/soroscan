@@ -32,6 +32,14 @@ Unit tests live in `soroscan_core/src/lib.rs` under `#[cfg(test)]` and use
 | `test_record_event_not_whitelisted` | Non-whitelisted address records | `ContractError::IndexerNotFound` |
 | `test_remove_indexer` | Admin removes indexer | Indexer no longer whitelisted |
 
+### SC-15: Contract authorization queries
+
+Read-only Soroban simulations for `is_indexer` and `get_admin` are exposed via:
+
+- Django: `GET /api/ingest/indexers/check/?indexer_address=...`, `GET /api/ingest/contract/admin/`
+- Python SDK: `client.is_indexer()`, `client.get_admin()`
+- TypeScript SDK: `client.isIndexer()`, `client.getAdmin()`
+
 Run all tests:
 
 ```bash
