@@ -253,9 +253,35 @@ export class SoroScanClient {
   ): Promise<RecordEventsBatchResponse> {
     return this.#request<RecordEventsBatchResponse>(
       "POST",
-      "/v1/record-events-batch",
-      { body: params }
+      "/api/ingest/record-batch/",
+      { body: { events: params.events } }
     );
+  }
+
+  /** Query the latest on-chain event record for a type (SC-50). */
+  async latestByType(eventType: string): Promise<{ event: Record<string, unknown> | null }> {
+    return this.#request("GET", "/api/ingest/events/latest/", {
+      query: { event_type: eventType },
+    });
+  }
+
+  /** Query the on-chain total event counter (SC-50). */
+  async getTotalEvents(): Promise<{ total_events: number }> {
+    return this.#request("GET", "/api/ingest/events/total/");
+  }
+
+  /** Transfer SoroScan contract admin rights (SC-50). */
+  async transferAdmin(params: {
+    newAdminAddress: string;
+  }): Promise<{
+    status: string;
+    tx_hash: string | null;
+    transaction_status: string | null;
+    error: string | null;
+  }> {
+    return this.#request("POST", "/api/ingest/contract/transfer-admin/", {
+      body: { new_admin_address: params.newAdminAddress },
+    });
   }
 
   /**

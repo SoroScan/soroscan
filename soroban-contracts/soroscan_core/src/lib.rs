@@ -206,7 +206,7 @@ impl SoroScanCore {
         Ok(count)
     }
 
-    /// Get the latest event record for a specific event type.
+    /// Get the latest event record for a specific event type (SC-50).
     ///
     /// # Arguments
     /// * `env` - The contract environment
@@ -218,7 +218,7 @@ impl SoroScanCore {
         env.storage().instance().get(&event_type)
     }
 
-    /// Get the total number of events recorded.
+    /// Get the total number of events recorded (SC-50).
     ///
     /// # Arguments
     /// * `env` - The contract environment
@@ -312,7 +312,7 @@ impl SoroScanCore {
         Ok(count)
     }
 
-    /// Transfer admin rights to a new address (SC-29).
+    /// Transfer admin rights to a new address (SC-29, SDK wiring SC-50).
     ///
     /// # Arguments
     /// * `env` - The contract environment

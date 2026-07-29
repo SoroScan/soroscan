@@ -24,6 +24,10 @@ from soroscan.models import (
     PaginatedResponse,
     RecordEventRequest,
     RecordEventResponse,
+    TransferAdminRequest,
+    TransferAdminResponse,
+    LatestByTypeResponse,
+    TotalEventsResponse,
     RecordEventsBatchRequest,
     RecordEventsBatchResponse,
     TrackedContract,
@@ -398,6 +402,29 @@ class SoroScanClient:
         data = self._handle_response(response)
         return RecordEventResponse.model_validate(data)
 
+    def latest_by_type(self, event_type: str) -> LatestByTypeResponse:
+        """Query the latest on-chain event record for a type (SC-50)."""
+        url = urljoin(self.base_url, "/api/ingest/events/latest/")
+        response = self._client.get(
+            url, headers=self._get_headers(), params={"event_type": event_type}
+        )
+        return LatestByTypeResponse.model_validate(self._handle_response(response))
+
+    def get_total_events(self) -> TotalEventsResponse:
+        """Query the on-chain total event counter (SC-50)."""
+        url = urljoin(self.base_url, "/api/ingest/events/total/")
+        response = self._client.get(url, headers=self._get_headers())
+        return TotalEventsResponse.model_validate(self._handle_response(response))
+
+    def transfer_admin(self, new_admin_address: str) -> TransferAdminResponse:
+        """Transfer SoroScan contract admin rights (SC-50)."""
+        url = urljoin(self.base_url, "/api/ingest/contract/transfer-admin/")
+        request = TransferAdminRequest(new_admin_address=new_admin_address)
+        response = self._client.post(
+            url, headers=self._get_headers(), json=request.model_dump()
+        )
+        return TransferAdminResponse.model_validate(self._handle_response(response))
+
     def record_events_batch(
         self,
         events: list[EventEntry],
@@ -412,7 +439,7 @@ class SoroScanClient:
         Returns:
             Batch submission result including new total event count
         """
-        url = urljoin(self.base_url, "/api/record-events-batch/")
+        url = urljoin(self.base_url, "/api/ingest/record-batch/")
         request = RecordEventsBatchRequest(events=events)
         response = self._client.post(
             url, headers=self._get_headers(), json=request.model_dump()
@@ -907,6 +934,26 @@ class AsyncSoroScanClient:
         data = self._handle_response(response)
         return RecordEventResponse.model_validate(data)
 
+    async def latest_by_type(self, event_type: str) -> LatestByTypeResponse:
+        url = urljoin(self.base_url, "/api/ingest/events/latest/")
+        response = await self._client.get(
+            url, headers=self._get_headers(), params={"event_type": event_type}
+        )
+        return LatestByTypeResponse.model_validate(self._handle_response(response))
+
+    async def get_total_events(self) -> TotalEventsResponse:
+        url = urljoin(self.base_url, "/api/ingest/events/total/")
+        response = await self._client.get(url, headers=self._get_headers())
+        return TotalEventsResponse.model_validate(self._handle_response(response))
+
+    async def transfer_admin(self, new_admin_address: str) -> TransferAdminResponse:
+        url = urljoin(self.base_url, "/api/ingest/contract/transfer-admin/")
+        request = TransferAdminRequest(new_admin_address=new_admin_address)
+        response = await self._client.post(
+            url, headers=self._get_headers(), json=request.model_dump()
+        )
+        return TransferAdminResponse.model_validate(self._handle_response(response))
+
     async def record_events_batch(
         self,
         events: list[EventEntry],
@@ -921,7 +968,7 @@ class AsyncSoroScanClient:
         Returns:
             Batch submission result including new total event count
         """
-        url = urljoin(self.base_url, "/api/record-events-batch/")
+        url = urljoin(self.base_url, "/api/ingest/record-batch/")
         request = RecordEventsBatchRequest(events=events)
         response = await self._client.post(
             url, headers=self._get_headers(), json=request.model_dump()

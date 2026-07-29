@@ -67,6 +67,8 @@ from .serializers import (
     OrganizationCorsSerializer,
     OrganizationCostSnapshotSerializer,
     RecordEventRequestSerializer,
+    TransferAdminRequestSerializer,
+    RecordEventsBatchRequestSerializer,
     TeamMemberAddSerializer,
     TeamSerializer,
     TrackedContractSerializer,
@@ -1026,6 +1028,128 @@ def record_event_view(request):
             {"status": "error", "error": str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+
+@extend_schema(
+    parameters=[
+        OpenApiParameter(
+            name="event_type",
+            type=str,
+            location=OpenApiParameter.QUERY,
+            required=True,
+        ),
+    ],
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def latest_by_type_view(request):
+    """Return the latest on-chain event record for a type (SC-50)."""
+    event_type = request.query_params.get("event_type")
+    if not event_type:
+        return Response(
+            {"event_type": ["This field is required."]},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    client = SorobanClient()
+    success, value = client.latest_by_type(event_type)
+    if not success:
+        return Response(
+            {"status": "error", "error": str(value)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Response({"event": value})
+
+
+@extend_schema(
+    responses=inline_serializer(
+        name="TotalEventsResponse",
+        fields={"total_events": serializers.IntegerField()},
+    ),
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def total_events_view(request):
+    """Return the on-chain total event counter (SC-50)."""
+    client = SorobanClient()
+    total = client.get_total_events()
+    if total is None:
+        return Response(
+            {"status": "error", "error": "Failed to query total_events"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return Response({"total_events": total})
+
+
+@extend_schema(request=TransferAdminRequestSerializer)
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([IngestRateThrottle, AnonRateThrottle, UserRateThrottle])
+def transfer_admin_view(request):
+    """Transfer SoroScan contract admin rights (SC-50)."""
+    serializer = TransferAdminRequestSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    new_admin = serializer.validated_data["new_admin_address"]
+    client = SorobanClient()
+    result = client.transfer_admin(new_admin)
+
+    if result.success:
+        return Response(
+            {
+                "status": "submitted",
+                "tx_hash": result.tx_hash,
+                "transaction_status": result.status,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    return Response(
+        {
+            "status": "failed",
+            "error": result.error,
+            "transaction_status": result.status,
+        },
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+@extend_schema(request=RecordEventsBatchRequestSerializer)
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([IngestRateThrottle, AnonRateThrottle, UserRateThrottle])
+def record_events_batch_view(request):
+    """Record multiple events in one Soroban transaction (SC-50)."""
+    serializer = RecordEventsBatchRequestSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    events = serializer.validated_data["events"]
+    client = SorobanClient()
+    result = client.record_events_batch(events)
+
+    if result.success:
+        total = client.get_total_events()
+        return Response(
+            {
+                "status": "submitted",
+                "total_events": total or 0,
+                "tx_hash": result.tx_hash,
+                "transaction_status": result.status,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    return Response(
+        {
+            "status": "failed",
+            "error": result.error,
+            "transaction_status": result.status,
+        },
+        status=status.HTTP_400_BAD_REQUEST,
+    )
 
 
 @extend_schema(

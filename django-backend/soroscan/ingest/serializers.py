@@ -567,6 +567,25 @@ class RecordEventRequestSerializer(serializers.Serializer):
     )
 
 
+class TransferAdminRequestSerializer(serializers.Serializer):
+    """Serializer for SC-50: transfer contract admin rights."""
+
+    new_admin_address = serializers.CharField(
+        max_length=56,
+        help_text="Stellar address of the new admin",
+    )
+
+
+class RecordEventsBatchRequestSerializer(serializers.Serializer):
+    """Serializer for SC-50: batch event recording backend."""
+
+    events = serializers.ListField(
+        child=serializers.DictField(),
+        min_length=1,
+        max_length=25,
+    )
+
+
 class APIKeySerializer(serializers.ModelSerializer):
     """
     Serializer for APIKey model.

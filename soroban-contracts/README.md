@@ -32,6 +32,15 @@ Unit tests live in `soroscan_core/src/lib.rs` under `#[cfg(test)]` and use
 | `test_record_event_not_whitelisted` | Non-whitelisted address records | `ContractError::IndexerNotFound` |
 | `test_remove_indexer` | Admin removes indexer | Indexer no longer whitelisted |
 
+### SC-50: Contract integration capstone
+
+Completes the Soroban contract client surface:
+
+- `latest_by_type`, `total_events` (on-chain reads)
+- `transfer_admin` (admin write)
+- `record_events_batch` backend at `POST /api/ingest/record-batch/`
+- SDK methods in Python and TypeScript
+
 Run all tests:
 
 ```bash

@@ -91,6 +91,27 @@ class RecordEventResponse(BaseModel):
     error: str | None = Field(None, description="Error message if failed")
 
 
+# ── SC-50: Contract integration capstone ──────────────────────────────────────
+
+class TransferAdminRequest(BaseModel):
+    new_admin_address: str = Field(..., max_length=56)
+
+
+class TransferAdminResponse(BaseModel):
+    status: str
+    tx_hash: str | None = None
+    transaction_status: str | None = None
+    error: str | None = None
+
+
+class LatestByTypeResponse(BaseModel):
+    event: dict[str, Any] | None = None
+
+
+class TotalEventsResponse(BaseModel):
+    total_events: int
+
+
 # ── SC-29: Batch event recording ──────────────────────────────────────────────
 
 class EventEntry(BaseModel):
