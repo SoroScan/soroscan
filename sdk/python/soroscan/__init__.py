@@ -23,6 +23,7 @@ from soroscan.exceptions import (
 from soroscan.webhook_verification import verify_webhook_signature
 from soroscan.models import (
     ContractEvent,
+    ContractEventTypeInfo,
     ContractStats,
     EventEntry,
     EventSearchResult,
@@ -47,6 +48,7 @@ __all__ = [
     "Paginator",
     "AsyncPaginator",
     "ContractEvent",
+    "ContractEventTypeInfo",
     "TrackedContract",
     "WebhookSubscription",
     "ContractStats",
