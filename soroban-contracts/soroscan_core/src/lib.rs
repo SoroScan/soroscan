@@ -8,6 +8,7 @@ use soroban_sdk::{
 const ADMIN_KEY: Symbol = symbol_short!("admin");
 const INDEXERS_KEY: Symbol = symbol_short!("idxrs");
 const COUNTER_KEY: Symbol = symbol_short!("count");
+const TYPE_COUNTER_KEY: Symbol = symbol_short!("tcount");
 
 /// Represents a recorded event from an indexed contract.
 #[contracttype]
@@ -74,6 +75,9 @@ impl SoroScanCore {
             .instance()
             .set(&INDEXERS_KEY, &Map::<Address, bool>::new(&env));
         env.storage().instance().set(&COUNTER_KEY, &0u64);
+        env.storage()
+            .instance()
+            .set(&TYPE_COUNTER_KEY, &Map::<Symbol, u64>::new(&env));
 
         Ok(())
     }
@@ -191,10 +195,20 @@ impl SoroScanCore {
             timestamp,
         };
 
-        // Increment counter with overflow protection
+        // Increment total counter with overflow protection
         let mut count: u64 = env.storage().instance().get(&COUNTER_KEY).unwrap_or(0);
         count = count.saturating_add(1);
         env.storage().instance().set(&COUNTER_KEY, &count);
+
+        // Increment per-type counter
+        let mut type_counters: Map<Symbol, u64> = env
+            .storage()
+            .instance()
+            .get(&TYPE_COUNTER_KEY)
+            .unwrap_or(Map::new(&env));
+        let type_count = type_counters.get(event_type.clone()).unwrap_or(0);
+        type_counters.set(event_type.clone(), type_count.saturating_add(1));
+        env.storage().instance().set(&TYPE_COUNTER_KEY, &type_counters);
 
         // Store latest event by type
         env.storage().instance().set(&event_type, &record);
@@ -227,6 +241,23 @@ impl SoroScanCore {
     /// The total event count
     pub fn total_events(env: Env) -> u64 {
         env.storage().instance().get(&COUNTER_KEY).unwrap_or(0)
+    }
+
+    /// Get the count of events for a specific event type.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `event_type` - The event type to query
+    ///
+    /// # Returns
+    /// The number of events recorded for the given type, or 0 if none
+    pub fn event_count_by_type(env: Env, event_type: Symbol) -> u64 {
+        let type_counters: Map<Symbol, u64> = env
+            .storage()
+            .instance()
+            .get(&TYPE_COUNTER_KEY)
+            .unwrap_or(Map::new(&env));
+        type_counters.get(event_type).unwrap_or(0)
     }
 
     /// Check if an address is an authorized indexer.
@@ -282,6 +313,11 @@ impl SoroScanCore {
         let ledger = env.ledger().sequence();
         let timestamp = env.ledger().timestamp();
         let mut count: u64 = env.storage().instance().get(&COUNTER_KEY).unwrap_or(0);
+        let mut type_counters: Map<Symbol, u64> = env
+            .storage()
+            .instance()
+            .get(&TYPE_COUNTER_KEY)
+            .unwrap_or(Map::new(&env));
 
         for entry in events.iter() {
             let record = EventRecord {
@@ -295,6 +331,9 @@ impl SoroScanCore {
             count = count.saturating_add(1);
             env.storage().instance().set(&entry.event_type, &record);
 
+            let type_count = type_counters.get(entry.event_type.clone()).unwrap_or(0);
+            type_counters.set(entry.event_type.clone(), type_count.saturating_add(1));
+
             env.events().publish(
                 (symbol_short!("soroscan"), entry.event_type.clone()),
                 record,
@@ -302,6 +341,7 @@ impl SoroScanCore {
         }
 
         env.storage().instance().set(&COUNTER_KEY, &count);
+        env.storage().instance().set(&TYPE_COUNTER_KEY, &type_counters);
 
         // Emit a single batch summary event
         env.events().publish(
@@ -622,6 +662,84 @@ mod tests {
 
         let result = client.try_transfer_admin(&non_admin, &new_admin);
         assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    }
+
+    #[test]
+    fn test_event_count_by_type_unknown() {
+        let env = Env::default();
+        let (client, _admin, _indexer) = setup_contract(&env);
+
+        let count = client.event_count_by_type(&symbol_short!("nonexistent"));
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_event_count_by_type_after_record() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer) = setup_contract(&env);
+        let target = Address::generate(&env);
+
+        client.add_indexer(&admin, &indexer);
+
+        let event_type = symbol_short!("swap");
+        let payload_hash = BytesN::from_array(&env, &[0u8; 32]);
+
+        client.record_event(&indexer, &target, &event_type, &payload_hash);
+        assert_eq!(client.event_count_by_type(&event_type), 1);
+
+        client.record_event(&indexer, &target, &event_type, &payload_hash);
+        assert_eq!(client.event_count_by_type(&event_type), 2);
+
+        // Other types should still be 0
+        assert_eq!(
+            client.event_count_by_type(&symbol_short!("transfer")),
+            0
+        );
+    }
+
+    #[test]
+    fn test_event_count_by_type_after_batch() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, SoroScanCore);
+        let client = SoroScanCoreClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let indexer = Address::generate(&env);
+        let target1 = Address::generate(&env);
+        let target2 = Address::generate(&env);
+
+        client.init(&admin);
+        client.add_indexer(&admin, &indexer);
+
+        let mut entries = Vec::new(&env);
+        entries.push_back(EventEntry {
+            contract_id: target1,
+            event_type: symbol_short!("swap"),
+            payload_hash: BytesN::from_array(&env, &[1u8; 32]),
+        });
+        entries.push_back(EventEntry {
+            contract_id: target2,
+            event_type: symbol_short!("swap"),
+            payload_hash: BytesN::from_array(&env, &[2u8; 32]),
+        });
+        entries.push_back(EventEntry {
+            contract_id: target1,
+            event_type: symbol_short!("transfer"),
+            payload_hash: BytesN::from_array(&env, &[3u8; 32]),
+        });
+
+        client.record_events_batch(&indexer, &entries);
+
+        assert_eq!(client.event_count_by_type(&symbol_short!("swap")), 2);
+        assert_eq!(
+            client.event_count_by_type(&symbol_short!("transfer")),
+            1
+        );
+        assert_eq!(client.total_events(), 3);
     }
 
     #[test]

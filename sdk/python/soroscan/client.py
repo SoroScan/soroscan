@@ -21,11 +21,14 @@ from soroscan.models import (
     ContractEvent,
     ContractStats,
     EventEntry,
+    EventSearchResult,
+    EventTypeStatistics,
     PaginatedResponse,
     RecordEventRequest,
     RecordEventResponse,
     RecordEventsBatchRequest,
     RecordEventsBatchResponse,
+    SearchResponse,
     TrackedContract,
     WebhookSubscription,
 )
@@ -528,6 +531,80 @@ class SoroScanClient:
         response = self._client.delete(url, headers=self._get_headers())
         if response.status_code != 204:
             self._handle_response(response)
+
+    def search_events(
+        self,
+        q: str | None = None,
+        contract_id: str | None = None,
+        event_type: str | None = None,
+        payload_contains: str | None = None,
+        payload_field: str | None = None,
+        payload_op: str | None = None,
+        payload_value: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> SearchResponse[EventSearchResult]:
+        """
+        Full-text and field-level event search (SC-12).
+
+        Args:
+            q: Free-text substring match against JSON payload text
+            contract_id: Filter by contract address
+            event_type: Filter by event type
+            payload_contains: JSON containment sub-string
+            payload_field: Dot-notation field path for field-level queries
+            payload_op: Comparison operator (eq, neq, gte, lte, gt, lt, contains, startswith, in)
+            payload_value: Value for field comparison
+            page: Page number (1-indexed)
+            page_size: Results per page (max 1000)
+
+        Returns:
+            Paginated search results
+        """
+        params: dict[str, Any] = {"page": page, "page_size": page_size}
+        if q is not None:
+            params["q"] = q
+        if contract_id is not None:
+            params["contract_id"] = contract_id
+        if event_type is not None:
+            params["event_type"] = event_type
+        if payload_contains is not None:
+            params["payload_contains"] = payload_contains
+        if payload_field is not None:
+            params["payload_field"] = payload_field
+        if payload_op is not None:
+            params["payload_op"] = payload_op
+        if payload_value is not None:
+            params["payload_value"] = payload_value
+
+        url = urljoin(self.base_url, "/api/events/search/")
+        response = self._client.get(url, headers=self._get_headers(), params=params)
+        data = self._handle_response(response)
+
+        adapter = TypeAdapter(SearchResponse[EventSearchResult])
+        return adapter.validate_python(data)
+
+    def get_event_type_statistics(
+        self,
+        contract_id: str | None = None,
+    ) -> EventTypeStatistics:
+        """
+        Get event type distribution statistics (SC-12).
+
+        Args:
+            contract_id: Optional contract address to scope statistics
+
+        Returns:
+            Event type distribution including per-type counts and first/last seen timestamps
+        """
+        params: dict[str, Any] = {}
+        if contract_id is not None:
+            params["contract_id"] = contract_id
+
+        url = urljoin(self.base_url, "/api/events/type-statistics/")
+        response = self._client.get(url, headers=self._get_headers(), params=params)
+        data = self._handle_response(response)
+        return EventTypeStatistics.model_validate(data)
 
     def test_webhook(self, webhook_id: int) -> dict[str, Any]:
         """
@@ -1037,6 +1114,80 @@ class AsyncSoroScanClient:
         response = await self._client.delete(url, headers=self._get_headers())
         if response.status_code != 204:
             self._handle_response(response)
+
+    async def search_events(
+        self,
+        q: str | None = None,
+        contract_id: str | None = None,
+        event_type: str | None = None,
+        payload_contains: str | None = None,
+        payload_field: str | None = None,
+        payload_op: str | None = None,
+        payload_value: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> SearchResponse[EventSearchResult]:
+        """
+        Full-text and field-level event search (SC-12).
+
+        Args:
+            q: Free-text substring match against JSON payload text
+            contract_id: Filter by contract address
+            event_type: Filter by event type
+            payload_contains: JSON containment sub-string
+            payload_field: Dot-notation field path for field-level queries
+            payload_op: Comparison operator (eq, neq, gte, lte, gt, lt, contains, startswith, in)
+            payload_value: Value for field comparison
+            page: Page number (1-indexed)
+            page_size: Results per page (max 1000)
+
+        Returns:
+            Paginated search results
+        """
+        params: dict[str, Any] = {"page": page, "page_size": page_size}
+        if q is not None:
+            params["q"] = q
+        if contract_id is not None:
+            params["contract_id"] = contract_id
+        if event_type is not None:
+            params["event_type"] = event_type
+        if payload_contains is not None:
+            params["payload_contains"] = payload_contains
+        if payload_field is not None:
+            params["payload_field"] = payload_field
+        if payload_op is not None:
+            params["payload_op"] = payload_op
+        if payload_value is not None:
+            params["payload_value"] = payload_value
+
+        url = urljoin(self.base_url, "/api/events/search/")
+        response = await self._client.get(url, headers=self._get_headers(), params=params)
+        data = self._handle_response(response)
+
+        adapter = TypeAdapter(SearchResponse[EventSearchResult])
+        return adapter.validate_python(data)
+
+    async def get_event_type_statistics(
+        self,
+        contract_id: str | None = None,
+    ) -> EventTypeStatistics:
+        """
+        Get event type distribution statistics (SC-12).
+
+        Args:
+            contract_id: Optional contract address to scope statistics
+
+        Returns:
+            Event type distribution including per-type counts and first/last seen timestamps
+        """
+        params: dict[str, Any] = {}
+        if contract_id is not None:
+            params["contract_id"] = contract_id
+
+        url = urljoin(self.base_url, "/api/events/type-statistics/")
+        response = await self._client.get(url, headers=self._get_headers(), params=params)
+        data = self._handle_response(response)
+        return EventTypeStatistics.model_validate(data)
 
     async def test_webhook(self, webhook_id: int) -> dict[str, Any]:
         """
