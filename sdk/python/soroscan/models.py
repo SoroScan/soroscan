@@ -110,6 +110,18 @@ class LatestByTypeResponse(BaseModel):
 
 class TotalEventsResponse(BaseModel):
     total_events: int
+# ── SC-15: Contract authorization queries ─────────────────────────────────────
+
+class IsIndexerResponse(BaseModel):
+    """Response for indexer authorization check (SC-15)."""
+
+    is_indexer: bool = Field(..., description="Whether the address is authorized")
+
+
+class GetAdminResponse(BaseModel):
+    """Response for contract admin query (SC-15)."""
+
+    admin_address: str | None = Field(None, description="Current admin address")
 # ── SC-17: Contract event type info ───────────────────────────────────────────
 
 class ContractEventTypeInfo(BaseModel):

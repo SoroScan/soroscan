@@ -279,6 +279,19 @@ class SorobanClient:
             ],
             signer=admin_keypair,
         )
+    def is_indexer(self, indexer_address: str) -> tuple[bool, Any]:
+        """Query whether an address is an authorized indexer (SC-15)."""
+        return self._simulate_contract_read(
+            function_name="is_indexer",
+            parameters=[self._address_to_sc_val(indexer_address)],
+        )
+
+    def get_admin(self) -> tuple[bool, Any]:
+        """Query the current contract admin address (SC-15)."""
+        return self._simulate_contract_read(
+            function_name="get_admin",
+            parameters=[],
+        )
 
     def record_event(
         self,

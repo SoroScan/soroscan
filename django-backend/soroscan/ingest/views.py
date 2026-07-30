@@ -1068,6 +1068,7 @@ def record_structured_event_view(request):
     parameters=[
         OpenApiParameter(
             name="event_type",
+            name="indexer_address",
             type=str,
             location=OpenApiParameter.QUERY,
             required=True,
@@ -1082,11 +1083,29 @@ def latest_by_type_view(request):
     if not event_type:
         return Response(
             {"event_type": ["This field is required."]},
+    responses={
+        200: inline_serializer(
+            name="IsIndexerResponse",
+            fields={
+                "is_indexer": serializers.BooleanField(),
+            },
+        ),
+    },
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def is_indexer_view(request):
+    """Check whether an address is authorized on the SoroScan contract (SC-15)."""
+    indexer_address = request.query_params.get("indexer_address")
+    if not indexer_address:
+        return Response(
+            {"indexer_address": ["This field is required."]},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     client = SorobanClient()
     success, value = client.latest_by_type(event_type)
+    success, value = client.is_indexer(indexer_address)
     if not success:
         return Response(
             {"status": "error", "error": str(value)},
@@ -1184,6 +1203,32 @@ def record_events_batch_view(request):
         },
         status=status.HTTP_400_BAD_REQUEST,
     )
+    return Response({"is_indexer": bool(value)})
+
+
+@extend_schema(
+    responses={
+        200: inline_serializer(
+            name="GetAdminResponse",
+            fields={
+                "admin_address": serializers.CharField(allow_null=True),
+            },
+        ),
+    },
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def get_admin_view(request):
+    """Return the current SoroScan contract admin address (SC-15)."""
+    client = SorobanClient()
+    success, value = client.get_admin()
+    if not success:
+        return Response(
+            {"status": "error", "error": str(value)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Response({"admin_address": value})
 
 
 @extend_schema(
