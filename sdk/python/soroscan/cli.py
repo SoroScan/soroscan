@@ -158,6 +158,17 @@ def _handle_contracts(args: argparse.Namespace) -> int:
                 )
             return 0
 
+        if args.contract_command == "recent-events":
+            events = client.get_contract_recent_events(args.contract_id, limit=args.limit)
+            if args.output == "json":
+                _print_json(events)
+            else:
+                _print_table(
+                    events,
+                    ["id", "event_type", "ledger", "event_index", "timestamp"],
+                )
+            return 0
+
         response = client.get_contracts(
             is_active=args.active,
             search=args.search,
@@ -170,6 +181,31 @@ def _handle_contracts(args: argparse.Namespace) -> int:
             response.results,
             ["id", "contract_id", "name", "is_active", "event_count"],
         )
+    return 0
+
+
+def _handle_indexers(args: argparse.Namespace) -> int:
+    with _build_client(args) as client:
+        result = client.add_indexer(args.indexer_address)
+    if args.output == "json":
+        _print_json(result)
+    else:
+        _print_table(
+            [result],
+            ["status", "tx_hash", "transaction_status", "error"],
+        )
+def _handle_record_event(args: argparse.Namespace) -> int:
+    """Submit a single event to the SoroScan contract (SC-10)."""
+    with _build_client(args) as client:
+        result = client.record_event(
+            contract_id=args.contract_id,
+            event_type=args.event_type,
+            payload_hash=args.payload_hash,
+        )
+    if args.output == "json":
+        _print_json(result)
+    else:
+        _print_table([result], ["status", "tx_hash", "transaction_status", "error"])
     return 0
 
 
@@ -277,6 +313,38 @@ def build_parser() -> argparse.ArgumentParser:
         "--output", choices=["table", "json"], default="table"
     )
     contracts_event_types.set_defaults(func=_handle_contracts)
+    contracts_recent_events = contract_subcommands.add_parser(
+        "recent-events", help="Get the most recent events for a contract (SC-30)"
+    )
+    contracts_recent_events.add_argument("contract_id", help="Contract address (C...)")
+    contracts_recent_events.add_argument(
+        "--limit", type=int, default=10, help="Maximum events to return (1-20, default 10)"
+    )
+    contracts_recent_events.add_argument(
+        "--output", choices=["table", "json"], default="table"
+    )
+    contracts_recent_events.set_defaults(func=_handle_contracts)
+
+    # SC-10: record a single event from the CLI
+    record = subcommands.add_parser(
+        "record-event",
+        help="Submit a single event to the SoroScan indexing contract",
+    )
+    record.add_argument("contract_id", help="Target contract address (C...)")
+    record.add_argument("event_type", help="Event type name (e.g. transfer, swap)")
+    record.add_argument(
+        "payload_hash",
+        help="SHA-256 hex hash of the event payload (64 hex chars)",
+    )
+    record.add_argument("--output", choices=["table", "json"], default="table")
+    record.set_defaults(func=_handle_record_event)
+
+    indexers = subcommands.add_parser("indexers", help="Manage Soroban contract indexers (SC-9)")
+    indexer_subcommands = indexers.add_subparsers(dest="indexer_command", required=True)
+    indexers_add = indexer_subcommands.add_parser("add", help="Authorize an indexer address")
+    indexers_add.add_argument("indexer_address", help="Stellar address of the indexer")
+    indexers_add.add_argument("--output", choices=["table", "json"], default="table")
+    indexers_add.set_defaults(func=_handle_indexers)
 
     return parser
 

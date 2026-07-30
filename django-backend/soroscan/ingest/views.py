@@ -67,6 +67,8 @@ from .serializers import (
     OrganizationCorsSerializer,
     OrganizationCostSnapshotSerializer,
     RecordEventRequestSerializer,
+    AddIndexerRequestSerializer,
+    StructuredEventRequestSerializer,
     TeamMemberAddSerializer,
     TeamSerializer,
     TrackedContractSerializer,
@@ -1028,6 +1030,175 @@ def record_event_view(request):
         )
 
 
+@extend_schema(request=StructuredEventRequestSerializer)
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([IngestRateThrottle, AnonRateThrottle, UserRateThrottle])
+def record_structured_event_view(request):
+    """Relay a versioned, deduplicated SC-38 event to the core contract."""
+    serializer = StructuredEventRequestSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    data = serializer.validated_data
+    result = SorobanClient().record_structured_event(
+        target_contract_id=data["contract_id"],
+        event_type=data["event_type"],
+        payload_hash_hex=data["payload_hash"],
+        schema_version=data["schema_version"],
+        correlation_id_hex=data["correlation_id"],
+    )
+    if result.success:
+        return Response(
+            {
+                "status": "submitted",
+                "tx_hash": result.tx_hash,
+                "transaction_status": result.status,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+    return Response(
+        {"status": "failed", "error": result.error, "transaction_status": result.status},
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+@extend_schema(
+    request=AddIndexerRequestSerializer,
+    responses={
+        202: inline_serializer(
+            name="AddIndexerResponse",
+            fields={
+                "status": serializers.CharField(),
+                "tx_hash": serializers.CharField(),
+                "transaction_status": serializers.CharField(),
+            },
+        ),
+        400: inline_serializer(
+            name="AddIndexerFailed",
+            fields={
+                "status": serializers.CharField(),
+                "error": serializers.CharField(),
+                "transaction_status": serializers.CharField(),
+            },
+        ),
+    },
+)
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([IngestRateThrottle, AnonRateThrottle, UserRateThrottle])
+def add_indexer_view(request):
+    """
+    Authorize an indexer address on the SoroScan contract (SC-9).
+
+    Request body:
+    {
+        "indexer_address": "GABC..."
+    }
+    """
+    serializer = AddIndexerRequestSerializer(data=request.data)
+
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    indexer_address = serializer.validated_data["indexer_address"]
+
+    try:
+        client = SorobanClient()
+        result = client.add_indexer(indexer_address=indexer_address)
+
+        if result.success:
+            return Response(
+                {
+                    "status": "submitted",
+                    "tx_hash": result.tx_hash,
+                    "transaction_status": result.status,
+                },
+                status=status.HTTP_202_ACCEPTED,
+            )
+
+        return Response(
+            {
+                "status": "failed",
+                "error": result.error,
+                "transaction_status": result.status,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    except Exception as e:
+        logger.exception(
+            "Failed to add indexer",
+            extra={"indexer_address": indexer_address},
+        )
+        return Response(
+            {"status": "error", "error": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+    parameters=[
+        OpenApiParameter(
+            name="indexer_address",
+            type=str,
+            location=OpenApiParameter.QUERY,
+            required=True,
+        ),
+    ],
+    responses={
+        200: inline_serializer(
+            name="IsIndexerResponse",
+            fields={
+                "is_indexer": serializers.BooleanField(),
+            },
+        ),
+    },
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def is_indexer_view(request):
+    """Check whether an address is authorized on the SoroScan contract (SC-15)."""
+    indexer_address = request.query_params.get("indexer_address")
+    if not indexer_address:
+        return Response(
+            {"indexer_address": ["This field is required."]},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    client = SorobanClient()
+    success, value = client.is_indexer(indexer_address)
+    if not success:
+        return Response(
+            {"status": "error", "error": str(value)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Response({"is_indexer": bool(value)})
+
+
+@extend_schema(
+    responses={
+        200: inline_serializer(
+            name="GetAdminResponse",
+            fields={
+                "admin_address": serializers.CharField(allow_null=True),
+            },
+        ),
+    },
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def get_admin_view(request):
+    """Return the current SoroScan contract admin address (SC-15)."""
+    client = SorobanClient()
+    success, value = client.get_admin()
+    if not success:
+        return Response(
+            {"status": "error", "error": str(value)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Response({"admin_address": value})
+
+
 @extend_schema(
     responses=inline_serializer(
         name="WebhookSigningPublicKeyResponse",
@@ -1359,6 +1530,65 @@ def contract_event_types_view(request, contract_id: str):
         )
     
     result = get_or_set_json(cache_key, 60, _build)
+    return Response(result)
+
+
+MAX_RECENT_EVENTS_LIMIT = 20
+
+
+@extend_schema(
+    parameters=[
+        inline_serializer(
+            name="ContractRecentEventsParams",
+            fields={
+                "limit": serializers.IntegerField(required=False),
+            },
+        )
+    ],
+    responses=ContractEventSerializer(many=True),
+)
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def contract_recent_events_view(request, contract_id: str):
+    """Get the most recent events for a specific contract, newest first (SC-30).
+
+    Mirrors the bounded on-chain recent-events ring buffer exposed by the
+    SoroScan core contract's ``recent_events`` function, backed here by the
+    indexed event history for richer payload data.
+    """
+    contract = get_cached_contract(contract_id)
+    if not contract:
+        from django.http import Http404
+        raise Http404
+
+    try:
+        limit = int(request.query_params.get("limit", 10))
+    except (TypeError, ValueError):
+        return Response(
+            {"detail": "limit must be an integer"}, status=status.HTTP_400_BAD_REQUEST
+        )
+
+    if limit <= 0 or limit > MAX_RECENT_EVENTS_LIMIT:
+        return Response(
+            {
+                "detail": f"limit must be between 1 and {MAX_RECENT_EVENTS_LIMIT}",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    cache_key = stable_cache_key(
+        "contract_recent_events", {"contract_id": contract_id, "limit": limit}
+    )
+
+    def _build():
+        events = (
+            ContractEvent.objects.select_related("contract")
+            .filter(contract=contract)
+            .order_by("-ledger", "-event_index", "-id")[:limit]
+        )
+        return ContractEventSerializer(events, many=True).data
+
+    result = get_or_set_json(cache_key, 15, _build)
     return Response(result)
 
 

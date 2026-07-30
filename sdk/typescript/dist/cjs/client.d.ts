@@ -16,6 +16,13 @@ export declare class SoroScanClient {
      * for (const event of result.items) { console.log(event.type, event.txHash); }
      */
     getEvents(params?: GetEventsParams): Promise<GetEventsResponse>;
+    /** Fetch events for several contracts with one indexed query. */
+    getEventsByContracts(params: GetEventsByContractsParams): Promise<GetEventsByContractsResponse>;
+    /**
+     * Submit an SC-38 structured event. The correlation ID makes retry handling
+     * explicit: the contract rejects a repeated ID without publishing twice.
+     */
+    recordStructuredEvent(params: RecordStructuredEventParams): Promise<RecordStructuredEventResponse>;
     /**
      * Full-text and field-level event search (SC-12).
      *

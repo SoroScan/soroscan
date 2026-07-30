@@ -1,9 +1,15 @@
 import type {
   SoroScanClientConfig,
   SoroScanApiError,
+  ContractEvent,
   ContractEventTypeInfo,
+  GetContractRecentEventsParams,
   GetEventsParams,
   GetEventsResponse,
+  GetEventsByContractsParams,
+  GetEventsByContractsResponse,
+  RecordStructuredEventParams,
+  RecordStructuredEventResponse,
   GetContractsParams,
   GetContractsResponse,
   GetContractParams,
@@ -25,6 +31,8 @@ import type {
   SearchResponse,
   EventTypeStatistics,
 } from "./types.js";
+import { MAX_RECENT_EVENTS_LIMIT } from "./types.js";
+import { EventQueryBuilder, ContractQueryBuilder } from "./builder.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Error class
@@ -138,6 +146,38 @@ export class SoroScanClient {
     return json as T;
   }
 
+  // ─── Builder factories (SC-10) ────────────────────────────────────────────
+
+  /**
+   * Create a fluent event query builder (SC-10).
+   *
+   * @example
+   * const result = await client
+   *   .events()
+   *   .filterByContract("CCAAA...")
+   *   .filterByEventType("transfer")
+   *   .filterByLedgerRange(1_000, 2_000)
+   *   .execute();
+   */
+  events(): EventQueryBuilder {
+    return new EventQueryBuilder(this);
+  }
+
+  /**
+   * Create a fluent contract query builder (SC-10).
+   *
+   * @example
+   * const result = await client
+   *   .contracts()
+   *   .filterByType("token")
+   *   .filterByVerified(true)
+   *   .search("my-token")
+   *   .execute();
+   */
+  contracts(): ContractQueryBuilder {
+    return new ContractQueryBuilder(this);
+  }
+
   // ─── Events ────────────────────────────────────────────────────────────────
 
   /**
@@ -237,6 +277,31 @@ export class SoroScanClient {
     );
   }
 
+  /**
+   * Get the most recent events for a specific contract, newest first (SC-30).
+   *
+   * @example
+   * const events = await client.getContractRecentEvents({
+   *   contractId: 'CCAAA...',
+   *   limit: 5,
+   * });
+   */
+  async getContractRecentEvents(
+    params: GetContractRecentEventsParams
+  ): Promise<ContractEvent[]> {
+    const { contractId, limit = 10 } = params;
+    if (limit < 1 || limit > MAX_RECENT_EVENTS_LIMIT) {
+      throw new Error(
+        `getContractRecentEvents: limit must be between 1 and ${MAX_RECENT_EVENTS_LIMIT}`
+      );
+    }
+    return this.#request<ContractEvent[]>(
+      "GET",
+      `/v1/contracts/${encodeURIComponent(contractId)}/recent-events`,
+      { query: { limit } }
+    );
+  }
+
   // ─── Transactions ──────────────────────────────────────────────────────────
 
   /**
@@ -313,6 +378,38 @@ export class SoroScanClient {
       "POST",
       "/v1/record-events-batch",
       { body: params }
+    );
+  }
+
+  /** Check whether an address is an authorized indexer (SC-15). */
+  async isIndexer(indexerAddress: string): Promise<IsIndexerResponse> {
+    return this.#request<IsIndexerResponse>("GET", "/api/ingest/indexers/check/", {
+      query: { indexer_address: indexerAddress },
+    });
+  }
+
+  /** Return the current SoroScan contract admin address (SC-15). */
+  async getAdmin(): Promise<GetAdminResponse> {
+    return this.#request<GetAdminResponse>("GET", "/api/ingest/contract/admin/");
+  }
+
+  /**
+   * Authorize an indexer address on the SoroScan contract (SC-9).
+   *
+   * @example
+   * const result = await client.addIndexer({
+   *   indexerAddress: 'GABC...',
+   * });
+   */
+  async addIndexer(params: AddIndexerParams): Promise<AddIndexerResponse> {
+    return this.#request<AddIndexerResponse>(
+      "POST",
+      "/api/ingest/indexers/add/",
+      {
+        body: {
+          indexer_address: params.indexerAddress,
+        },
+      }
     );
   }
 
