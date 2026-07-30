@@ -28,6 +28,8 @@ from soroscan.models import (
     RecordEventResponse,
     AddIndexerRequest,
     AddIndexerResponse,
+    IsIndexerResponse,
+    GetAdminResponse,
     RecordEventsBatchRequest,
     RecordEventsBatchResponse,
     TrackedContract,
@@ -460,6 +462,23 @@ class SoroScanClient:
         )
         data = self._handle_response(response)
         return AddIndexerResponse.model_validate(data)
+    def is_indexer(self, indexer_address: str) -> IsIndexerResponse:
+        """Check whether an address is an authorized indexer (SC-15)."""
+        url = urljoin(self.base_url, "/api/ingest/indexers/check/")
+        response = self._client.get(
+            url,
+            headers=self._get_headers(),
+            params={"indexer_address": indexer_address},
+        )
+        data = self._handle_response(response)
+        return IsIndexerResponse.model_validate(data)
+
+    def get_admin(self) -> GetAdminResponse:
+        """Return the current SoroScan contract admin address (SC-15)."""
+        url = urljoin(self.base_url, "/api/ingest/contract/admin/")
+        response = self._client.get(url, headers=self._get_headers())
+        data = self._handle_response(response)
+        return GetAdminResponse.model_validate(data)
 
     def record_events_batch(
         self,
@@ -1030,6 +1049,23 @@ class AsyncSoroScanClient:
         )
         data = self._handle_response(response)
         return AddIndexerResponse.model_validate(data)
+    async def is_indexer(self, indexer_address: str) -> IsIndexerResponse:
+        """Check whether an address is an authorized indexer (SC-15)."""
+        url = urljoin(self.base_url, "/api/ingest/indexers/check/")
+        response = await self._client.get(
+            url,
+            headers=self._get_headers(),
+            params={"indexer_address": indexer_address},
+        )
+        data = self._handle_response(response)
+        return IsIndexerResponse.model_validate(data)
+
+    async def get_admin(self) -> GetAdminResponse:
+        """Return the current SoroScan contract admin address (SC-15)."""
+        url = urljoin(self.base_url, "/api/ingest/contract/admin/")
+        response = await self._client.get(url, headers=self._get_headers())
+        data = self._handle_response(response)
+        return GetAdminResponse.model_validate(data)
 
     async def record_events_batch(
         self,

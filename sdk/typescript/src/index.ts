@@ -63,6 +63,8 @@ export type {
   // SC-9: Indexer authorization
   AddIndexerParams,
   AddIndexerResponse,
+  GetAdminResponse,
+  IsIndexerResponse,
   // SC-30: Recent contract events
   GetContractRecentEventsParams,
   // WebSocket

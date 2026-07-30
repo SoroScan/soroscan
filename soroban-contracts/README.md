@@ -44,6 +44,13 @@ The `add_indexer` contract function is exposed via:
 - Python SDK: `client.add_indexer(indexer_address)`
 - TypeScript SDK: `client.addIndexer({ indexerAddress })`
 - CLI: `soroscan indexers add <address>`
+### SC-15: Contract authorization queries
+
+Read-only Soroban simulations for `is_indexer` and `get_admin` are exposed via:
+
+- Django: `GET /api/ingest/indexers/check/?indexer_address=...`, `GET /api/ingest/contract/admin/`
+- Python SDK: `client.is_indexer()`, `client.get_admin()`
+- TypeScript SDK: `client.isIndexer()`, `client.getAdmin()`
 
 Run all tests:
 
