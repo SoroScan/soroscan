@@ -71,3 +71,4 @@ export type {
 } from "./types.js";
 
 export * from "./features/sc21";
+export * from "./features/sc20";
