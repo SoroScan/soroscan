@@ -99,6 +99,33 @@ export class SoroScanClient {
             query: params,
         });
     }
+    /** Fetch events for several contracts with one indexed query. */
+    async getEventsByContracts(params) {
+        return this.#request("POST", "/v1/events/by-contracts", {
+            body: params,
+        });
+    }
+    /**
+     * Submit an SC-38 structured event. The correlation ID makes retry handling
+     * explicit: the contract rejects a repeated ID without publishing twice.
+     */
+    async recordStructuredEvent(params) {
+        const response = await this.#request("POST", "/api/record/structured/", {
+            body: {
+                contract_id: params.contractId,
+                event_type: params.eventType,
+                payload_hash: params.payloadHash,
+                schema_version: params.schemaVersion,
+                correlation_id: params.correlationId,
+            },
+        });
+        return {
+            status: response.status,
+            txHash: response.tx_hash,
+            transactionStatus: response.transaction_status,
+            error: response.error,
+        };
+    }
     // ─── Contracts ─────────────────────────────────────────────────────────────
     /**
      * Retrieve a paginated list of deployed contracts.

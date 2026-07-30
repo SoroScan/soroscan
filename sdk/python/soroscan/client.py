@@ -15,6 +15,7 @@ from soroscan.exceptions import (
     SoroScanValidationError,
 )
 from soroscan.models import (
+    MAX_RECENT_EVENTS_LIMIT,
     ContractEvent,
     ContractHealth,
     ContractStats,

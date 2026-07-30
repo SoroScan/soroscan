@@ -143,6 +143,21 @@ def _handle_contracts(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handle_record_event(args: argparse.Namespace) -> int:
+    """Submit a single event to the SoroScan contract (SC-10)."""
+    with _build_client(args) as client:
+        result = client.record_event(
+            contract_id=args.contract_id,
+            event_type=args.event_type,
+            payload_hash=args.payload_hash,
+        )
+    if args.output == "json":
+        _print_json(result)
+    else:
+        _print_table([result], ["status", "tx_hash", "transaction_status", "error"])
+    return 0
+
+
 def _handle_webhooks(args: argparse.Namespace) -> int:
     with _build_client(args) as client:
         if args.webhook_command == "test":
