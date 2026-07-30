@@ -18,7 +18,9 @@ from soroscan.exceptions import (
     SoroScanConnectionError,
 )
 from soroscan.models import (
+    MAX_RECENT_EVENTS_LIMIT,
     ContractEvent,
+    ContractEventTypeInfo,
     ContractStats,
     EventEntry,
     EventTypeInfo,
@@ -302,6 +304,47 @@ class SoroScanClient:
         response = self._client.get(url, headers=self._get_headers())
         data = self._handle_response(response)
         return ContractStats.model_validate(data)
+
+    def get_contract_event_types(self, contract_id: str) -> list[ContractEventTypeInfo]:
+        """
+        Get event types and their counts for a specific contract (SC-17).
+
+        Args:
+            contract_id: Contract address (C...)
+
+        Returns:
+            List of event type info with counts and first/last seen timestamps
+        """
+        url = urljoin(self.base_url, f"/api/contracts/{contract_id}/event-types/")
+        response = self._client.get(url, headers=self._get_headers())
+        data = self._handle_response(response)
+        return [ContractEventTypeInfo.model_validate(item) for item in data]
+
+    def get_contract_recent_events(
+        self,
+        contract_id: str,
+        limit: int = 10,
+    ) -> list[ContractEvent]:
+        """
+        Get the most recent events for a specific contract, newest first (SC-30).
+
+        Args:
+            contract_id: Contract address (C...)
+            limit: Maximum number of events to return (1-20, default 10)
+
+        Returns:
+            List of the most recent events, ordered newest first
+
+        Raises:
+            ValueError: If limit is not between 1 and MAX_RECENT_EVENTS_LIMIT
+        """
+        if not 1 <= limit <= MAX_RECENT_EVENTS_LIMIT:
+            raise ValueError(f"limit must be between 1 and {MAX_RECENT_EVENTS_LIMIT}")
+
+        url = urljoin(self.base_url, f"/api/contracts/{contract_id}/recent-events/")
+        response = self._client.get(url, headers=self._get_headers(), params={"limit": limit})
+        data = self._handle_response(response)
+        return [ContractEvent.model_validate(item) for item in data]
 
     def get_events(
         self,
@@ -836,6 +879,49 @@ class AsyncSoroScanClient:
         response = await self._client.get(url, headers=self._get_headers())
         data = self._handle_response(response)
         return ContractStats.model_validate(data)
+
+    async def get_contract_event_types(self, contract_id: str) -> list[ContractEventTypeInfo]:
+        """
+        Get event types and their counts for a specific contract (SC-17).
+
+        Args:
+            contract_id: Contract address (C...)
+
+        Returns:
+            List of event type info with counts and first/last seen timestamps
+        """
+        url = urljoin(self.base_url, f"/api/contracts/{contract_id}/event-types/")
+        response = await self._client.get(url, headers=self._get_headers())
+        data = self._handle_response(response)
+        return [ContractEventTypeInfo.model_validate(item) for item in data]
+
+    async def get_contract_recent_events(
+        self,
+        contract_id: str,
+        limit: int = 10,
+    ) -> list[ContractEvent]:
+        """
+        Get the most recent events for a specific contract, newest first (SC-30).
+
+        Args:
+            contract_id: Contract address (C...)
+            limit: Maximum number of events to return (1-20, default 10)
+
+        Returns:
+            List of the most recent events, ordered newest first
+
+        Raises:
+            ValueError: If limit is not between 1 and MAX_RECENT_EVENTS_LIMIT
+        """
+        if not 1 <= limit <= MAX_RECENT_EVENTS_LIMIT:
+            raise ValueError(f"limit must be between 1 and {MAX_RECENT_EVENTS_LIMIT}")
+
+        url = urljoin(self.base_url, f"/api/contracts/{contract_id}/recent-events/")
+        response = await self._client.get(
+            url, headers=self._get_headers(), params={"limit": limit}
+        )
+        data = self._handle_response(response)
+        return [ContractEvent.model_validate(item) for item in data]
 
     async def get_events(
         self,
