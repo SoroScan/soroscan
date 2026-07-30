@@ -44,6 +44,13 @@ The `remove_indexer` contract function is exposed via:
 - Python SDK: `client.remove_indexer(indexer_address)`
 - TypeScript SDK: `client.removeIndexer({ indexerAddress })`
 - CLI: `soroscan indexers remove <address>`
+### SC-15: Contract authorization queries
+
+Read-only Soroban simulations for `is_indexer` and `get_admin` are exposed via:
+
+- Django: `GET /api/ingest/indexers/check/?indexer_address=...`, `GET /api/ingest/contract/admin/`
+- Python SDK: `client.is_indexer()`, `client.get_admin()`
+- TypeScript SDK: `client.isIndexer()`, `client.getAdmin()`
 
 Run all tests:
 

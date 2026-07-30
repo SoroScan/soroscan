@@ -62,6 +62,8 @@ export type {
   RecordEventsBatchResponse,
   RemoveIndexerParams,
   RemoveIndexerResponse,
+  GetAdminResponse,
+  IsIndexerResponse,
   // SC-30: Recent contract events
   GetContractRecentEventsParams,
   // WebSocket

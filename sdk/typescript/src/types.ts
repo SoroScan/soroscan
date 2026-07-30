@@ -385,6 +385,12 @@ export interface RemoveIndexerResponse {
   txHash: string | null;
   transactionStatus: string | null;
   error: string | null;
+export interface GetAdminResponse {
+  admin_address: string | null;
+}
+
+export interface IsIndexerResponse {
+  is_indexer: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
