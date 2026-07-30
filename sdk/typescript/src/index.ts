@@ -27,6 +27,8 @@ export type {
   GetContractsParams,
   GetContractsResponse,
   GetContractParams,
+  // SC-16: Contract health
+  ContractHealth,
   // Transactions
   TransactionStatus,
   Transaction,

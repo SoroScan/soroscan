@@ -303,6 +303,29 @@ export interface WebhookListResponse {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SC-16: Contract health
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ContractHealth {
+  /** Contract address */
+  contractId: string;
+  /** Health status (healthy/unhealthy) */
+  status: string;
+  /** Timestamp of last event */
+  lastEventTime: string | null;
+  /** Minutes since last event */
+  minutesSinceLastEvent: number | null;
+  /** ABI decode errors in last hour */
+  abiDecodeErrors1h: number;
+  /** Consecutive indexing failures */
+  consecutiveFailures: number;
+  /** Error message if unhealthy */
+  errorMessage: string;
+  /** When health was last checked */
+  checkedAt: string | null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SC-29: Batch event recording
 // ─────────────────────────────────────────────────────────────────────────────
 
