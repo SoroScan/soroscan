@@ -252,6 +252,54 @@ export interface Ledger {
   baseReserve: number;
 }
 
+/**
+ * SC-38: Input for submitting a structured, deduplicated event.
+ * The `correlationId` must be unique per event; duplicate submissions are
+ * rejected by the contract so callers can safely retry on network error.
+ */
+export interface RecordStructuredEventParams {
+  contractId: ContractId;
+  eventType: EventType;
+  payloadHash: string;
+  /** Must be > 0. Used by the contract to select the correct decoder. */
+  schemaVersion: number;
+  /** 32-byte hex correlation id for idempotent submission. */
+  correlationId: string;
+}
+
+export interface RecordStructuredEventResponse {
+  status: "submitted" | "failed";
+  txHash?: string;
+  transactionStatus: string;
+  error?: string;
+}
+
+/** Maximum number of producer-defined tags per SC-24 event. */
+export const MAX_TAGS = 4;
+
+/**
+ * SC-24 input for a tagged event. Tags are short producer-defined
+ * classification strings (e.g. ["defi", "token"]) that allow off-chain
+ * indexers to filter events without decoding the full payload.
+ * At most {@link MAX_TAGS} tags may be supplied.
+ */
+export interface RecordTaggedEventParams {
+  contractId: ContractId;
+  eventType: EventType;
+  payloadHash: string;
+  /** Up to {@link MAX_TAGS} producer-defined classification tags. */
+  tags?: string[];
+}
+
+export interface RecordTaggedEventResponse {
+  status: "submitted" | "failed";
+  txHash?: string;
+  transactionStatus: string;
+  error?: string;
+  /** Echo of the tags that were submitted with the event. */
+  tags: string[];
+}
+
 export interface GetLedgersParams {
   after?: string;
   before?: string;
@@ -384,7 +432,28 @@ export interface RecordEventsBatchResponse {
   error: string | null;
 }
 
+export interface GetAdminResponse {
+  admin_address: string | null;
+}
+
+export interface IsIndexerResponse {
+  is_indexer: boolean;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
+// SC-9: Indexer authorization
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface AddIndexerParams {
+  /** Stellar address of the indexer to authorize */
+  indexerAddress: StellarAddress;
+}
+
+export interface AddIndexerResponse {
+  status: string;
+  txHash: string | null;
+  transactionStatus: string | null;
+  error: string | null;
 // SC-30: Recent contract events
 // ─────────────────────────────────────────────────────────────────────────────
 

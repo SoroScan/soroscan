@@ -143,6 +143,16 @@ def _handle_contracts(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handle_indexers(args: argparse.Namespace) -> int:
+    with _build_client(args) as client:
+        result = client.add_indexer(args.indexer_address)
+    if args.output == "json":
+        _print_json(result)
+    else:
+        _print_table(
+            [result],
+            ["status", "tx_hash", "transaction_status", "error"],
+        )
 def _handle_record_event(args: argparse.Namespace) -> int:
     """Submit a single event to the SoroScan contract (SC-10)."""
     with _build_client(args) as client:
@@ -242,6 +252,13 @@ def build_parser() -> argparse.ArgumentParser:
     contracts_health.add_argument("contract_id", help="Contract address (C...)")
     contracts_health.add_argument("--output", choices=["table", "json"], default="table")
     contracts_health.set_defaults(func=_handle_contracts)
+
+    indexers = subcommands.add_parser("indexers", help="Manage Soroban contract indexers (SC-9)")
+    indexer_subcommands = indexers.add_subparsers(dest="indexer_command", required=True)
+    indexers_add = indexer_subcommands.add_parser("add", help="Authorize an indexer address")
+    indexers_add.add_argument("indexer_address", help="Stellar address of the indexer")
+    indexers_add.add_argument("--output", choices=["table", "json"], default="table")
+    indexers_add.set_defaults(func=_handle_indexers)
 
     return parser
 

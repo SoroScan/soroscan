@@ -9,7 +9,7 @@ from threading import Lock
 from typing import Any, Optional
 
 from django.conf import settings
-from stellar_sdk import Keypair, TransactionBuilder
+from stellar_sdk import Keypair, TransactionBuilder, scval
 from stellar_sdk.soroban_server import SorobanServer
 
 from soroscan.circuit_breaker import execute_with_circuit_breaker
@@ -22,6 +22,7 @@ from stellar_sdk.xdr import (
     SCAddressType,
     Hash,
 )
+import stellar_sdk.xdr as stellar_xdr
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +142,134 @@ class SorobanClient:
         return SCVal(
             type=SCValType.SCV_BYTES,
             bytes=SCBytes(data),
+        )
+
+    def _get_admin_keypair(self) -> Optional[Keypair]:
+        admin_secret = getattr(settings, "ADMIN_SECRET_KEY", "") or self.secret_key
+        if not admin_secret:
+            return None
+        return Keypair.from_secret(admin_secret)
+
+    def _submit_contract_transaction(
+        self,
+        function_name: str,
+        parameters: list[SCVal],
+        signer: Keypair,
+    ) -> TransactionResult:
+        """Simulate, prepare, and submit a Soroban contract write transaction."""
+        try:
+            account = self.server.load_account(signer.public_key)
+            tx_builder = TransactionBuilder(
+                source_account=account,
+                network_passphrase=self.network_passphrase,
+                base_fee=100000,
+    def _simulate_contract_read(
+        self,
+        function_name: str,
+        parameters: list[SCVal],
+    ) -> tuple[bool, Any]:
+        """Simulate a read-only contract call and decode the return value."""
+        if not self.keypair:
+            return False, "No keypair configured for simulation"
+
+        try:
+            account = self.server.load_account(self.keypair.public_key)
+            tx_builder = TransactionBuilder(
+                source_account=account,
+                network_passphrase=self.network_passphrase,
+                base_fee=100,
+            )
+            tx_builder.append_invoke_contract_function_op(
+                contract_id=self.contract_id,
+                function_name=function_name,
+                parameters=parameters,
+            )
+            tx = tx_builder.set_timeout(30).build()
+            simulate_response = self.server.simulate_transaction(tx)
+
+            if simulate_response.error:
+                return TransactionResult(
+                    success=False,
+                    tx_hash="",
+                    status="simulation_failed",
+                    error=simulate_response.error,
+                )
+
+            prepared_tx = self.server.prepare_transaction(tx, simulate_response)
+            prepared_tx.sign(signer)
+            send_response = self.server.send_transaction(prepared_tx)
+
+            logger.info(
+                "Contract transaction submitted: %s (%s)",
+                send_response.hash,
+                function_name,
+            )
+
+            return TransactionResult(
+                success=send_response.status == "PENDING",
+                tx_hash=send_response.hash,
+                status=send_response.status,
+                result_xdr=getattr(send_response, "result_xdr", None),
+            )
+        except Exception as exc:
+            logger.exception("Failed to submit contract transaction: %s", function_name)
+            return TransactionResult(
+                success=False,
+                tx_hash="",
+                status="error",
+                error=str(exc),
+            )
+
+    def add_indexer(self, indexer_address: str) -> TransactionResult:
+        """
+        Submit an add_indexer transaction to the SoroScan contract (SC-9).
+
+        The configured admin keypair must sign the transaction.
+        """
+        admin_keypair = self._get_admin_keypair()
+        if not admin_keypair:
+            return TransactionResult(
+                success=False,
+                tx_hash="",
+                status="error",
+                error="No admin keypair configured",
+            )
+
+        return self._submit_contract_transaction(
+            function_name="add_indexer",
+            parameters=[
+                self._address_to_sc_val(admin_keypair.public_key),
+                self._address_to_sc_val(indexer_address),
+            ],
+            signer=admin_keypair,
+                return False, simulate_response.error
+
+            results = getattr(simulate_response, "results", None) or []
+            if not results:
+                return False, "No simulation result returned"
+
+            result_xdr = getattr(results[0], "xdr", None)
+            if not result_xdr:
+                return False, "Missing result XDR"
+
+            sc_val_obj = stellar_xdr.SCVal.from_xdr(result_xdr)
+            return True, scval.to_native(sc_val_obj)
+        except Exception as exc:
+            logger.exception("Failed to simulate contract read: %s", function_name)
+            return False, str(exc)
+
+    def is_indexer(self, indexer_address: str) -> tuple[bool, Any]:
+        """Query whether an address is an authorized indexer (SC-15)."""
+        return self._simulate_contract_read(
+            function_name="is_indexer",
+            parameters=[self._address_to_sc_val(indexer_address)],
+        )
+
+    def get_admin(self) -> tuple[bool, Any]:
+        """Query the current contract admin address (SC-15)."""
+        return self._simulate_contract_read(
+            function_name="get_admin",
+            parameters=[],
         )
 
     def record_event(

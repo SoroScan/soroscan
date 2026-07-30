@@ -74,6 +74,24 @@ class PaginatedResponse(BaseModel, Generic[T]):
     results: list[T] = Field(..., description="Page results")
 
 
+class GetEventsByContractsRequest(BaseModel):
+    """SC-23 request for a single query spanning several Soroban contracts."""
+
+    contract_ids: list[str] = Field(min_length=1, max_length=10)
+    event_type: str | None = None
+    ledger_min: int | None = Field(default=None, ge=0)
+    ledger_max: int | None = Field(default=None, ge=0)
+    ordering: str = "-timestamp"
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=50, ge=1, le=200)
+
+
+class GetEventsByContractsResponse(PaginatedResponse[ContractEvent]):
+    """A page of events and the contract addresses used to produce it."""
+
+    contract_ids: list[str]
+
+
 class RecordEventRequest(BaseModel):
     """Request model for recording a new event."""
 
@@ -91,6 +109,33 @@ class RecordEventResponse(BaseModel):
     error: str | None = Field(None, description="Error message if failed")
 
 
+# ── SC-9: Indexer authorization ───────────────────────────────────────────────
+
+class AddIndexerRequest(BaseModel):
+    """Request model for authorizing an indexer (SC-9)."""
+
+    indexer_address: str = Field(..., max_length=56, description="Indexer Stellar address")
+
+
+class AddIndexerResponse(BaseModel):
+    """Response from authorizing an indexer (SC-9)."""
+
+    status: str = Field(..., description="Submission status")
+    tx_hash: str | None = Field(None, description="Transaction hash")
+    transaction_status: str | None = Field(None, description="Transaction status")
+    error: str | None = Field(None, description="Error message if failed")
+# ── SC-15: Contract authorization queries ─────────────────────────────────────
+
+class IsIndexerResponse(BaseModel):
+    """Response for indexer authorization check (SC-15)."""
+
+    is_indexer: bool = Field(..., description="Whether the address is authorized")
+
+
+class GetAdminResponse(BaseModel):
+    """Response for contract admin query (SC-15)."""
+
+    admin_address: str | None = Field(None, description="Current admin address")
 # ── SC-17: Contract event type info ───────────────────────────────────────────
 
 class ContractEventTypeInfo(BaseModel):

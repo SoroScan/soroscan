@@ -25,6 +25,10 @@ import type {
   PaginatedResponse,
   RecordEventsBatchParams,
   RecordEventsBatchResponse,
+  AddIndexerParams,
+  AddIndexerResponse,
+  GetAdminResponse,
+  IsIndexerResponse,
 } from "./types.js";
 import { MAX_RECENT_EVENTS_LIMIT } from "./types.js";
 import { EventQueryBuilder, ContractQueryBuilder } from "./builder.js";
@@ -228,6 +232,7 @@ export class SoroScanClient {
 
   // ─── Contracts ─────────────────────────────────────────────────────────────
 
+
   /**
    * Retrieve a paginated list of deployed contracts.
    *
@@ -292,6 +297,76 @@ export class SoroScanClient {
   }
 
   // ─── Transactions ──────────────────────────────────────────────────────────
+
+  /**
+   * Submit an SC-38 structured event. The correlation ID makes retry handling
+   * explicit: the contract rejects a repeated ID without publishing twice.
+   */
+  async recordStructuredEvent(
+    params: RecordStructuredEventParams
+  ): Promise<RecordStructuredEventResponse> {
+    const response = await this.#request<{
+      status: "submitted" | "failed";
+      tx_hash?: string;
+      transaction_status: string;
+      error?: string;
+    }>("POST", "/api/record/structured/", {
+      body: {
+        contract_id: params.contractId,
+        event_type: params.eventType,
+        payload_hash: params.payloadHash,
+        schema_version: params.schemaVersion,
+        correlation_id: params.correlationId,
+      },
+    });
+    return {
+      status: response.status,
+      txHash: response.tx_hash,
+      transactionStatus: response.transaction_status,
+      error: response.error,
+    };
+  }
+
+  /**
+   * Submit an SC-24 tagged event.
+   *
+   * Tags are short producer-defined classification strings (e.g. `["defi",
+   * "token"]`) that allow off-chain indexers to filter events without decoding
+   * the full payload. At most 4 tags may be supplied per event.
+   *
+   * @example
+   * const result = await client.recordTaggedEvent({
+   *   contractId: 'CCAAA...',
+   *   eventType: 'transfer',
+   *   payloadHash: 'a'.repeat(64),
+   *   tags: ['defi', 'token'],
+   * });
+   */
+  async recordTaggedEvent(
+    params: RecordTaggedEventParams
+  ): Promise<RecordTaggedEventResponse> {
+    const response = await this.#request<{
+      status: "submitted" | "failed";
+      tx_hash?: string;
+      transaction_status: string;
+      error?: string;
+      tags: string[];
+    }>("POST", "/api/record/tagged/", {
+      body: {
+        contract_id: params.contractId,
+        event_type: params.eventType,
+        payload_hash: params.payloadHash,
+        tags: params.tags ?? [],
+      },
+    });
+    return {
+      status: response.status,
+      txHash: response.tx_hash,
+      transactionStatus: response.transaction_status,
+      error: response.error,
+      tags: response.tags,
+    };
+  }
 
   /**
    * Retrieve a paginated list of transactions, optionally filtered by contract
@@ -367,6 +442,38 @@ export class SoroScanClient {
       "POST",
       "/v1/record-events-batch",
       { body: params }
+    );
+  }
+
+  /** Check whether an address is an authorized indexer (SC-15). */
+  async isIndexer(indexerAddress: string): Promise<IsIndexerResponse> {
+    return this.#request<IsIndexerResponse>("GET", "/api/ingest/indexers/check/", {
+      query: { indexer_address: indexerAddress },
+    });
+  }
+
+  /** Return the current SoroScan contract admin address (SC-15). */
+  async getAdmin(): Promise<GetAdminResponse> {
+    return this.#request<GetAdminResponse>("GET", "/api/ingest/contract/admin/");
+  }
+
+  /**
+   * Authorize an indexer address on the SoroScan contract (SC-9).
+   *
+   * @example
+   * const result = await client.addIndexer({
+   *   indexerAddress: 'GABC...',
+   * });
+   */
+  async addIndexer(params: AddIndexerParams): Promise<AddIndexerResponse> {
+    return this.#request<AddIndexerResponse>(
+      "POST",
+      "/api/ingest/indexers/add/",
+      {
+        body: {
+          indexer_address: params.indexerAddress,
+        },
+      }
     );
   }
 
