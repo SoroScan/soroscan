@@ -24,6 +24,7 @@ from soroscan.ingest.views import (
     contract_status,
     organization_api_usage_analytics_view,
     rate_limit_analytics_view,
+    all_contracts_health_view,
     webhook_batch_delivery_status_view,
     webhook_delivery_metrics_view,
 )

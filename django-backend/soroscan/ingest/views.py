@@ -18,13 +18,14 @@ from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema, inline_serializer
-from rest_framework import serializers, status, viewsets
+from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParameter
+from rest_framework import renderers, serializers, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
+from rest_framework.pagination import PageNumberPagination
 
 import requests as http_requests
 
@@ -32,13 +33,16 @@ from soroscan.throttles import IngestRateThrottle
 from soroscan.webhook_signing import build_x_signature_header, public_key_base64
 
 from .cache_utils import cache_result, get_or_set_json, query_cache_ttl, stable_cache_key
+from .decorators import validate_webhook_signature
 from .models import (
     APIKey,
     APIUsageLog,
     AdminAction,
     ArchivedEventBatch,
     ContractEvent,
+    ContractHealthCheck,
     ContractInvocation,
+    ContractSnapshot,
     ContractSource,
     ContractVerification,
     Organization,
@@ -59,14 +63,18 @@ from .serializers import (
     APIKeySerializer,
     ContractEventSerializer,
     ContractInvocationSerializer,
+    ContractSnapshotSerializer,
     ContractSourceSerializer,
     ContractVerificationSerializer,
     CostAnalyticsQuerySerializer,
     EventSearchSerializer,
+    EventsByContractsRequestSerializer,
     OrganizationBudgetSerializer,
     OrganizationCorsSerializer,
     OrganizationCostSnapshotSerializer,
     RecordEventRequestSerializer,
+    AddIndexerRequestSerializer,
+    StructuredEventRequestSerializer,
     TeamMemberAddSerializer,
     TeamSerializer,
     TrackedContractSerializer,
@@ -76,6 +84,11 @@ from .serializers import (
 from .stellar_client import SorobanClient
 
 logger = logging.getLogger(__name__)
+
+class StandardResultsSetPagination(PageNumberPagination):
+    page_size = 50
+    page_size_query_param = "page_size"
+    max_page_size = 1000
 
 
 class AdminActionSerializer(serializers.ModelSerializer):
@@ -115,6 +128,7 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
 
     queryset = TrackedContract.objects.all()
     serializer_class = TrackedContractSerializer
+    permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["is_active"]
     search_fields = ["name", "alias", "contract_id"]
@@ -211,6 +225,41 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     @extend_schema(
+        request=inline_serializer(
+            name="ContractPauseRequest",
+            fields={
+                "reason": serializers.CharField(required=False, allow_blank=True),
+                "resume_at": serializers.DateTimeField(required=False, allow_null=True),
+            },
+        ),
+        responses=TrackedContractSerializer,
+    )
+    @action(detail=True, methods=["post"])
+    def pause(self, request, pk=None):
+        """Suspend indexing for this contract; historical data stays queryable."""
+        contract = self.get_object()
+        reason = request.data.get("reason", "")
+        resume_at_raw = request.data.get("resume_at")
+        resume_at = parse_datetime(resume_at_raw) if resume_at_raw else None
+        if resume_at_raw and resume_at is None:
+            return Response(
+                {"detail": "resume_at must be a valid ISO 8601 datetime."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        contract.pause(reason=reason, resume_at=resume_at)
+        contract.refresh_from_db()
+        return Response(TrackedContractSerializer(contract).data)
+
+    @extend_schema(responses=TrackedContractSerializer)
+    @action(detail=True, methods=["post"])
+    def resume(self, request, pk=None):
+        """Resume indexing for a previously paused contract."""
+        contract = self.get_object()
+        contract.resume()
+        contract.refresh_from_db()
+        return Response(TrackedContractSerializer(contract).data)
+
+    @extend_schema(
         responses=inline_serializer(
             name="ContractStats",
             fields={
@@ -259,6 +308,23 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         from .tasks import _calculate_completeness
 
         return Response(_calculate_completeness(contract))
+
+    @extend_schema(responses=ContractSnapshotSerializer(many=True))
+    @action(detail=True, methods=["get"], url_path="snapshots")
+    def snapshots(self, request, pk=None):
+        """List contract state snapshots, optionally filtered by ledger range."""
+        contract = self.get_object()
+        qs = ContractSnapshot.objects.filter(contract=contract).prefetch_related("changes")
+
+        ledger_min = request.query_params.get("ledger_min")
+        ledger_max = request.query_params.get("ledger_max")
+        if ledger_min is not None:
+            qs = qs.filter(ledger_sequence__gte=int(ledger_min))
+        if ledger_max is not None:
+            qs = qs.filter(ledger_sequence__lte=int(ledger_max))
+
+        serializer = ContractSnapshotSerializer(qs.order_by("-ledger_sequence"), many=True)
+        return Response(serializer.data)
 
     @action(detail=False, methods=["get"])
     def completeness_dashboard(self, request):
@@ -351,6 +417,7 @@ class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
 
     queryset = ContractEvent.objects.all()
     serializer_class = ContractEventSerializer
+    pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_fields = [
         "contract__contract_id",
@@ -378,6 +445,41 @@ class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
                 qs = qs.filter(event_type__in=types_list)
                 
         return qs
+
+    @extend_schema(
+        request=EventsByContractsRequestSerializer,
+        responses=ContractEventSerializer(many=True),
+    )
+    @action(detail=False, methods=["post"], url_path="by-contracts")
+    def by_contracts(self, request):
+        """Return one ordered page of events emitted by up to ten contracts."""
+        payload = EventsByContractsRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        filters = payload.validated_data
+
+        queryset = ContractEvent.objects.select_related("contract").filter(
+            contract__contract_id__in=filters["contract_ids"]
+        )
+        if filters.get("event_type"):
+            queryset = queryset.filter(event_type=filters["event_type"])
+        if filters.get("ledger_min") is not None:
+            queryset = queryset.filter(ledger__gte=filters["ledger_min"])
+        if filters.get("ledger_max") is not None:
+            queryset = queryset.filter(ledger__lte=filters["ledger_max"])
+
+        queryset = queryset.order_by(filters["ordering"], "-id")
+        count = queryset.count()
+        offset = (filters["page"] - 1) * filters["page_size"]
+        events = queryset[offset : offset + filters["page_size"]]
+        return Response(
+            {
+                "count": count,
+                "next": None,
+                "previous": None,
+                "results": self.get_serializer(events, many=True).data,
+                "contract_ids": filters["contract_ids"],
+            }
+        )
 
     @extend_schema(
         parameters=[
@@ -719,6 +821,60 @@ class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
         matched = evaluate_condition(webhook.filter_condition, sample_event)
         return Response({"matched": bool(matched)})
 
+    @extend_schema(
+        responses={200: WebhookDeliveryLogSerializer(many=True)},
+        parameters=[
+            inline_serializer(
+                name="DeliveriesFilterParams",
+                fields={
+                    "status": serializers.CharField(required=False),
+                    "since": serializers.DateTimeField(required=False),
+                    "until": serializers.DateTimeField(required=False),
+                },
+            )
+        ],
+    )
+    @action(detail=True, methods=["get"])
+    def deliveries(self, request, pk=None):
+        """
+        Return paginated delivery log history for a webhook subscription.
+
+        Query params:
+        - ``status``  — filter by delivery status (pending/success/failed/dead_letter)
+        - ``since``   — ISO datetime lower bound for ``timestamp``
+        - ``until``   — ISO datetime upper bound for ``timestamp``
+
+        Issue #765.
+        """
+        from .models import WebhookDeliveryLog
+
+        webhook = self.get_object()
+        qs = (
+            WebhookDeliveryLog.objects.filter(subscription=webhook)
+            .select_related("event")
+            .order_by("-timestamp")
+        )
+
+        delivery_status = request.query_params.get("status")
+        if delivery_status:
+            qs = qs.filter(status=delivery_status)
+
+        since = request.query_params.get("since")
+        if since:
+            qs = qs.filter(timestamp__gte=since)
+
+        until = request.query_params.get("until")
+        if until:
+            qs = qs.filter(timestamp__lte=until)
+
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            serializer = WebhookDeliveryLogSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = WebhookDeliveryLogSerializer(qs, many=True)
+        return Response(serializer.data)
+
 
 class TeamViewSet(viewsets.ModelViewSet):
     """
@@ -915,6 +1071,175 @@ def record_event_view(request):
         )
 
 
+@extend_schema(request=StructuredEventRequestSerializer)
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([IngestRateThrottle, AnonRateThrottle, UserRateThrottle])
+def record_structured_event_view(request):
+    """Relay a versioned, deduplicated SC-38 event to the core contract."""
+    serializer = StructuredEventRequestSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    data = serializer.validated_data
+    result = SorobanClient().record_structured_event(
+        target_contract_id=data["contract_id"],
+        event_type=data["event_type"],
+        payload_hash_hex=data["payload_hash"],
+        schema_version=data["schema_version"],
+        correlation_id_hex=data["correlation_id"],
+    )
+    if result.success:
+        return Response(
+            {
+                "status": "submitted",
+                "tx_hash": result.tx_hash,
+                "transaction_status": result.status,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+    return Response(
+        {"status": "failed", "error": result.error, "transaction_status": result.status},
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+@extend_schema(
+    request=AddIndexerRequestSerializer,
+    responses={
+        202: inline_serializer(
+            name="AddIndexerResponse",
+            fields={
+                "status": serializers.CharField(),
+                "tx_hash": serializers.CharField(),
+                "transaction_status": serializers.CharField(),
+            },
+        ),
+        400: inline_serializer(
+            name="AddIndexerFailed",
+            fields={
+                "status": serializers.CharField(),
+                "error": serializers.CharField(),
+                "transaction_status": serializers.CharField(),
+            },
+        ),
+    },
+)
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([IngestRateThrottle, AnonRateThrottle, UserRateThrottle])
+def add_indexer_view(request):
+    """
+    Authorize an indexer address on the SoroScan contract (SC-9).
+
+    Request body:
+    {
+        "indexer_address": "GABC..."
+    }
+    """
+    serializer = AddIndexerRequestSerializer(data=request.data)
+
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    indexer_address = serializer.validated_data["indexer_address"]
+
+    try:
+        client = SorobanClient()
+        result = client.add_indexer(indexer_address=indexer_address)
+
+        if result.success:
+            return Response(
+                {
+                    "status": "submitted",
+                    "tx_hash": result.tx_hash,
+                    "transaction_status": result.status,
+                },
+                status=status.HTTP_202_ACCEPTED,
+            )
+
+        return Response(
+            {
+                "status": "failed",
+                "error": result.error,
+                "transaction_status": result.status,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    except Exception as e:
+        logger.exception(
+            "Failed to add indexer",
+            extra={"indexer_address": indexer_address},
+        )
+        return Response(
+            {"status": "error", "error": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+    parameters=[
+        OpenApiParameter(
+            name="indexer_address",
+            type=str,
+            location=OpenApiParameter.QUERY,
+            required=True,
+        ),
+    ],
+    responses={
+        200: inline_serializer(
+            name="IsIndexerResponse",
+            fields={
+                "is_indexer": serializers.BooleanField(),
+            },
+        ),
+    },
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def is_indexer_view(request):
+    """Check whether an address is authorized on the SoroScan contract (SC-15)."""
+    indexer_address = request.query_params.get("indexer_address")
+    if not indexer_address:
+        return Response(
+            {"indexer_address": ["This field is required."]},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    client = SorobanClient()
+    success, value = client.is_indexer(indexer_address)
+    if not success:
+        return Response(
+            {"status": "error", "error": str(value)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Response({"is_indexer": bool(value)})
+
+
+@extend_schema(
+    responses={
+        200: inline_serializer(
+            name="GetAdminResponse",
+            fields={
+                "admin_address": serializers.CharField(allow_null=True),
+            },
+        ),
+    },
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def get_admin_view(request):
+    """Return the current SoroScan contract admin address (SC-15)."""
+    client = SorobanClient()
+    success, value = client.get_admin()
+    if not success:
+        return Response(
+            {"status": "error", "error": str(value)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Response({"admin_address": value})
+
+
 @extend_schema(
     responses=inline_serializer(
         name="WebhookSigningPublicKeyResponse",
@@ -951,6 +1276,7 @@ def webhook_signing_public_key_view(request):
 )
 @api_view(["GET"])
 @permission_classes([AllowAny])
+@throttle_classes([])
 def health_check(request):
     """Health check endpoint."""
     return Response({"status": "healthy", "service": "soroscan"})
@@ -1245,6 +1571,65 @@ def contract_event_types_view(request, contract_id: str):
         )
     
     result = get_or_set_json(cache_key, 60, _build)
+    return Response(result)
+
+
+MAX_RECENT_EVENTS_LIMIT = 20
+
+
+@extend_schema(
+    parameters=[
+        inline_serializer(
+            name="ContractRecentEventsParams",
+            fields={
+                "limit": serializers.IntegerField(required=False),
+            },
+        )
+    ],
+    responses=ContractEventSerializer(many=True),
+)
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def contract_recent_events_view(request, contract_id: str):
+    """Get the most recent events for a specific contract, newest first (SC-30).
+
+    Mirrors the bounded on-chain recent-events ring buffer exposed by the
+    SoroScan core contract's ``recent_events`` function, backed here by the
+    indexed event history for richer payload data.
+    """
+    contract = get_cached_contract(contract_id)
+    if not contract:
+        from django.http import Http404
+        raise Http404
+
+    try:
+        limit = int(request.query_params.get("limit", 10))
+    except (TypeError, ValueError):
+        return Response(
+            {"detail": "limit must be an integer"}, status=status.HTTP_400_BAD_REQUEST
+        )
+
+    if limit <= 0 or limit > MAX_RECENT_EVENTS_LIMIT:
+        return Response(
+            {
+                "detail": f"limit must be between 1 and {MAX_RECENT_EVENTS_LIMIT}",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    cache_key = stable_cache_key(
+        "contract_recent_events", {"contract_id": contract_id, "limit": limit}
+    )
+
+    def _build():
+        events = (
+            ContractEvent.objects.select_related("contract")
+            .filter(contract=contract)
+            .order_by("-ledger", "-event_index", "-id")[:limit]
+        )
+        return ContractEventSerializer(events, many=True).data
+
+    result = get_or_set_json(cache_key, 15, _build)
     return Response(result)
 
 
@@ -2018,6 +2403,7 @@ def compliance_export_view(request):
 )
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+@validate_webhook_signature(lambda request: getattr(settings, "INDEXER_SECRET_KEY", "") or "")
 def webhook_batch_delivery_status_view(request):
     """
     POST /api/webhooks/deliveries/batch-status/
@@ -2117,6 +2503,7 @@ def webhook_batch_delivery_status_view(request):
 )
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
+@validate_webhook_signature(lambda request: getattr(settings, "INDEXER_SECRET_KEY", "") or "")
 def webhook_delivery_metrics_view(request):
     """
     GET /api/webhooks/deliveries/metrics/

@@ -39,6 +39,8 @@ from .cache_utils import (
     set_cached_decoded_payload,
     invalidate_decoded_payload_cache,
     get_cached_contract,
+    contract_name_cache_key,
+    CONTRACT_NAME_CACHE_TTL,
     _SENTINEL,
 )
 from .telemetry import inject_trace_headers, payload_compression_ratio, tracer
@@ -126,12 +128,14 @@ def _log_timeout_warning(task_name: str, remaining: float) -> None:
 
 @task_prerun.connect
 def _start_timeout_monitor(task_id: str, task, **kwargs) -> None:
-    # Check request first, then task class for timeouts
+    # Check request first, then task class, then global settings for timeouts
     timeout = (
         getattr(task.request, "soft_time_limit", None)
         or getattr(task.request, "time_limit", None)
         or getattr(task, "soft_time_limit", None)
         or getattr(task, "time_limit", None)
+        or getattr(settings, "CELERY_TASK_SOFT_TIME_LIMIT", None)
+        or getattr(settings, "CELERY_TASK_TIME_LIMIT", None)
     )
 
     if timeout:
@@ -793,6 +797,7 @@ def validate_event_payload(
     name="ingest.tasks.dispatch_webhook",
     bind=True,
     max_retries=5,
+    soft_time_limit=30,
 )
 def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
     """
@@ -909,11 +914,16 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
             )
 
         try:
+            timeout_value = int(webhook.timeout_seconds) if webhook.timeout_seconds else 10
+        except (TypeError, ValueError):
+            timeout_value = 10
+
+        try:
             response = requests.post(
                 webhook.target_url,
                 data=payload_bytes,
                 headers=headers,
-                timeout=webhook.timeout_seconds,
+                timeout=timeout_value,
             )
             status_code = response.status_code
             elapsed_s = time.monotonic() - _start
@@ -1012,6 +1022,20 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
             else:
                 error_msg = f"HTTP {status_code}"
 
+            # Determine response body (truncated to 4 KB by model.save)
+            try:
+                _resp_body = response.text if hasattr(response, "text") else ""
+            except Exception:
+                _resp_body = ""
+            _delivery_status = (
+                "success"
+                if success
+                else (
+                    "dead_letter"
+                    if self.request.retries >= self.max_retries
+                    else "failed"
+                )
+            )
             _log_delivery_attempt(
                 webhook,
                 event,
@@ -1023,6 +1047,9 @@ def dispatch_webhook(self, subscription_id: int, event_id: int) -> bool:
                 acknowledged=acknowledged,
                 latency_ms=latency_ms,
                 within_sla=within_sla,
+                status=_delivery_status,
+                response_body=_resp_body,
+                duration_ms=latency_ms,
             )
             attempt_logged = True
 
@@ -1255,6 +1282,72 @@ def ping_webhook(self, subscription_id: int) -> dict:
         return {"success": False, "error": str(exc)}
 
 
+@shared_task(name="ingest.tasks.notify_contract_pause_state", bind=True)
+def notify_contract_pause_state(
+    self, contract_id: str, state: str, reason: str = ""
+) -> int:
+    """
+    Notify all active webhooks for a contract that it was paused or resumed.
+
+    This is a lifecycle notification, not a chain event, so it is delivered
+    to every active subscription regardless of the subscription's
+    ``event_type``/``filter_condition`` (those filter contract *events*, not
+    system-level state changes). Best-effort like ``ping_webhook`` — a failed
+    delivery is logged but does not retry or affect the pause/resume itself.
+    """
+    payload = {
+        "type": f"contract.{state}",
+        "contract_id": contract_id,
+        "reason": reason,
+        "timestamp": timezone.now().isoformat(),
+    }
+    payload_bytes = json.dumps(payload, sort_keys=True).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "X-SoroScan-Event": f"contract.{state}",
+    }
+
+    webhooks = WebhookSubscription.objects.filter(
+        contract__contract_id=contract_id,
+        is_active=True,
+        status=WebhookSubscription.STATUS_ACTIVE,
+    )
+    notified = 0
+    for webhook in webhooks:
+        try:
+            requests.post(
+                webhook.target_url,
+                data=payload_bytes,
+                headers=headers,
+                timeout=webhook.timeout_seconds,
+            )
+            notified += 1
+        except requests.RequestException as exc:
+            logger.warning(
+                "Contract %s notification to webhook %s failed: %s",
+                state,
+                webhook.id,
+                exc,
+                extra={"webhook_id": webhook.id, "contract_id": contract_id},
+            )
+    return notified
+
+
+@shared_task(name="ingest.tasks.auto_resume_paused_contracts")
+def auto_resume_paused_contracts() -> int:
+    """Resume any paused contract whose scheduled ``resume_at`` has passed."""
+    due = TrackedContract.objects.filter(
+        is_paused=True,
+        resume_at__isnull=False,
+        resume_at__lte=timezone.now(),
+    )
+    resumed = 0
+    for contract in due:
+        contract.resume()
+        resumed += 1
+    return resumed
+
+
 # ---------------------------------------------------------------------------
 # Private helpers for dispatch_webhook
 # ---------------------------------------------------------------------------
@@ -1271,17 +1364,33 @@ def _log_delivery_attempt(
     acknowledged: bool = False,
     latency_ms: int | None = None,
     within_sla: bool = False,
+    status: str = "pending",
+    response_body: str = "",
+    duration_ms: int | None = None,
 ) -> None:
-    """Create a ``WebhookDeliveryLog`` record for one dispatch attempt."""
+    """Create a ``WebhookDeliveryLog`` record for one dispatch attempt.
+
+    The ``status`` field maps to WebhookDeliveryLog.STATUS_* constants:
+    - ``pending``:     created before the HTTP request (pre-create)
+    - ``success``:     2xx + acknowledged
+    - ``failed``:      non-2xx or unacknowledged
+    - ``dead_letter``: final failed attempt after max retries
+
+    ``response_body`` is truncated to ``RESPONSE_BODY_MAX_BYTES`` (4 KB)
+    by the model's ``save()`` method.
+    """
     from .models import WebhookDeliveryLog
 
     WebhookDeliveryLog.objects.create(
         subscription=webhook,
         event=event,
         attempt_number=attempt_number,
+        status=status,
         status_code=status_code,
         success=success,
         error=error,
+        response_body=response_body,
+        duration_ms=duration_ms,
         payload_bytes=payload_bytes,
         acknowledged=acknowledged,
         latency_ms=latency_ms,
@@ -1543,25 +1652,74 @@ def _on_delivery_failure(
             )
 
 
-@shared_task
+@shared_task(name="soroscan.ingest.tasks.cleanup_webhook_delivery_logs")
 def cleanup_webhook_delivery_logs() -> int:
     """
-    Prune ``WebhookDeliveryLog`` entries older than 30 days (TTL cleanup).
+    Prune ``WebhookDeliveryLog`` entries older than ``WEBHOOK_DELIVERY_RETENTION_DAYS`` days.
+
+    The retention period defaults to 30 days and is configurable via the
+    ``WEBHOOK_DELIVERY_RETENTION_DAYS`` environment variable (Issue #765).
     """
     from .models import WebhookDeliveryLog
 
     _start = time.monotonic()
-    cutoff = timezone.now() - timedelta(days=30)
+    retention_days = int(getattr(settings, "WEBHOOK_DELIVERY_RETENTION_DAYS", 30))
+    cutoff = timezone.now() - timedelta(days=retention_days)
     deleted_count, _ = WebhookDeliveryLog.objects.filter(timestamp__lt=cutoff).delete()
     logger.info(
-        "Pruned %d WebhookDeliveryLog entries older than 30 days",
+        "Pruned %d WebhookDeliveryLog entries older than %d days",
         deleted_count,
-        extra={},
+        retention_days,
+        extra={"retention_days": retention_days, "deleted_count": deleted_count},
     )
     _get_metrics().task_duration_seconds.labels(
         task_name="cleanup_webhook_delivery_logs"
     ).observe(time.monotonic() - _start)
     return deleted_count
+
+
+@shared_task(name="soroscan.ingest.tasks.warm_contract_name_cache")
+def warm_contract_name_cache() -> int:
+    """
+    Pre-populate the contract_address -> contract_name cache in Redis.
+
+    Loads all TrackedContract records and writes a lightweight name-only
+    entry for each one under the key ``soroscan:contract:name:{contract_id}``
+    with a 24-hour TTL (``CONTRACT_NAME_CACHE_TTL``).
+
+    The task is idempotent — running it multiple times is safe; each
+    invocation simply refreshes the TTL.
+
+    Returns the number of cache entries written.
+    """
+    _start = time.monotonic()
+    contracts = list(
+        TrackedContract.objects.values("contract_id", "name")
+    )
+    total = len(contracts)
+    logger.info(
+        "warm_contract_name_cache: warming %d contract name entries (TTL=%ds)",
+        total,
+        CONTRACT_NAME_CACHE_TTL,
+        extra={"contract_count": total, "ttl_seconds": CONTRACT_NAME_CACHE_TTL},
+    )
+    for entry in contracts:
+        cache.set(
+            contract_name_cache_key(entry["contract_id"]),
+            entry["name"],
+            timeout=CONTRACT_NAME_CACHE_TTL,
+        )
+    elapsed = time.monotonic() - _start
+    logger.info(
+        "warm_contract_name_cache: completed — %d entries warmed in %.3fs",
+        total,
+        elapsed,
+        extra={
+            "contract_count": total,
+            "elapsed_seconds": round(elapsed, 3),
+        },
+    )
+    return total
 
 
 @shared_task
@@ -2005,7 +2163,7 @@ def alert_downstream_contract_change(contract_id: str, change_type: str = "modif
     return notified
 
 
-@shared_task(name="ingest.tasks.ingest_latest_events")
+@shared_task(name="ingest.tasks.ingest_latest_events", soft_time_limit=120)
 def ingest_latest_events() -> int:
     """
     Sync events from Horizon/Soroban RPC.
@@ -2026,7 +2184,7 @@ def ingest_latest_events() -> int:
             BlacklistedContract.objects.values_list("contract_id", flat=True)
         )
         all_active_ids = list(
-            TrackedContract.objects.filter(is_active=True).values_list(
+            TrackedContract.objects.filter(is_active=True, is_paused=False).values_list(
                 "contract_id", flat=True
             )
         )
@@ -2306,34 +2464,176 @@ def ingest_latest_events() -> int:
     return new_events
 
 
-@shared_task(name="ingest.tasks.aggregate_event_statistics")
+@shared_task(name="ingest.tasks.aggregate_event_statistics", soft_time_limit=180)
 def aggregate_event_statistics() -> dict[str, Any]:
     """
-    Perform analytics aggregation on ingested events (Low Priority).
+    Hourly task: aggregate ContractEvent rows from the last hour into
+    EventAggregation pre-computed buckets and run anomaly detection.
+
+    Strategy
+    --------
+    1. Determine the current 1-hour bucket (timestamp rounded down to :00:00).
+    2. Query ContractEvent for that bucket grouped by (contract, event_type).
+    3. Upsert EventAggregation rows (update_or_create on unique_together key).
+    4. Also upsert a per-contract *total* bucket (event_type='').
+    5. Compare each new bucket against the 7-day rolling average for the same
+       hour-of-week slot.  Flag as anomaly when the count drops by more than
+       ANALYTICS_ANOMALY_DROP_PCT % (default 50 %) and the baseline is >= MIN.
+    6. Fire a Notification for the contract owner when an anomaly is detected.
+
+    Constraints
+    -----------
+    - Runs on the low_priority Celery queue.
+    - Completed in < 5 seconds even with thousands of contracts because it
+      uses a single GROUP BY query, not per-contract loops.
     """
+    from .models import EventAggregation  # noqa: PLC0415
+
     _start = time.monotonic()
     m = _get_metrics()
 
-    # Placeholder for actual aggregation logic
+    now = timezone.now()
+    # Bucket = the most recently *completed* hour (standard for scheduled aggregations)
+    # e.g. if now = 16:35, bucket covers 15:00–16:00
+    bucket_end = now.replace(minute=0, second=0, microsecond=0)
+    bucket_start = bucket_end - timedelta(hours=1)
+
+    # ── 1. Aggregate last-hour events by (contract, event_type) ──────────────
+    raw_aggs = (
+        ContractEvent.objects.filter(
+            timestamp__gte=bucket_start,
+            timestamp__lt=bucket_end,
+        )
+        .values("contract_id", "event_type")
+        .annotate(count=Count("id"))
+    )
+
+    # Accumulate per-contract totals while iterating
+    contract_totals: dict[int, int] = {}
+    per_type_rows: list[dict] = []
+
+    for row in raw_aggs:
+        cid = row["contract_id"]
+        contract_totals[cid] = contract_totals.get(cid, 0) + row["count"]
+        per_type_rows.append(row)
+
+    # Add synthetic total buckets (event_type='')
+    for contract_pk, total in contract_totals.items():
+        per_type_rows.append(
+            {"contract_id": contract_pk, "event_type": "", "count": total}
+        )
+
+    # ── 2. Upsert aggregation rows ────────────────────────────────────────────
+    anomaly_drop_pct = int(getattr(settings, "ANALYTICS_ANOMALY_DROP_PCT", 50))
+    anomaly_min_baseline = int(getattr(settings, "ANALYTICS_ANOMALY_MIN_BASELINE", 10))
+
+    upserted = 0
+    anomalies: list[int] = []  # contract_id list
+
+    # Pre-compute 7-day rolling average for each (contract, event_type) for the
+    # same hour-of-day slot so we can do anomaly detection in one pass.
+    # We look back 7 × 24 hours and average across matching hour-of-day buckets.
+    rolling_lookback_start = bucket_start - timedelta(days=7)
+    rolling_map: dict[tuple, float] = {}
+    for rolling_row in (
+        EventAggregation.objects.filter(
+            timestamp__gte=rolling_lookback_start,
+            timestamp__lt=bucket_start,
+            timestamp__hour=bucket_start.hour,
+        )
+        .values("contract_id", "event_type")
+        .annotate(avg_count=Avg("event_count"))
+    ):
+        rolling_map[(rolling_row["contract_id"], rolling_row["event_type"])] = (
+            rolling_row["avg_count"] or 0.0
+        )
+
+    for row in per_type_rows:
+        contract_pk: int = row["contract_id"]
+        event_type: str = row["event_type"]
+        count: int = row["count"]
+
+        rolling_avg = rolling_map.get((contract_pk, event_type), 0.0)
+        is_anomaly = False
+        if (
+            rolling_avg >= anomaly_min_baseline
+            and count < rolling_avg * (1 - anomaly_drop_pct / 100.0)
+        ):
+            is_anomaly = True
+            if event_type == "":  # fire alert only on the per-contract total
+                anomalies.append(contract_pk)
+
+        EventAggregation.objects.update_or_create(
+            contract_id=contract_pk,
+            event_type=event_type,
+            timestamp=bucket_start,
+            defaults={"event_count": count, "is_anomaly": is_anomaly},
+        )
+        upserted += 1
+
+    # ── 3. Fire anomaly alerts ────────────────────────────────────────────────
+    if anomalies:
+        _fire_volume_anomaly_alerts(anomalies, bucket_start, rolling_map, anomaly_drop_pct)
+
+    # ── 4. Metrics + summary ──────────────────────────────────────────────────
+    elapsed = time.monotonic() - _start
+    m.task_duration_seconds.labels(task_name="aggregate_event_statistics").observe(elapsed)
+
     total_events = ContractEvent.objects.count()
     active_contracts = TrackedContract.objects.filter(is_active=True).count()
 
-    logger.info(
-        "Aggregated statistics: %d events across %d contracts",
-        total_events,
-        active_contracts,
-        extra={"total_events": total_events, "active_contracts": active_contracts},
-    )
-
-    m.task_duration_seconds.labels(task_name="aggregate_event_statistics").observe(
-        time.monotonic() - _start
-    )
-
-    return {
+    summary = {
+        "bucket_start": bucket_start.isoformat(),
+        "upserted": upserted,
+        "anomalies": len(anomalies),
         "total_events": total_events,
         "active_contracts": active_contracts,
-        "timestamp": timezone.now().isoformat(),
+        "elapsed_seconds": round(elapsed, 3),
+        "timestamp": now.isoformat(),
     }
+
+    logger.info(
+        "aggregate_event_statistics complete: upserted=%d anomalies=%d elapsed=%.3fs",
+        upserted,
+        len(anomalies),
+        elapsed,
+        extra=summary,
+    )
+    return summary
+
+
+def _fire_volume_anomaly_alerts(
+    contract_pks: list[int],
+    bucket_start,
+    rolling_map: dict,
+    anomaly_drop_pct: int,
+) -> None:
+    """Create in-app Notifications for contract owners on volume-drop anomalies."""
+    from .models import Notification, TrackedContract  # noqa: PLC0415
+    from .services.notifications import create_and_push  # noqa: PLC0415
+
+    contracts = TrackedContract.objects.filter(pk__in=contract_pks).select_related("owner")
+    for contract in contracts:
+        rolling_avg = rolling_map.get((contract.pk, ""), 0.0)
+        title = f"Event volume anomaly: {contract.name}"
+        message = (
+            f"Event volume for {contract.contract_id[:8]}… dropped by >{anomaly_drop_pct}% "
+            f"at {bucket_start:%Y-%m-%d %H:00 UTC}. "
+            f"Rolling avg: {rolling_avg:.1f} req/hr."
+        )
+        try:
+            create_and_push(
+                user=contract.owner,
+                notification_type=Notification.NotificationType.ALERT,
+                title=title,
+                message=message,
+                link=f"/contracts/{contract.contract_id}/analytics/",
+            )
+        except Exception:
+            logger.exception(
+                "Failed to send anomaly notification for contract %s",
+                contract.contract_id,
+            )
 
 
 @shared_task(name="ingest.tasks.warm_event_count_cache")
@@ -2478,7 +2778,37 @@ def reconcile_event_completeness() -> dict[str, Any]:
     return {"contracts_checked": len(summaries), "repair_jobs": repair_jobs}
 
 
-@shared_task(bind=True, queue="backfill", max_retries=3, default_retry_delay=60)
+@shared_task(name="ingest.tasks.snapshot_contract_state")
+def snapshot_contract_state() -> dict[str, int]:
+    """
+    Capture contract state snapshots for active contracts at configured intervals.
+    """
+    from soroscan.ingest.services.contract_state import (
+        create_contract_snapshot,
+        should_snapshot_contract,
+        snapshot_interval,
+    )
+    from soroscan.ingest.stellar_client import SorobanClient
+
+    client = SorobanClient()
+    interval = snapshot_interval()
+    captured = 0
+    skipped = 0
+
+    for contract in TrackedContract.objects.filter(is_active=True):
+        if not should_snapshot_contract(contract, interval):
+            skipped += 1
+            continue
+
+        ledger = contract.last_indexed_ledger
+        state = client.get_contract_state(contract.contract_id, ledger=ledger)
+        create_contract_snapshot(contract, ledger, state)
+        captured += 1
+
+    return {"captured": captured, "skipped": skipped, "interval": interval}
+
+
+@shared_task(bind=True, queue="backfill", max_retries=3, default_retry_delay=60, soft_time_limit=300)
 def backfill_contract_events(
     self,
     contract_id: str,
@@ -2607,7 +2937,7 @@ def backfill_contract_events(
         )
 
 
-@shared_task(bind=True, queue="backfill")
+@shared_task(bind=True, queue="backfill", soft_time_limit=300)
 def reprocess_events(
     self,
     contract_id: str,
@@ -2655,6 +2985,32 @@ def _get_field(data: dict, dotted_path: str):
     return current
 
 
+def _as_number(v):
+    """Coerce a value to float for numeric comparison, or None if not numeric.
+
+    Booleans are excluded even though ``bool`` is a subclass of ``int`` in
+    Python — otherwise ``True`` would numerically equal ``1``/``"1"``.
+    """
+    if isinstance(v, bool):
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _values_equal(current, value) -> bool:
+    """Compare two operands, treating numerically-equal values (e.g. the int
+    ``1000``, the float ``1000.0``, and the Decimal ``1000.00`` produced by a
+    model field) as equal regardless of representation. Falls back to string
+    comparison for non-numeric operands.
+    """
+    lhs_num, rhs_num = _as_number(current), _as_number(value)
+    if lhs_num is not None and rhs_num is not None:
+        return lhs_num == rhs_num
+    return str(current) == str(value)
+
+
 def evaluate_condition(condition: dict, event_data: dict) -> bool:
     """
     Evaluate a JSON condition AST against flattened event data.
@@ -2681,13 +3037,9 @@ def evaluate_condition(condition: dict, event_data: dict) -> bool:
     current = _get_field(event_data, field)
 
     if op == "eq":
-        return (
-            str(current) == str(value)
-            if current is not None
-            else str(None) == str(value)
-        )
+        return _values_equal(current, value)
     if op == "neq":
-        return str(current) != str(value)
+        return not _values_equal(current, value)
     if op in ("gt", "gte", "lt", "lte"):
         try:
             lhs, rhs = float(str(current)), float(str(value))
@@ -2706,9 +3058,9 @@ def evaluate_condition(condition: dict, event_data: dict) -> bool:
     if op == "startswith":
         return str(current).startswith(str(value)) if current is not None else False
     if op == "in":
-        return (
-            current in value if isinstance(value, list) else str(current) == str(value)
-        )
+        if isinstance(value, list):
+            return any(_values_equal(current, item) for item in value)
+        return _values_equal(current, value)
     if op == "regex":
         if current is None:
             return False

@@ -6,6 +6,7 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     APIKeyViewSet,
+    AnalyticsViewSet,
     ContractEventViewSet,
     ContractInvocationViewSet,
     CostAnalyticsViewSet,
@@ -16,6 +17,8 @@ from .views import (
     compliance_export_view,
     contract_event_explorer_view,
     contract_event_types_view,
+    contract_recent_events_view,
+    contract_health_view,
     event_type_statistics_view,
     contract_identity_view,
     organization_cors_view,
@@ -27,6 +30,10 @@ from .views import (
     health_check,
     networks_view,
     record_event_view,
+    add_indexer_view,
+    is_indexer_view,
+    get_admin_view,
+    record_structured_event_view,
     restore_archived_events,
     transaction_events_view,
     vulnerability_impact_view,
@@ -45,6 +52,11 @@ router.register(r"analytics/costs", CostAnalyticsViewSet, basename="cost-analyti
 urlpatterns = [
     path("contracts/<str:contract_id>/timeline/", contract_timeline_view, name="contract-timeline"),
     path(
+        "contracts/<str:contract_id>/health/",
+        contract_health_view,
+        name="contract-health",
+    ),
+    path(
         "contracts/<str:contract_id>/events/explorer/",
         contract_event_explorer_view,
         name="contract-event-explorer",
@@ -53,6 +65,11 @@ urlpatterns = [
     "contracts/<str:contract_id>/event-types/",
     contract_event_types_view,
     name="contract-event-types",
+    ),
+    path(
+        "contracts/<str:contract_id>/recent-events/",
+        contract_recent_events_view,
+        name="contract-recent-events",
     ),
 
     path(
@@ -78,6 +95,10 @@ urlpatterns = [
     ),
     path("", include(router.urls)),
     path("record/", record_event_view, name="record-event"),
+    path("indexers/add/", add_indexer_view, name="add-indexer"),
+    path("indexers/check/", is_indexer_view, name="is-indexer"),
+    path("contract/admin/", get_admin_view, name="get-admin"),
+    path("record/structured/", record_structured_event_view, name="record-structured-event"),
     path("health/", health_check, name="health-check"),
     path("events/type-statistics/", event_type_statistics_view, name="event-type-statistics"),
     path("events/restore-archive/", restore_archived_events, name="restore-archive"),

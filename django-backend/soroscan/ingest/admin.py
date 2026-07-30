@@ -7,10 +7,11 @@ from django.contrib.admin.helpers import ActionForm, ACTION_CHECKBOX_NAME
 from django.db.models import Count
 from django.http import HttpResponse, StreamingHttpResponse
 from django.urls import path, reverse
+from django.utils.dateparse import parse_datetime
 from django.utils.html import format_html
 import csv
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests as http_requests
 import hashlib
 
@@ -27,6 +28,8 @@ from .models import (
     ContractDependency,
     ContractDeployment,
     ContractEvent,
+    ContractHealthCheck,
+    ContractSnapshot,
     DependencyImpactAssessment,
     ContractMetadata,
     CallGraph,
@@ -36,6 +39,7 @@ from .models import (
     ContractVerification,
     DataDeletionRequest,
     DataRetentionPolicy,
+    EventAggregation,
     EventSchema,
     IndexerState,
     IngestError,
@@ -47,6 +51,7 @@ from .models import (
     PIIField,
     RemediationIncident,
     RemediationRule,
+    StateChange,
     Team,
     TeamMembership,
     TrackedContract,
@@ -61,6 +66,8 @@ from .tasks import backfill_contract_events, dispatch_webhook
 class BackfillActionForm(ActionForm):
     from_ledger = forms.IntegerField(min_value=1, required=False, label="From ledger")
     to_ledger = forms.IntegerField(min_value=1, required=False, label="To ledger")
+    pause_reason = forms.CharField(required=False, label="Pause reason")
+    resume_at = forms.DateTimeField(required=False, label="Resume at (optional)")
 
 
 class AdminAuditMixin:
@@ -234,6 +241,7 @@ class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
         "owner",
         "team",
         "is_active",
+        "is_paused",
         "deprecation_status",
         "event_filter_type",
         "max_events_per_minute",
@@ -241,17 +249,33 @@ class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
         "event_count",
         "created_at",
     ]
-    list_filter = ["is_active", "network", "deprecation_status", "event_filter_type", "created_at"]
+    list_filter = [
+        "is_active",
+        "is_paused",
+        "network",
+        "deprecation_status",
+        "event_filter_type",
+        "created_at",
+    ]
     search_fields = ["name", "alias", "contract_id"]
-    readonly_fields = ["created_at", "updated_at"]
+    readonly_fields = ["created_at", "updated_at", "paused_at"]
     ordering = ["-created_at", "name"]
     action_form = BackfillActionForm
-    actions = ["backfill_events", "clear_cache"]
+    actions = ["backfill_events", "clear_cache", "pause_contracts", "resume_contracts"]
     fieldsets = (
         (None, {
             "fields": (
                 "contract_id", "name", "alias", "description",
                 "owner", "team", "network", "is_active",
+            ),
+        }),
+        ("Pause / Suspension", {
+            "fields": ("is_paused", "paused_at", "pause_reason", "resume_at"),
+            "description": (
+                "Paused contracts stop receiving new events but keep all "
+                "historical data queryable. Use the 'Pause selected contracts' "
+                "/ 'Resume selected contracts' actions below to change this "
+                "(so webhook notifications and timestamps are set correctly)."
             ),
         }),
         ("Event Filtering", {
@@ -291,6 +315,57 @@ class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
     def event_count(self, obj):
         """Use annotated count to avoid N+1 queries."""
         return getattr(obj, "_event_count", 0)
+
+    def get_urls(self):
+        extra = [
+            path(
+                "<path:object_id>/state-timeline/",
+                self.admin_site.admin_view(self.state_timeline_view),
+                name="ingest_trackedcontract_state_timeline",
+            ),
+        ]
+        return extra + super().get_urls()
+
+    def state_timeline_view(self, request, object_id):
+        contract = TrackedContract.objects.filter(pk=object_id).first()
+        if contract is None:
+            return HttpResponse("Contract not found", status=404)
+
+        snapshots = (
+            ContractSnapshot.objects.filter(contract=contract)
+            .prefetch_related("changes")
+            .order_by("-ledger_sequence")[:100]
+        )
+        rows = []
+        for snapshot in snapshots:
+            change_items = "".join(
+                f"<li><code>{change.change_type}</code> {change.field_name}: "
+                f"{change.old_value!r} → {change.new_value!r}</li>"
+                for change in snapshot.changes.all()
+            ) or "<li><em>No field changes recorded</em></li>"
+            rows.append(
+                f"<tr><td>{snapshot.ledger_sequence}</td>"
+                f"<td>{snapshot.captured_at.isoformat()}</td>"
+                f"<td><ul>{change_items}</ul></td></tr>"
+            )
+
+        body_rows = (
+            "".join(rows)
+            if rows
+            else "<tr><td colspan='3'>No snapshots yet.</td></tr>"
+        )
+        html = (
+            "<html><head><title>State Timeline</title>"
+            "<link rel='stylesheet' type='text/css' href='/static/admin/css/base.css'></head>"
+            "<body id='django-admin'><div id='content-main'>"
+            f"<h1>State timeline: {contract.name}</h1>"
+            f"<p>Contract ID: <code>{contract.contract_id}</code></p>"
+            "<table><thead><tr><th>Ledger</th><th>Captured</th><th>Changes</th></tr></thead>"
+            f"<tbody>{body_rows}</tbody></table>"
+            f"<p><a href='{reverse('admin:ingest_trackedcontract_change', args=[contract.pk])}'>Back to contract</a></p>"
+            "</div></body></html>"
+        )
+        return HttpResponse(html)
 
     @admin.action(description="Backfill events")
     def backfill_events(self, request, queryset):
@@ -350,6 +425,36 @@ class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
         self.message_user(
             request,
             f"Cache cleared for {cleared} contract(s).",
+            level=messages.SUCCESS,
+        )
+
+    @admin.action(description="Pause selected contracts")
+    def pause_contracts(self, request, queryset):
+        reason = request.POST.get("pause_reason", "")
+        resume_at_raw = request.POST.get("resume_at")
+        resume_at = parse_datetime(resume_at_raw) if resume_at_raw else None
+
+        paused = 0
+        for contract in queryset:
+            contract.pause(reason=reason, resume_at=resume_at)
+            paused += 1
+
+        self.message_user(
+            request,
+            f"Paused {paused} contract(s).",
+            level=messages.SUCCESS,
+        )
+
+    @admin.action(description="Resume selected contracts")
+    def resume_contracts(self, request, queryset):
+        resumed = 0
+        for contract in queryset:
+            contract.resume()
+            resumed += 1
+
+        self.message_user(
+            request,
+            f"Resumed {resumed} contract(s).",
             level=messages.SUCCESS,
         )
 
