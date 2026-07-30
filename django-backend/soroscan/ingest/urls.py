@@ -17,6 +17,8 @@ from .views import (
     contract_event_explorer_view,
     contract_event_types_view,
     contract_health_view,
+    event_type_info_view,
+    event_types_list_view,
     event_type_statistics_view,
     contract_identity_view,
     organization_cors_view,
@@ -61,6 +63,16 @@ urlpatterns = [
     name="contract-event-types",
     ),
 
+    path(
+        "events/types/",
+        event_types_list_view,
+        name="event-types-list",
+    ),
+    path(
+        "events/<str:event_type>/info/",
+        event_type_info_view,
+        name="event-type-info",
+    ),
     path(
         "events/type-statistics/",
         event_type_statistics_view,

@@ -45,10 +45,34 @@ async def main():
 asyncio.run(main())
 ```
 
+## Event Type Registry (SC-11)
+
+Query the Soroban contract's on-chain event type registry.
+
+```python
+# List all registered event types
+types = client.list_event_types()
+for t in types:
+    print(f"{t.event_type}: {t.name} (v{t.version})")
+
+# Get metadata for a specific event type
+info = client.get_event_type_info("transfer")
+print(f"Name: {info.name}")
+print(f"Description: {info.description}")
+print(f"Version: {info.version}")
+```
+
+The CLI also supports listing event types:
+
+```bash
+soroscan events types
+soroscan events types --output json
+```
+
 ## Features
 
 - **Type Safety**: Built with Pydantic v2 for robust data validation.
-- **Full Coverage**: 100% endpoint coverage for Contracts, Events, and Webhooks.
+- **Full Coverage**: 100% endpoint coverage for Contracts, Events, Webhooks, and the Event Type Registry.
 - **Async Support**: Native support for `httpx` async clients.
 - **Context Managers**: Clean resource management for both sync and async clients.
 

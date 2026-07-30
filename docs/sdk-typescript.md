@@ -63,6 +63,24 @@ do {
 } while (after);
 ```
 
+## Event Type Registry (SC-11)
+
+Query the Soroban contract's on-chain event type registry.
+
+```typescript
+// List all registered event types
+const types = await client.listEventTypes();
+for (const t of types) {
+  console.log(`${t.eventType}: ${t.name} (v${t.version})`);
+}
+
+// Get metadata for a specific event type
+const info = await client.getEventTypeInfo("transfer");
+console.log(`Name: ${info.name}`);
+console.log(`Description: ${info.description}`);
+console.log(`Version: ${info.version}`);
+```
+
 ## Features
 
 - **Strict Typing**: Full TypeScript support for all request and response shapes.

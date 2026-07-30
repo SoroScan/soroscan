@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 from django.conf import settings
 from stellar_sdk import Keypair, TransactionBuilder
+from stellar_sdk import scval
 from stellar_sdk.soroban_server import SorobanServer
 
 from soroscan.circuit_breaker import execute_with_circuit_breaker
@@ -240,6 +241,40 @@ class SorobanClient:
                 error=str(e),
             )
 
+    def _simulate_contract_fn(
+        self, function_name: str, parameters: list[SCVal]
+    ) -> Optional[str]:
+        """
+        Simulate a read-only contract function and return the result XDR.
+
+        Args:
+            function_name: The contract function to call
+            parameters: List of SCVal parameters
+
+        Returns:
+            The result XDR string (base64), or None on error
+        """
+        try:
+            account = self.server.load_account(self.keypair.public_key)
+            tx_builder = TransactionBuilder(
+                source_account=account,
+                network_passphrase=self.network_passphrase,
+                base_fee=100,
+            )
+            tx_builder.append_invoke_contract_function_op(
+                contract_id=self.contract_id,
+                function_name=function_name,
+                parameters=parameters,
+            )
+            tx = tx_builder.set_timeout(30).build()
+            simulate_response = self.server.simulate_transaction(tx)
+            if simulate_response.results:
+                return simulate_response.results[0].xdr
+            return None
+        except Exception:
+            logger.exception("Failed to simulate %s", function_name)
+            return None
+
     def get_total_events(self) -> Optional[int]:
         """
         Query the total_events function on the contract.
@@ -247,37 +282,61 @@ class SorobanClient:
         Returns:
             Total event count or None on error
         """
+        result_xdr = self._simulate_contract_fn("total_events", [])
+        if result_xdr is None:
+            return None
         try:
-            # This is a read-only call, so we simulate without submitting
-            account = self.server.load_account(self.keypair.public_key)
-
-            tx_builder = TransactionBuilder(
-                source_account=account,
-                network_passphrase=self.network_passphrase,
-                base_fee=100,
-            )
-
-            tx_builder.append_invoke_contract_function_op(
-                contract_id=self.contract_id,
-                function_name="total_events",
-                parameters=[],
-            )
-
-            tx = tx_builder.set_timeout(30).build()
-            simulate_response = self.server.simulate_transaction(tx)
-
-            if simulate_response.results:
-                # Parse the u64 result
-                # result_xdr = simulate_response.results[0].xdr
-                # Decode and return the value
-                # This is simplified - actual implementation needs XDR parsing
-                return None  # TODO: Parse XDR result
-
-            return None
-
+            sc_val = SCVal.from_xdr(result_xdr)
+            return scval.to_uint64(sc_val)
         except Exception:
-            logger.exception("Failed to get total events")
+            logger.exception("Failed to parse total_events XDR")
             return None
+
+    def get_event_type_info(self, event_type: str) -> Optional[dict]:
+        """
+        Get metadata for a registered event type (SC-11).
+
+        Args:
+            event_type: The event type symbol to query
+
+        Returns:
+            Dict with name, description, version keys, or None
+        """
+        params = [self._symbol_to_sc_val(event_type)]
+        result_xdr = self._simulate_contract_fn("get_event_type_info", params)
+        if result_xdr is None:
+            return None
+        try:
+            sc_val = SCVal.from_xdr(result_xdr)
+            if sc_val.type == SCValType.SCV_VOID:
+                return None
+            native = scval.to_native(sc_val)
+            if isinstance(native, dict):
+                return native
+            return native
+        except Exception:
+            logger.exception("Failed to parse get_event_type_info XDR")
+            return None
+
+    def list_event_types(self) -> list[str]:
+        """
+        List all registered event types (SC-11).
+
+        Returns:
+            List of registered event type symbols
+        """
+        result_xdr = self._simulate_contract_fn("list_registered_event_types", [])
+        if result_xdr is None:
+            return []
+        try:
+            sc_val = SCVal.from_xdr(result_xdr)
+            native = scval.to_native(sc_val)
+            if isinstance(native, list):
+                return native
+            return []
+        except Exception:
+            logger.exception("Failed to parse list_event_types XDR")
+            return []
 
     def get_events_range(
         self,

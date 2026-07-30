@@ -24,6 +24,7 @@ All notable changes to this project will be documented in this file.
 
 ### Feat
 
+- Add event type registry with on-chain metadata storage and query (SC-11) ([ccc13a7](ccc13a75ddd01f57d271c251241a9f2fce90d0ae))
 - Add responsive mobile card grid for events (#713) ([81f54e4](81f54e4c97e1b19d66471045b091cd4a1e5fa71d))
 - Mobile navigation drawer (#700) ([9bd9cfb](9bd9cfba5b1e15bb6dbd563d54711d18ddf9b493))
 - Implemented event batch operations (#699) ([c1b6833](c1b68338fdb3e078b05cdd12fd1d499b7049a1ef))

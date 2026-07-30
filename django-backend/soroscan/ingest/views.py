@@ -1435,6 +1435,39 @@ def event_type_statistics_view(request):
     return Response(payload)
 
 
+def event_type_info_view(request, event_type: str):
+    """Get metadata for a registered event type from the Soroban contract (SC-11)."""
+    try:
+        client = SorobanClient()
+        info = client.get_event_type_info(event_type)
+        if info is None:
+            return Response(
+                {"error": f"Event type '{event_type}' not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(info)
+    except Exception as e:
+        logger.exception("Failed to query event type info")
+        return Response(
+            {"error": f"Failed to query event type info: {e}"},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+
+def event_types_list_view(request):
+    """List all registered event types from the Soroban contract (SC-11)."""
+    try:
+        client = SorobanClient()
+        types = client.list_event_types()
+        return Response(types)
+    except Exception as e:
+        logger.exception("Failed to list event types")
+        return Response(
+            {"error": f"Failed to list event types: {e}"},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+
 @extend_schema(
     parameters=[
         inline_serializer(
