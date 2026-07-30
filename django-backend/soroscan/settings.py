@@ -296,11 +296,19 @@ SIMPLE_JWT = {
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
-# CORS
-origins_str = env("ALLOWED_ORIGINS", default="")
-CORS_ALLOWED_ORIGINS = [o.strip() for o in origins_str.split(",") if o.strip()] if origins_str else []
-CORS_ALLOW_ALL_ORIGINS = DEBUG
-CORS_ALLOW_CREDENTIALS = True  # Required for Apollo Client with credentials: 'include'
+# CORS Configuration
+ALLOWED_ORIGINS_ENV = env.str("ALLOWED_ORIGINS", default="")
+if ALLOWED_ORIGINS_ENV:
+    CORS_ALLOWED_ORIGINS = [
+        origin.strip() 
+        for origin in ALLOWED_ORIGINS_ENV.split(",") 
+        if origin.strip()
+    ]
+else:
+    CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
+
+CORS_ALLOW_ALL_ORIGINS = DEBUG and not CORS_ALLOWED_ORIGINS
+CORS_ALLOW_CREDENTIALS = True
 
 # Channels
 CHANNEL_LAYERS = {
@@ -322,6 +330,9 @@ CELERY_TIMEZONE = TIME_ZONE
 # Graceful shutdown: wait up to 30s for active tasks after SIGTERM
 CELERY_WORKER_SOFT_SHUTDOWN_TIMEOUT = 30
 SHUTDOWN_TIMEOUT_SECONDS = env.int("SHUTDOWN_TIMEOUT_SECONDS", default=30)
+# Task timeout limits — hard limit kills the task, soft limit raises SoftTimeLimitExceeded
+CELERY_TASK_TIME_LIMIT = env.int("CELERY_TASK_TIME_LIMIT", default=600)
+CELERY_TASK_SOFT_TIME_LIMIT = env.int("CELERY_TASK_SOFT_TIME_LIMIT", default=540)
 CELERY_TASK_ROUTES = {
     "ingest.tasks.ingest_latest_events": {"queue": "high_priority"},
     "ingest.tasks.dispatch_webhook": {"queue": "default"},
@@ -391,6 +402,8 @@ ANOMALY_DROP_THRESHOLD_PCT = env.int("ANOMALY_DROP_THRESHOLD_PCT", default=50)
 DEDUP_LOG_RETENTION_DAYS = env("DEDUP_LOG_RETENTION_DAYS", default=90, cast=int)
 # Number of days to retain contract events before pruning
 EVENT_RETENTION_DAYS = env("EVENT_RETENTION_DAYS", default=30, cast=int)
+# Issue #765 — number of days to retain webhook delivery logs
+WEBHOOK_DELIVERY_RETENTION_DAYS = env.int("WEBHOOK_DELIVERY_RETENTION_DAYS", default=30)
 
 # Alert deduplication window
 ALERT_DEDUP_WINDOW_SECONDS = env.int("ALERT_DEDUP_WINDOW_SECONDS", default=300)
@@ -431,6 +444,7 @@ STELLAR_NETWORK_PASSPHRASE = env(
 )
 SOROSCAN_CONTRACT_ID = env("SOROSCAN_CONTRACT_ID", default="")
 INDEXER_SECRET_KEY = env("INDEXER_SECRET_KEY", default="")
+ADMIN_SECRET_KEY = env("ADMIN_SECRET_KEY", default=INDEXER_SECRET_KEY)
 
 # Available Soroban networks exposed via GET /api/ingest/networks/.
 # Override individual RPC URLs via the corresponding env vars if needed.
@@ -473,6 +487,10 @@ GRAPHQL_N1_DETECTION_ENABLED = env.bool(
     "GRAPHQL_N1_DETECTION_ENABLED",
     default=DEBUG,
 )
+
+# Contract state snapshot capture (issue #798)
+CONTRACT_SNAPSHOT_INTERVAL = env.int("CONTRACT_SNAPSHOT_INTERVAL", default=1000)
+CONTRACT_SNAPSHOT_MAX_BYTES = env.int("CONTRACT_SNAPSHOT_MAX_BYTES", default=1_048_576)
 
 # Ed25519 seed (32 bytes hex) for webhook X-Signature headers.
 WEBHOOK_ED25519_SIGNING_SEED = env("WEBHOOK_ED25519_SIGNING_SEED", default="")

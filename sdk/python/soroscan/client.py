@@ -18,11 +18,20 @@ from soroscan.exceptions import (
     SoroScanConnectionError,
 )
 from soroscan.models import (
+    MAX_RECENT_EVENTS_LIMIT,
     ContractEvent,
+    ContractEventTypeInfo,
     ContractStats,
+    EventEntry,
     PaginatedResponse,
     RecordEventRequest,
     RecordEventResponse,
+    AddIndexerRequest,
+    AddIndexerResponse,
+    IsIndexerResponse,
+    GetAdminResponse,
+    RecordEventsBatchRequest,
+    RecordEventsBatchResponse,
     TrackedContract,
     WebhookSubscription,
 )
@@ -299,6 +308,47 @@ class SoroScanClient:
         data = self._handle_response(response)
         return ContractStats.model_validate(data)
 
+    def get_contract_event_types(self, contract_id: str) -> list[ContractEventTypeInfo]:
+        """
+        Get event types and their counts for a specific contract (SC-17).
+
+        Args:
+            contract_id: Contract address (C...)
+
+        Returns:
+            List of event type info with counts and first/last seen timestamps
+        """
+        url = urljoin(self.base_url, f"/api/contracts/{contract_id}/event-types/")
+        response = self._client.get(url, headers=self._get_headers())
+        data = self._handle_response(response)
+        return [ContractEventTypeInfo.model_validate(item) for item in data]
+
+    def get_contract_recent_events(
+        self,
+        contract_id: str,
+        limit: int = 10,
+    ) -> list[ContractEvent]:
+        """
+        Get the most recent events for a specific contract, newest first (SC-30).
+
+        Args:
+            contract_id: Contract address (C...)
+            limit: Maximum number of events to return (1-20, default 10)
+
+        Returns:
+            List of the most recent events, ordered newest first
+
+        Raises:
+            ValueError: If limit is not between 1 and MAX_RECENT_EVENTS_LIMIT
+        """
+        if not 1 <= limit <= MAX_RECENT_EVENTS_LIMIT:
+            raise ValueError(f"limit must be between 1 and {MAX_RECENT_EVENTS_LIMIT}")
+
+        url = urljoin(self.base_url, f"/api/contracts/{contract_id}/recent-events/")
+        response = self._client.get(url, headers=self._get_headers(), params={"limit": limit})
+        data = self._handle_response(response)
+        return [ContractEvent.model_validate(item) for item in data]
+
     def get_events(
         self,
         contract_id: str | None = None,
@@ -368,6 +418,27 @@ class SoroScanClient:
         data = self._handle_response(response)
         return ContractEvent.model_validate(data)
 
+    def get_events_by_contracts(
+        self,
+        contract_ids: list[str],
+        event_type: str | None = None,
+        ledger_min: int | None = None,
+        ledger_max: int | None = None,
+        ordering: str = "-timestamp",
+        page: int = 1,
+        page_size: int = 50,
+    ) -> GetEventsByContractsResponse:
+        """Query indexed events across up to ten contracts (SC-23)."""
+        request = GetEventsByContractsRequest(
+            contract_ids=contract_ids, event_type=event_type, ledger_min=ledger_min,
+            ledger_max=ledger_max, ordering=ordering, page=page, page_size=page_size,
+        )
+        response = self._client.post(
+            urljoin(self.base_url, "/api/events/by-contracts/"),
+            headers=self._get_headers(), json=request.model_dump(exclude_none=True),
+        )
+        return GetEventsByContractsResponse.model_validate(self._handle_response(response))
+
     def record_event(
         self,
         contract_id: str,
@@ -392,8 +463,122 @@ class SoroScanClient:
             payload_hash=payload_hash,
         )
         response = self._client.post(url, headers=self._get_headers(), json=request.model_dump())
+        return RecordEventResponse.model_validate(self._handle_response(response))
+
+    def record_structured_event(
+        self,
+        contract_id: str,
+        event_type: str,
+        payload_hash: str,
+        schema_version: int,
+        correlation_id: str,
+    ) -> RecordEventResponse:
+        """Submit an idempotent SC-38 structured event."""
+        request = StructuredEventRequest(
+            contract_id=contract_id,
+            event_type=event_type,
+            payload_hash=payload_hash,
+            schema_version=schema_version,
+            correlation_id=correlation_id,
+        )
+        response = self._client.post(
+            urljoin(self.base_url, "/api/record/structured/"),
+            headers=self._get_headers(),
+            json=request.model_dump(),
+        )
+        return RecordEventResponse.model_validate(self._handle_response(response))
+
+    def record_tagged_event(
+        self,
+        contract_id: str,
+        event_type: str,
+        payload_hash: str,
+        tags: list[str] | None = None,
+    ) -> TaggedEventResponse:
+        """Submit an SC-24 tagged event.
+
+        Tags are short producer-defined classification strings that allow
+        off-chain indexers to filter events without decoding the full payload.
+        At most 4 tags may be supplied per event.
+
+        Args:
+            contract_id: Target contract address
+            event_type: Event type name
+            payload_hash: SHA-256 hash of payload (hex)
+            tags: Up to 4 classification tag strings (default: empty list)
+
+        Returns:
+            TaggedEventResponse with submission status and echoed tags
+        """
+        request = TaggedEventRequest(
+            contract_id=contract_id,
+            event_type=event_type,
+            payload_hash=payload_hash,
+            tags=tags or [],
+        )
+        response = self._client.post(
+            urljoin(self.base_url, "/api/record/tagged/"),
+            headers=self._get_headers(),
+            json=request.model_dump(),
+        )
+        return TaggedEventResponse.model_validate(self._handle_response(response))
+
+    def add_indexer(self, indexer_address: str) -> AddIndexerResponse:
+        """
+        Authorize an indexer address on the SoroScan contract (SC-9).
+
+        Args:
+            indexer_address: Stellar address of the indexer to authorize
+
+        Returns:
+            Submission result with transaction hash
+        """
+        url = urljoin(self.base_url, "/api/ingest/indexers/add/")
+        request = AddIndexerRequest(indexer_address=indexer_address)
+        response = self._client.post(
+            url, headers=self._get_headers(), json=request.model_dump()
+        )
         data = self._handle_response(response)
-        return RecordEventResponse.model_validate(data)
+        return AddIndexerResponse.model_validate(data)
+    def is_indexer(self, indexer_address: str) -> IsIndexerResponse:
+        """Check whether an address is an authorized indexer (SC-15)."""
+        url = urljoin(self.base_url, "/api/ingest/indexers/check/")
+        response = self._client.get(
+            url,
+            headers=self._get_headers(),
+            params={"indexer_address": indexer_address},
+        )
+        data = self._handle_response(response)
+        return IsIndexerResponse.model_validate(data)
+
+    def get_admin(self) -> GetAdminResponse:
+        """Return the current SoroScan contract admin address (SC-15)."""
+        url = urljoin(self.base_url, "/api/ingest/contract/admin/")
+        response = self._client.get(url, headers=self._get_headers())
+        data = self._handle_response(response)
+        return GetAdminResponse.model_validate(data)
+
+    def record_events_batch(
+        self,
+        events: list[EventEntry],
+    ) -> RecordEventsBatchResponse:
+        """
+        Record multiple events in a single transaction (SC-29).
+        Maximum 25 events per batch.
+
+        Args:
+            events: List of EventEntry objects (1–25 entries)
+
+        Returns:
+            Batch submission result including new total event count
+        """
+        url = urljoin(self.base_url, "/api/record-events-batch/")
+        request = RecordEventsBatchRequest(events=events)
+        response = self._client.post(
+            url, headers=self._get_headers(), json=request.model_dump()
+        )
+        data = self._handle_response(response)
+        return RecordEventsBatchResponse.model_validate(data)
 
     def get_webhooks(
         self,
@@ -784,6 +969,49 @@ class AsyncSoroScanClient:
         data = self._handle_response(response)
         return ContractStats.model_validate(data)
 
+    async def get_contract_event_types(self, contract_id: str) -> list[ContractEventTypeInfo]:
+        """
+        Get event types and their counts for a specific contract (SC-17).
+
+        Args:
+            contract_id: Contract address (C...)
+
+        Returns:
+            List of event type info with counts and first/last seen timestamps
+        """
+        url = urljoin(self.base_url, f"/api/contracts/{contract_id}/event-types/")
+        response = await self._client.get(url, headers=self._get_headers())
+        data = self._handle_response(response)
+        return [ContractEventTypeInfo.model_validate(item) for item in data]
+
+    async def get_contract_recent_events(
+        self,
+        contract_id: str,
+        limit: int = 10,
+    ) -> list[ContractEvent]:
+        """
+        Get the most recent events for a specific contract, newest first (SC-30).
+
+        Args:
+            contract_id: Contract address (C...)
+            limit: Maximum number of events to return (1-20, default 10)
+
+        Returns:
+            List of the most recent events, ordered newest first
+
+        Raises:
+            ValueError: If limit is not between 1 and MAX_RECENT_EVENTS_LIMIT
+        """
+        if not 1 <= limit <= MAX_RECENT_EVENTS_LIMIT:
+            raise ValueError(f"limit must be between 1 and {MAX_RECENT_EVENTS_LIMIT}")
+
+        url = urljoin(self.base_url, f"/api/contracts/{contract_id}/recent-events/")
+        response = await self._client.get(
+            url, headers=self._get_headers(), params={"limit": limit}
+        )
+        data = self._handle_response(response)
+        return [ContractEvent.model_validate(item) for item in data]
+
     async def get_events(
         self,
         contract_id: str | None = None,
@@ -853,6 +1081,27 @@ class AsyncSoroScanClient:
         data = self._handle_response(response)
         return ContractEvent.model_validate(data)
 
+    async def get_events_by_contracts(
+        self,
+        contract_ids: list[str],
+        event_type: str | None = None,
+        ledger_min: int | None = None,
+        ledger_max: int | None = None,
+        ordering: str = "-timestamp",
+        page: int = 1,
+        page_size: int = 50,
+    ) -> GetEventsByContractsResponse:
+        """Query indexed events across up to ten contracts asynchronously (SC-23)."""
+        request = GetEventsByContractsRequest(
+            contract_ids=contract_ids, event_type=event_type, ledger_min=ledger_min,
+            ledger_max=ledger_max, ordering=ordering, page=page, page_size=page_size,
+        )
+        response = await self._client.post(
+            urljoin(self.base_url, "/api/events/by-contracts/"),
+            headers=self._get_headers(), json=request.model_dump(exclude_none=True),
+        )
+        return GetEventsByContractsResponse.model_validate(self._handle_response(response))
+
     async def record_event(
         self,
         contract_id: str,
@@ -881,6 +1130,63 @@ class AsyncSoroScanClient:
         )
         data = self._handle_response(response)
         return RecordEventResponse.model_validate(data)
+
+    async def add_indexer(self, indexer_address: str) -> AddIndexerResponse:
+        """
+        Authorize an indexer address on the SoroScan contract (SC-9).
+
+        Args:
+            indexer_address: Stellar address of the indexer to authorize
+
+        Returns:
+            Submission result with transaction hash
+        """
+        url = urljoin(self.base_url, "/api/ingest/indexers/add/")
+        request = AddIndexerRequest(indexer_address=indexer_address)
+        response = await self._client.post(
+            url, headers=self._get_headers(), json=request.model_dump()
+        )
+        data = self._handle_response(response)
+        return AddIndexerResponse.model_validate(data)
+    async def is_indexer(self, indexer_address: str) -> IsIndexerResponse:
+        """Check whether an address is an authorized indexer (SC-15)."""
+        url = urljoin(self.base_url, "/api/ingest/indexers/check/")
+        response = await self._client.get(
+            url,
+            headers=self._get_headers(),
+            params={"indexer_address": indexer_address},
+        )
+        data = self._handle_response(response)
+        return IsIndexerResponse.model_validate(data)
+
+    async def get_admin(self) -> GetAdminResponse:
+        """Return the current SoroScan contract admin address (SC-15)."""
+        url = urljoin(self.base_url, "/api/ingest/contract/admin/")
+        response = await self._client.get(url, headers=self._get_headers())
+        data = self._handle_response(response)
+        return GetAdminResponse.model_validate(data)
+
+    async def record_events_batch(
+        self,
+        events: list[EventEntry],
+    ) -> RecordEventsBatchResponse:
+        """
+        Record multiple events in a single transaction (SC-29).
+        Maximum 25 events per batch.
+
+        Args:
+            events: List of EventEntry objects (1–25 entries)
+
+        Returns:
+            Batch submission result including new total event count
+        """
+        url = urljoin(self.base_url, "/api/record-events-batch/")
+        request = RecordEventsBatchRequest(events=events)
+        response = await self._client.post(
+            url, headers=self._get_headers(), json=request.model_dump()
+        )
+        data = self._handle_response(response)
+        return RecordEventsBatchResponse.model_validate(data)
 
     async def get_webhooks(
         self,

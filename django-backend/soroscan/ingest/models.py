@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator, RegexValidator
 from django.db import models
+from django.utils import timezone
 from django.utils.text import slugify
 
 User = get_user_model()
@@ -432,6 +433,30 @@ class TrackedContract(models.Model):
         help_text="Custom attributes for storing contract metadata (team, owner, cost center, etc.)",
     )
 
+    # ---------------------------------------------------------------------------
+    # Pause / suspension (maintenance and incident response)
+    # ---------------------------------------------------------------------------
+    is_paused = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="When true, ingestion is suspended; historical data stays queryable.",
+    )
+    paused_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this contract was paused.",
+    )
+    pause_reason = models.TextField(
+        blank=True,
+        default="",
+        help_text="Audit trail: why this contract was paused.",
+    )
+    resume_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="If set, the contract auto-resumes at this time.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -441,6 +466,7 @@ class TrackedContract(models.Model):
             models.Index(fields=["contract_id", "is_active"]),
             models.Index(fields=["alias"]),
             models.Index(fields=["network", "is_active"]),
+            models.Index(fields=["is_paused", "resume_at"]),
         ]
 
     def __str__(self):
@@ -470,6 +496,38 @@ class TrackedContract(models.Model):
         if self.event_filter_type == self.FILTER_BLACKLIST:
             return event_type not in (self.event_filter_list or [])
         return True
+
+    def pause(self, reason: str = "", resume_at=None) -> None:
+        """
+        Suspend indexing for this contract while keeping historical data intact.
+
+        New events stop being ingested (see ``ingest_latest_events``); already
+        indexed events remain queryable. If *resume_at* is given, the contract
+        auto-resumes at that time via ``auto_resume_paused_contracts``.
+        """
+        self.is_paused = True
+        self.paused_at = timezone.now()
+        self.pause_reason = reason
+        self.resume_at = resume_at
+        self.save(update_fields=["is_paused", "paused_at", "pause_reason", "resume_at"])
+
+        from .tasks import notify_contract_pause_state  # noqa: PLC0415
+
+        notify_contract_pause_state.delay(self.contract_id, "paused", reason=reason)
+
+    def resume(self) -> None:
+        """Resume indexing for a previously paused contract."""
+        was_paused = self.is_paused
+        self.is_paused = False
+        self.paused_at = None
+        self.pause_reason = ""
+        self.resume_at = None
+        self.save(update_fields=["is_paused", "paused_at", "pause_reason", "resume_at"])
+
+        if was_paused:
+            from .tasks import notify_contract_pause_state  # noqa: PLC0415
+
+            notify_contract_pause_state.delay(self.contract_id, "resumed")
 
 
 class ContractInvocation(models.Model):
@@ -890,9 +948,25 @@ class WebhookDeliveryLog(models.Model):
     """
     Immutable audit log for every webhook dispatch attempt.
 
-    Records are subject to a 30-day TTL: the ``cleanup_webhook_delivery_logs``
-    Celery task (scheduled via Celery Beat) prunes entries older than 30 days.
+    Records are subject to a configurable TTL (default 30 days):
+    the ``cleanup_webhook_delivery_logs`` Celery task (scheduled via
+    Celery Beat) prunes entries older than ``WEBHOOK_DELIVERY_RETENTION_DAYS``.
     """
+
+    # Delivery status choices (Issue #765)
+    STATUS_PENDING = "pending"
+    STATUS_SUCCESS = "success"
+    STATUS_FAILED = "failed"
+    STATUS_DEAD_LETTER = "dead_letter"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_SUCCESS, "Success"),
+        (STATUS_FAILED, "Failed"),
+        (STATUS_DEAD_LETTER, "Dead Letter"),
+    ]
+
+    # Maximum bytes stored in response_body (Issue #765)
+    RESPONSE_BODY_MAX_BYTES = 4096
 
     subscription = models.ForeignKey(
         WebhookSubscription,
@@ -912,10 +986,27 @@ class WebhookDeliveryLog(models.Model):
         default=1,
         help_text="1-based attempt counter (1 = first try, 2 = first retry, …)",
     )
+    status = models.CharField(
+        max_length=16,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        db_index=True,
+        help_text="Delivery status: pending → success | failed → dead_letter",
+    )
     status_code = models.IntegerField(
         null=True,
         blank=True,
         help_text="HTTP status code returned by the subscriber, or null for network errors",
+    )
+    response_body = models.TextField(
+        blank=True,
+        default="",
+        help_text="First 4 KB of the subscriber response body (truncated if longer)",
+    )
+    duration_ms = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Total round-trip duration in milliseconds",
     )
     success = models.BooleanField(
         default=False,
@@ -956,7 +1047,18 @@ class WebhookDeliveryLog(models.Model):
         ordering = ["-timestamp"]
         indexes = [
             models.Index(fields=["subscription", "timestamp"]),
+            models.Index(fields=["subscription", "status"]),
         ]
+
+    def save(self, *args, **kwargs):
+        # Enforce 4 KB cap on response_body
+        if self.response_body:
+            encoded = self.response_body.encode("utf-8", errors="replace")
+            if len(encoded) > self.RESPONSE_BODY_MAX_BYTES:
+                self.response_body = encoded[: self.RESPONSE_BODY_MAX_BYTES].decode(
+                    "utf-8", errors="replace"
+                )
+        super().save(*args, **kwargs)
 
     def __str__(self):
         status_label = "OK" if self.success else f"FAIL({self.status_code})"
