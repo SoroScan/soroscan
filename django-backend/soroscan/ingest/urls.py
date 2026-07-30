@@ -16,6 +16,7 @@ from .views import (
     compliance_export_view,
     contract_event_explorer_view,
     contract_event_types_view,
+    contract_recent_events_view,
     contract_health_view,
     event_type_statistics_view,
     contract_identity_view,
@@ -32,6 +33,7 @@ from .views import (
     total_events_view,
     transfer_admin_view,
     record_events_batch_view,
+    record_structured_event_view,
     restore_archived_events,
     transaction_events_view,
     vulnerability_impact_view,
@@ -64,6 +66,11 @@ urlpatterns = [
     contract_event_types_view,
     name="contract-event-types",
     ),
+    path(
+        "contracts/<str:contract_id>/recent-events/",
+        contract_recent_events_view,
+        name="contract-recent-events",
+    ),
 
     path(
         "events/type-statistics/",
@@ -92,6 +99,7 @@ urlpatterns = [
     path("events/latest/", latest_by_type_view, name="latest-by-type"),
     path("events/total/", total_events_view, name="total-events"),
     path("contract/transfer-admin/", transfer_admin_view, name="transfer-admin"),
+    path("record/structured/", record_structured_event_view, name="record-structured-event"),
     path("health/", health_check, name="health-check"),
     path("events/type-statistics/", event_type_statistics_view, name="event-type-statistics"),
     path("events/restore-archive/", restore_archived_events, name="restore-archive"),
