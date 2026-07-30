@@ -115,3 +115,52 @@ class RecordEventsBatchResponse(BaseModel):
     tx_hash: str | None = Field(None, description="Transaction hash")
     transaction_status: str | None = Field(None, description="Transaction status")
     error: str | None = Field(None, description="Error message if failed")
+
+
+# ── SC-12: Event Search & Type Statistics ──────────────────────────────────────
+
+
+class EventSearchResult(BaseModel):
+    """A single event result from the search endpoint (SC-12)."""
+
+    id: int
+    contract_id: str = Field(..., description="Contract address")
+    contract_name: str = Field(..., description="Contract name")
+    event_type: str = Field(..., description="Event type/name")
+    payload: dict[str, Any] = Field(..., description="Decoded event payload")
+    payload_hash: str = Field(..., description="SHA-256 hash of the payload")
+    ledger: int = Field(..., description="Ledger sequence number")
+    event_index: int = Field(default=0, description="Event index within the ledger")
+    timestamp: datetime = Field(..., description="Event timestamp")
+    tx_hash: str = Field(..., description="Transaction hash")
+    transaction_id: str = Field(..., description="Alias for tx_hash")
+    validation_status: str = Field(..., description="Validation result")
+    signature_status: str = Field(..., description="Signature verification status")
+    relevance_score: float = Field(..., description="Search relevance score")
+
+
+class SearchResponse(BaseModel, Generic[T]):
+    """Paginated response from the search endpoint (SC-12)."""
+
+    count: int = Field(..., description="Total number of matching events")
+    page: int = Field(..., description="Current page number")
+    page_size: int = Field(..., description="Results per page")
+    results: list[T] = Field(..., description="Page results")
+
+
+class EventTypeStat(BaseModel):
+    """Per-type event count statistics (SC-12)."""
+
+    contract_id: str = Field(..., description="Contract address")
+    event_type: str = Field(..., description="Event type name")
+    count: int = Field(..., description="Number of events of this type")
+    first_seen: datetime = Field(..., description="Earliest event timestamp")
+    last_seen: datetime = Field(..., description="Latest event timestamp")
+
+
+class EventTypeStatistics(BaseModel):
+    """Event type distribution statistics (SC-12)."""
+
+    contract_id: str | None = Field(None, description="Contract address (null for global stats)")
+    total_events: int = Field(..., description="Total number of events")
+    event_types: list[EventTypeStat] = Field(..., description="Per-type breakdown")

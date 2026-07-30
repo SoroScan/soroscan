@@ -1,18 +1,17 @@
 """Tests for SoroScan SDK exception hierarchy."""
 
-import pytest
 
 from soroscan.exceptions import (
-    SoroScanError,
     SoroScanAPIError,
     SoroScanAuthError,
+    SoroScanConnectionError,
+    SoroScanError,
+    SoroScanNetworkError,
     SoroScanNotFoundError,
     SoroScanRateLimitError,
-    SoroScanValidationError,
-    SoroScanNetworkError,
-    SoroScanTimeoutError,
-    SoroScanConnectionError,
     SoroScanServerError,
+    SoroScanTimeoutError,
+    SoroScanValidationError,
 )
 
 

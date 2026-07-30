@@ -47,7 +47,8 @@ Example (async)::
 
 from __future__ import annotations
 
-from typing import Any, Callable, Awaitable, Generic, TypeVar
+from collections.abc import Awaitable, Callable
+from typing import Any, Generic, TypeVar
 
 from soroscan.models import PaginatedResponse
 
@@ -193,7 +194,7 @@ class Paginator(Generic[T]):
 
     # ─── Iterator protocol ───────────────────────────────────────────────────
 
-    def __iter__(self) -> "Paginator[T]":
+    def __iter__(self) -> Paginator[T]:
         self.reset()
         return self
 
@@ -331,7 +332,7 @@ class AsyncPaginator(Generic[T]):
 
     # ─── Async iterator protocol ─────────────────────────────────────────────
 
-    def __aiter__(self) -> "AsyncPaginator[T]":
+    def __aiter__(self) -> AsyncPaginator[T]:
         self.reset()
         return self
 

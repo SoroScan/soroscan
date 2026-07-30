@@ -47,6 +47,12 @@ export type {
   SubscribeWebhookParams,
   UpdateWebhookParams,
   WebhookListResponse,
+  // SC-12: Event Search & Type Statistics
+  EventSearchParams,
+  EventSearchResult,
+  SearchResponse,
+  EventTypeStat,
+  EventTypeStatistics,
   // SC-29: Batch event recording
   EventEntry,
   RecordEventsBatchParams,

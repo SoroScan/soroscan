@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SoroScanClient = exports.SoroScanError = void 0;
+exports.Paginator = exports.SoroScanClient = exports.SoroScanError = void 0;
 // ─────────────────────────────────────────────────────────────────────────────
 // Error class
 // ─────────────────────────────────────────────────────────────────────────────
@@ -103,6 +103,32 @@ class SoroScanClient {
             query: params,
         });
     }
+    /**
+     * Full-text and field-level event search (SC-12).
+     *
+     * @example
+     * const results = await client.searchEvents({ q: 'transfer', contractId: 'CCAAA...' });
+     * for (const event of results.results) { console.log(event.event_type, event.relevance_score); }
+     */
+    async searchEvents(params = {}) {
+        return this.#request("GET", "/v1/events/search", {
+            query: params,
+        });
+    }
+    /**
+     * Get event type distribution statistics (SC-12).
+     *
+     * @example
+     * const stats = await client.getEventTypeStatistics({ contractId: 'CCAAA...' });
+     * console.log('Total events:', stats.total_events);
+     * for (const entry of stats.event_types) {
+     *   console.log(entry.event_type, entry.count);
+     * }
+     */
+    async getEventTypeStatistics(contractId) {
+        const query = contractId ? { contract_id: contractId } : undefined;
+        return this.#request("GET", "/v1/events/type-statistics", { query });
+    }
     // ─── Contracts ─────────────────────────────────────────────────────────────
     /**
      * Retrieve a paginated list of deployed contracts.
@@ -166,6 +192,22 @@ class SoroScanClient {
     }
     // ─── Webhooks ──────────────────────────────────────────────────────────────
     /**
+     * Record multiple events in a single transaction (SC-29).
+     * Maximum 25 events per batch.
+     *
+     * @example
+     * const result = await client.recordEventsBatch({
+     *   events: [
+     *     { contractId: 'CCAAA...', eventType: 'transfer', payloadHash: 'abc...' },
+     *     { contractId: 'CCAAA...', eventType: 'swap', payloadHash: 'def...' },
+     *   ],
+     * });
+     * console.log('Total events:', result.totalEvents);
+     */
+    async recordEventsBatch(params) {
+        return this.#request("POST", "/v1/record-events-batch", { body: params });
+    }
+    /**
      * Create a new webhook subscription.
      *
      * @example
@@ -205,4 +247,158 @@ class SoroScanClient {
     }
 }
 exports.SoroScanClient = SoroScanClient;
+// ─────────────────────────────────────────────────────────────────────────────
+// Pagination helpers — issue #483
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * A stateful cursor-based paginator that wraps any SoroScan list method.
+ *
+ * Provides `hasNextPage()`, `nextPage()`, `previousPage()`, and `goToPage(n)`
+ * so callers never have to manage cursors manually.
+ *
+ * @example
+ * const paginator = new Paginator(
+ *   (params) => client.getEvents(params),
+ *   { contractId: 'CCAAA...', first: 20 }
+ * );
+ *
+ * // Load first page
+ * const page1 = await paginator.nextPage();
+ *
+ * if (paginator.hasNextPage()) {
+ *   const page2 = await paginator.nextPage();
+ * }
+ *
+ * // Jump to a specific page (1-indexed)
+ * const page5 = await paginator.goToPage(5);
+ *
+ * // Go back
+ * const page4 = await paginator.previousPage();
+ */
+class Paginator {
+    #fetcher;
+    #baseParams;
+    #pageSize;
+    #currentPage = null;
+    /** Cursor history: index 0 = before page 1, index n = endCursor of page n */
+    #cursorHistory = [null];
+    #currentIndex = 0;
+    constructor(fetcher, baseParams = {}, pageSize = 20) {
+        this.#fetcher = fetcher;
+        this.#baseParams = baseParams;
+        this.#pageSize = baseParams.first ?? pageSize;
+    }
+    // ─── State queries ──────────────────────────────────────────────────────────
+    /**
+     * Returns `true` if there is a next page available.
+     * Always `true` before the first fetch (no data loaded yet).
+     */
+    hasNextPage() {
+        if (this.#currentPage === null)
+            return true;
+        return this.#currentPage.pageInfo.hasNextPage;
+    }
+    /**
+     * Returns `true` if there is a previous page available.
+     */
+    hasPreviousPage() {
+        return this.#currentIndex > 1;
+    }
+    /**
+     * The 1-indexed number of the page currently loaded, or `0` if no page has
+     * been fetched yet.
+     */
+    get currentPageNumber() {
+        return this.#currentIndex;
+    }
+    /**
+     * The most recently fetched page, or `null` before the first fetch.
+     */
+    get currentPage() {
+        return this.#currentPage;
+    }
+    // ─── Navigation ─────────────────────────────────────────────────────────────
+    /**
+     * Fetch the next page and return it.
+     * Throws if there is no next page.
+     */
+    async nextPage() {
+        if (this.#currentPage !== null && !this.#currentPage.pageInfo.hasNextPage) {
+            throw new Error("Paginator: no next page available");
+        }
+        const afterCursor = this.#cursorHistory[this.#currentIndex] ?? undefined;
+        const result = await this.#fetcher({
+            ...this.#baseParams,
+            first: this.#pageSize,
+            after: afterCursor,
+        });
+        this.#currentIndex += 1;
+        // Record the end cursor for this page so we can navigate forward again
+        this.#cursorHistory[this.#currentIndex] = result.pageInfo.endCursor;
+        this.#currentPage = result;
+        return result;
+    }
+    /**
+     * Fetch the previous page and return it.
+     * Throws if already on the first page.
+     */
+    async previousPage() {
+        if (!this.hasPreviousPage()) {
+            throw new Error("Paginator: already on the first page");
+        }
+        this.#currentIndex -= 1;
+        const afterCursor = this.#cursorHistory[this.#currentIndex - 1] ?? undefined;
+        const result = await this.#fetcher({
+            ...this.#baseParams,
+            first: this.#pageSize,
+            after: afterCursor,
+        });
+        this.#currentPage = result;
+        return result;
+    }
+    /**
+     * Jump to a specific 1-indexed page number.
+     *
+     * Pages already visited are reached via the cached cursor history.
+     * Pages beyond the current furthest-fetched page are fetched sequentially
+     * until the target is reached.
+     *
+     * @param pageNumber - 1-indexed target page (must be ≥ 1)
+     */
+    async goToPage(pageNumber) {
+        if (pageNumber < 1) {
+            throw new Error("Paginator: pageNumber must be ≥ 1");
+        }
+        if (pageNumber <= this.#currentIndex) {
+            // Navigate backwards using cached cursors
+            this.#currentIndex = pageNumber;
+            const afterCursor = this.#cursorHistory[this.#currentIndex - 1] ?? undefined;
+            const result = await this.#fetcher({
+                ...this.#baseParams,
+                first: this.#pageSize,
+                after: afterCursor,
+            });
+            this.#currentPage = result;
+            return result;
+        }
+        // Navigate forward, fetching pages we haven't seen yet
+        while (this.#currentIndex < pageNumber) {
+            if (this.#currentPage !== null && !this.#currentPage.pageInfo.hasNextPage) {
+                throw new Error(`Paginator: page ${pageNumber} does not exist (only ${this.#currentIndex} pages available)`);
+            }
+            await this.nextPage();
+        }
+        return this.#currentPage;
+    }
+    /**
+     * Reset the paginator back to its initial state.
+     * The next call to `nextPage()` will fetch page 1 again.
+     */
+    reset() {
+        this.#currentPage = null;
+        this.#cursorHistory = [null];
+        this.#currentIndex = 0;
+    }
+}
+exports.Paginator = Paginator;
 //# sourceMappingURL=client.js.map

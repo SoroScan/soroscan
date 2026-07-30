@@ -6,7 +6,6 @@ from pytest_httpx import HTTPXMock
 from soroscan import AsyncSoroScanClient, SoroScanClient
 from soroscan.models import EventEntry, RecordEventsBatchResponse
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 BATCH_RESPONSE = {
@@ -91,6 +90,7 @@ def test_record_events_batch_max_entries(base_url: str, httpx_mock: HTTPXMock) -
 def test_record_events_batch_payload_validation_empty() -> None:
     """RecordEventsBatchRequest rejects empty list."""
     from pydantic import ValidationError
+
     from soroscan.models import RecordEventsBatchRequest
 
     with pytest.raises(ValidationError):
@@ -100,6 +100,7 @@ def test_record_events_batch_payload_validation_empty() -> None:
 def test_record_events_batch_payload_validation_too_large() -> None:
     """RecordEventsBatchRequest rejects lists > 25."""
     from pydantic import ValidationError
+
     from soroscan.models import RecordEventsBatchRequest
 
     entries = [

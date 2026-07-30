@@ -1,11 +1,11 @@
 """Fluent request builder pattern for SoroScan SDK (issue #481)."""
 
-from typing import Any, Literal, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
 
 from soroscan.models import ContractEvent, PaginatedResponse, TrackedContract
 
 if TYPE_CHECKING:
-    from soroscan.client import SoroScanClient, AsyncSoroScanClient
+    from soroscan.client import AsyncSoroScanClient, SoroScanClient
 
 
 class EventQueryBuilder:
@@ -22,7 +22,7 @@ class EventQueryBuilder:
         ...     .paginate(limit=50, offset=0)
         ...     .execute())
     """
-    
+
     def __init__(self, client: "SoroScanClient") -> None:
         """Initialize the builder with a client instance."""
         self._client = client
@@ -35,7 +35,7 @@ class EventQueryBuilder:
         self._ordering: str = "-timestamp"
         self._page: int = 1
         self._page_size: int = 50
-    
+
     def filter_by_contract(self, contract_id: str) -> "EventQueryBuilder":
         """
         Filter events by contract address.
@@ -48,7 +48,7 @@ class EventQueryBuilder:
         """
         self._contract_id = contract_id
         return self
-    
+
     def filter_by_event_type(self, event_type: str) -> "EventQueryBuilder":
         """
         Filter events by event type.
@@ -61,7 +61,7 @@ class EventQueryBuilder:
         """
         self._event_type = event_type
         return self
-    
+
     def filter_by_ledger(self, ledger: int) -> "EventQueryBuilder":
         """
         Filter events by specific ledger sequence.
@@ -74,10 +74,10 @@ class EventQueryBuilder:
         """
         self._ledger = ledger
         return self
-    
+
     def filter_by_ledger_range(
-        self, 
-        min: int | None = None, 
+        self,
+        min: int | None = None,
         max: int | None = None
     ) -> "EventQueryBuilder":
         """
@@ -95,9 +95,9 @@ class EventQueryBuilder:
         if max is not None:
             self._ledger_max = max
         return self
-    
+
     def filter_by_validation_status(
-        self, 
+        self,
         status: Literal["passed", "failed"]
     ) -> "EventQueryBuilder":
         """
@@ -111,7 +111,7 @@ class EventQueryBuilder:
         """
         self._validation_status = status
         return self
-    
+
     def order_by(self, field: str) -> "EventQueryBuilder":
         """
         Set the ordering field.
@@ -125,7 +125,7 @@ class EventQueryBuilder:
         """
         self._ordering = field
         return self
-    
+
     def paginate(self, limit: int = 50, offset: int = 0) -> "EventQueryBuilder":
         """
         Set pagination parameters.
@@ -140,7 +140,7 @@ class EventQueryBuilder:
         self._page_size = limit
         self._page = (offset // limit) + 1 if limit > 0 else 1
         return self
-    
+
     def page(self, page: int, page_size: int = 50) -> "EventQueryBuilder":
         """
         Set page number and page size directly.
@@ -155,7 +155,7 @@ class EventQueryBuilder:
         self._page = page
         self._page_size = page_size
         return self
-    
+
     def execute(self) -> PaginatedResponse[ContractEvent]:
         """
         Execute the query and return results.
@@ -174,7 +174,7 @@ class EventQueryBuilder:
             page=self._page,
             page_size=self._page_size,
         )
-    
+
     def build(self) -> dict[str, Any]:
         """
         Build and return the query parameters without executing.
@@ -213,7 +213,7 @@ class AsyncEventQueryBuilder:
         ...     .filter_by_event_type("transfer")
         ...     .execute())
     """
-    
+
     def __init__(self, client: "AsyncSoroScanClient") -> None:
         """Initialize the builder with an async client instance."""
         self._client = client
@@ -226,25 +226,25 @@ class AsyncEventQueryBuilder:
         self._ordering: str = "-timestamp"
         self._page: int = 1
         self._page_size: int = 50
-    
+
     def filter_by_contract(self, contract_id: str) -> "AsyncEventQueryBuilder":
         """Filter events by contract address."""
         self._contract_id = contract_id
         return self
-    
+
     def filter_by_event_type(self, event_type: str) -> "AsyncEventQueryBuilder":
         """Filter events by event type."""
         self._event_type = event_type
         return self
-    
+
     def filter_by_ledger(self, ledger: int) -> "AsyncEventQueryBuilder":
         """Filter events by specific ledger sequence."""
         self._ledger = ledger
         return self
-    
+
     def filter_by_ledger_range(
-        self, 
-        min: int | None = None, 
+        self,
+        min: int | None = None,
         max: int | None = None
     ) -> "AsyncEventQueryBuilder":
         """Filter events by ledger range."""
@@ -253,32 +253,32 @@ class AsyncEventQueryBuilder:
         if max is not None:
             self._ledger_max = max
         return self
-    
+
     def filter_by_validation_status(
-        self, 
+        self,
         status: Literal["passed", "failed"]
     ) -> "AsyncEventQueryBuilder":
         """Filter events by validation status."""
         self._validation_status = status
         return self
-    
+
     def order_by(self, field: str) -> "AsyncEventQueryBuilder":
         """Set the ordering field."""
         self._ordering = field
         return self
-    
+
     def paginate(self, limit: int = 50, offset: int = 0) -> "AsyncEventQueryBuilder":
         """Set pagination parameters."""
         self._page_size = limit
         self._page = (offset // limit) + 1 if limit > 0 else 1
         return self
-    
+
     def page(self, page: int, page_size: int = 50) -> "AsyncEventQueryBuilder":
         """Set page number and page size directly."""
         self._page = page
         self._page_size = page_size
         return self
-    
+
     async def execute(self) -> PaginatedResponse[ContractEvent]:
         """Execute the query and return results."""
         return await self._client.get_events(
@@ -292,7 +292,7 @@ class AsyncEventQueryBuilder:
             page=self._page,
             page_size=self._page_size,
         )
-    
+
     def build(self) -> dict[str, Any]:
         """Build and return the query parameters without executing."""
         params: dict[str, Any] = {
@@ -327,7 +327,7 @@ class ContractQueryBuilder:
         ...     .page(1, 20)
         ...     .execute())
     """
-    
+
     def __init__(self, client: "SoroScanClient") -> None:
         """Initialize the builder with a client instance."""
         self._client = client
@@ -335,7 +335,7 @@ class ContractQueryBuilder:
         self._search: str | None = None
         self._page: int = 1
         self._page_size: int = 50
-    
+
     def filter_by_active(self, is_active: bool) -> "ContractQueryBuilder":
         """
         Filter contracts by active status.
@@ -348,7 +348,7 @@ class ContractQueryBuilder:
         """
         self._is_active = is_active
         return self
-    
+
     def search(self, query: str) -> "ContractQueryBuilder":
         """
         Search contracts by name or contract ID.
@@ -361,7 +361,7 @@ class ContractQueryBuilder:
         """
         self._search = query
         return self
-    
+
     def page(self, page: int, page_size: int = 50) -> "ContractQueryBuilder":
         """
         Set page number and page size.
@@ -376,7 +376,7 @@ class ContractQueryBuilder:
         self._page = page
         self._page_size = page_size
         return self
-    
+
     def execute(self) -> PaginatedResponse[TrackedContract]:
         """
         Execute the query and return results.
@@ -390,7 +390,7 @@ class ContractQueryBuilder:
             page=self._page,
             page_size=self._page_size,
         )
-    
+
     def build(self) -> dict[str, Any]:
         """
         Build and return the query parameters without executing.
@@ -411,7 +411,7 @@ class ContractQueryBuilder:
 
 class AsyncContractQueryBuilder:
     """Async fluent builder for constructing contract queries."""
-    
+
     def __init__(self, client: "AsyncSoroScanClient") -> None:
         """Initialize the builder with an async client instance."""
         self._client = client
@@ -419,23 +419,23 @@ class AsyncContractQueryBuilder:
         self._search: str | None = None
         self._page: int = 1
         self._page_size: int = 50
-    
+
     def filter_by_active(self, is_active: bool) -> "AsyncContractQueryBuilder":
         """Filter contracts by active status."""
         self._is_active = is_active
         return self
-    
+
     def search(self, query: str) -> "AsyncContractQueryBuilder":
         """Search contracts by name or contract ID."""
         self._search = query
         return self
-    
+
     def page(self, page: int, page_size: int = 50) -> "AsyncContractQueryBuilder":
         """Set page number and page size."""
         self._page = page
         self._page_size = page_size
         return self
-    
+
     async def execute(self) -> PaginatedResponse[TrackedContract]:
         """Execute the query and return results."""
         return await self._client.get_contracts(
@@ -444,7 +444,7 @@ class AsyncContractQueryBuilder:
             page=self._page,
             page_size=self._page_size,
         )
-    
+
     def build(self) -> dict[str, Any]:
         """Build and return the query parameters without executing."""
         params: dict[str, Any] = {

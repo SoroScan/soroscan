@@ -20,6 +20,9 @@ import type {
   PaginatedResponse,
   RecordEventsBatchParams,
   RecordEventsBatchResponse,
+  EventSearchParams,
+  SearchResponse,
+  EventTypeStatistics,
 } from "./types.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -147,6 +150,42 @@ export class SoroScanClient {
     return this.#request<GetEventsResponse>("GET", "/v1/events", {
       query: params as Record<string, unknown>,
     });
+  }
+
+  /**
+   * Full-text and field-level event search (SC-12).
+   *
+   * @example
+   * const results = await client.searchEvents({ q: 'transfer', contractId: 'CCAAA...' });
+   * for (const event of results.results) { console.log(event.event_type, event.relevance_score); }
+   */
+  async searchEvents(
+    params: EventSearchParams = {}
+  ): Promise<SearchResponse> {
+    return this.#request<SearchResponse>("GET", "/v1/events/search", {
+      query: params as Record<string, unknown>,
+    });
+  }
+
+  /**
+   * Get event type distribution statistics (SC-12).
+   *
+   * @example
+   * const stats = await client.getEventTypeStatistics({ contractId: 'CCAAA...' });
+   * console.log('Total events:', stats.total_events);
+   * for (const entry of stats.event_types) {
+   *   console.log(entry.event_type, entry.count);
+   * }
+   */
+  async getEventTypeStatistics(
+    contractId?: string
+  ): Promise<EventTypeStatistics> {
+    const query = contractId ? { contract_id: contractId } : undefined;
+    return this.#request<EventTypeStatistics>(
+      "GET",
+      "/v1/events/type-statistics",
+      { query }
+    );
   }
 
   // ─── Contracts ─────────────────────────────────────────────────────────────

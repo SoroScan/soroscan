@@ -30,6 +30,7 @@ def test_events_json_output(
             "--base-url",
             base_url,
             "events",
+            "list",
             "--contract",
             "CCAAA111222333444555666777888999AAABBBCCCDDDEEEFFF",
             "--event-type",
@@ -60,7 +61,7 @@ def test_events_table_output(
         json=response_data,
     )
 
-    exit_code = main(["--base-url", base_url, "events", "--limit", "1"])
+    exit_code = main(["--base-url", base_url, "events", "list", "--limit", "1"])
 
     assert exit_code == 0
     output = capsys.readouterr().out

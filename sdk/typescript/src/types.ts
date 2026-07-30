@@ -303,6 +303,69 @@ export interface WebhookListResponse {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SC-12: Event Search & Type Statistics
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface EventSearchParams {
+  /** Free-text substring match against JSON payload text */
+  q?: string;
+  /** Filter by contract address */
+  contractId?: ContractId;
+  /** Filter by event type */
+  eventType?: EventType;
+  /** JSON containment sub-string */
+  payloadContains?: string;
+  /** Dot-notation field path for field-level queries */
+  payloadField?: string;
+  /** Comparison operator: eq, neq, gte, lte, gt, lt, contains, startswith, in */
+  payloadOp?: string;
+  /** Value for field comparison */
+  payloadValue?: string;
+  /** Page number (1-indexed) */
+  page?: number;
+  /** Results per page (max 1000) */
+  pageSize?: number;
+}
+
+export interface EventSearchResult {
+  id: number;
+  contract_id: string;
+  contract_name: string;
+  event_type: string;
+  payload: Record<string, unknown>;
+  payload_hash: string;
+  ledger: number;
+  event_index: number;
+  timestamp: ISODateString;
+  tx_hash: string;
+  transaction_id: string;
+  validation_status: string;
+  signature_status: string;
+  relevance_score: number;
+}
+
+export interface SearchResponse {
+  count: number;
+  page: number;
+  page_size: number;
+  results: EventSearchResult[];
+}
+
+export interface EventTypeStat {
+  contract_id: string;
+  event_type: string;
+  count: number;
+  first_seen: ISODateString;
+  last_seen: ISODateString;
+}
+
+export interface EventTypeStatistics {
+  contract_id: string | null;
+  total_events: number;
+  event_types: EventTypeStat[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SC-29: Batch event recording
 // ─────────────────────────────────────────────────────────────────────────────
 

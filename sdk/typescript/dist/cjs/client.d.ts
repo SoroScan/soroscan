@@ -1,4 +1,4 @@
-import type { SoroScanClientConfig, SoroScanApiError, GetEventsParams, GetEventsResponse, GetContractsParams, GetContractsResponse, GetContractParams, Contract, GetTransactionsParams, GetTransactionsResponse, GetLedgersParams, GetLedgersResponse, GetAccountParams, Account, SubscribeWebhookParams, UpdateWebhookParams, Webhook, WebhookListResponse } from "./types.js";
+import type { SoroScanClientConfig, SoroScanApiError, GetEventsParams, GetEventsResponse, GetContractsParams, GetContractsResponse, GetContractParams, Contract, GetTransactionsParams, GetTransactionsResponse, GetLedgersParams, GetLedgersResponse, GetAccountParams, Account, SubscribeWebhookParams, UpdateWebhookParams, Webhook, WebhookListResponse, PaginatedResponse, RecordEventsBatchParams, RecordEventsBatchResponse, EventSearchParams, SearchResponse, EventTypeStatistics } from "./types.js";
 export declare class SoroScanError extends Error {
     readonly statusCode: number;
     readonly code: string;
@@ -16,6 +16,25 @@ export declare class SoroScanClient {
      * for (const event of result.items) { console.log(event.type, event.txHash); }
      */
     getEvents(params?: GetEventsParams): Promise<GetEventsResponse>;
+    /**
+     * Full-text and field-level event search (SC-12).
+     *
+     * @example
+     * const results = await client.searchEvents({ q: 'transfer', contractId: 'CCAAA...' });
+     * for (const event of results.results) { console.log(event.event_type, event.relevance_score); }
+     */
+    searchEvents(params?: EventSearchParams): Promise<SearchResponse>;
+    /**
+     * Get event type distribution statistics (SC-12).
+     *
+     * @example
+     * const stats = await client.getEventTypeStatistics({ contractId: 'CCAAA...' });
+     * console.log('Total events:', stats.total_events);
+     * for (const entry of stats.event_types) {
+     *   console.log(entry.event_type, entry.count);
+     * }
+     */
+    getEventTypeStatistics(contractId?: string): Promise<EventTypeStatistics>;
     /**
      * Retrieve a paginated list of deployed contracts.
      *
@@ -52,6 +71,20 @@ export declare class SoroScanClient {
      */
     getAccount(params: GetAccountParams): Promise<Account>;
     /**
+     * Record multiple events in a single transaction (SC-29).
+     * Maximum 25 events per batch.
+     *
+     * @example
+     * const result = await client.recordEventsBatch({
+     *   events: [
+     *     { contractId: 'CCAAA...', eventType: 'transfer', payloadHash: 'abc...' },
+     *     { contractId: 'CCAAA...', eventType: 'swap', payloadHash: 'def...' },
+     *   ],
+     * });
+     * console.log('Total events:', result.totalEvents);
+     */
+    recordEventsBatch(params: RecordEventsBatchParams): Promise<RecordEventsBatchResponse>;
+    /**
      * Create a new webhook subscription.
      *
      * @example
@@ -79,4 +112,80 @@ export declare class SoroScanClient {
      * Delete (unsubscribe) a webhook.
      */
     deleteWebhook(webhookId: string): Promise<void>;
+}
+/**
+ * A stateful cursor-based paginator that wraps any SoroScan list method.
+ *
+ * Provides `hasNextPage()`, `nextPage()`, `previousPage()`, and `goToPage(n)`
+ * so callers never have to manage cursors manually.
+ *
+ * @example
+ * const paginator = new Paginator(
+ *   (params) => client.getEvents(params),
+ *   { contractId: 'CCAAA...', first: 20 }
+ * );
+ *
+ * // Load first page
+ * const page1 = await paginator.nextPage();
+ *
+ * if (paginator.hasNextPage()) {
+ *   const page2 = await paginator.nextPage();
+ * }
+ *
+ * // Jump to a specific page (1-indexed)
+ * const page5 = await paginator.goToPage(5);
+ *
+ * // Go back
+ * const page4 = await paginator.previousPage();
+ */
+export declare class Paginator<T, P extends {
+    first?: number;
+    after?: string;
+    before?: string;
+}> {
+    #private;
+    constructor(fetcher: (params: P) => Promise<PaginatedResponse<T>>, baseParams?: P, pageSize?: number);
+    /**
+     * Returns `true` if there is a next page available.
+     * Always `true` before the first fetch (no data loaded yet).
+     */
+    hasNextPage(): boolean;
+    /**
+     * Returns `true` if there is a previous page available.
+     */
+    hasPreviousPage(): boolean;
+    /**
+     * The 1-indexed number of the page currently loaded, or `0` if no page has
+     * been fetched yet.
+     */
+    get currentPageNumber(): number;
+    /**
+     * The most recently fetched page, or `null` before the first fetch.
+     */
+    get currentPage(): PaginatedResponse<T> | null;
+    /**
+     * Fetch the next page and return it.
+     * Throws if there is no next page.
+     */
+    nextPage(): Promise<PaginatedResponse<T>>;
+    /**
+     * Fetch the previous page and return it.
+     * Throws if already on the first page.
+     */
+    previousPage(): Promise<PaginatedResponse<T>>;
+    /**
+     * Jump to a specific 1-indexed page number.
+     *
+     * Pages already visited are reached via the cached cursor history.
+     * Pages beyond the current furthest-fetched page are fetched sequentially
+     * until the target is reached.
+     *
+     * @param pageNumber - 1-indexed target page (must be ≥ 1)
+     */
+    goToPage(pageNumber: number): Promise<PaginatedResponse<T>>;
+    /**
+     * Reset the paginator back to its initial state.
+     * The next call to `nextPage()` will fetch page 1 again.
+     */
+    reset(): void;
 }

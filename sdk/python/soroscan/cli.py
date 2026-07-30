@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from soroscan.client import SoroScanClient
 from soroscan.exceptions import SoroScanError
+from soroscan.models import EventTypeStatistics
 
 
 DEFAULT_BASE_URL = "https://api.soroscan.io"
@@ -73,7 +74,7 @@ def _build_client(args: argparse.Namespace) -> SoroScanClient:
     )
 
 
-def _handle_events(args: argparse.Namespace) -> int:
+def _handle_events_list(args: argparse.Namespace) -> int:
     with _build_client(args) as client:
         response = client.get_events(
             contract_id=args.contract,
@@ -87,6 +88,48 @@ def _handle_events(args: argparse.Namespace) -> int:
         _print_table(
             response.results,
             ["id", "contract_id", "event_type", "ledger", "event_index", "timestamp"],
+        )
+    return 0
+
+
+def _handle_events_search(args: argparse.Namespace) -> int:
+    with _build_client(args) as client:
+        response = client.search_events(
+            q=args.q,
+            contract_id=args.contract_id,
+            event_type=args.event_type,
+            payload_contains=args.payload_contains,
+            payload_field=args.payload_field,
+            payload_op=args.payload_op,
+            payload_value=args.payload_value,
+            page=args.page,
+            page_size=args.page_size,
+        )
+    if args.output == "json":
+        _print_json(response.results)
+    else:
+        _print_table(
+            response.results,
+            [
+                "id", "contract_id", "contract_name", "event_type",
+                "ledger", "event_index", "timestamp", "relevance_score",
+            ],
+        )
+    return 0
+
+
+def _handle_events_type_stats(args: argparse.Namespace) -> int:
+    with _build_client(args) as client:
+        stats = client.get_event_type_statistics(contract_id=args.contract_id)
+    if args.output == "json":
+        _print_json(stats)
+    else:
+        print(f"Contract: {stats.contract_id or '(global)'}")
+        print(f"Total events: {stats.total_events}")
+        print()
+        _print_table(
+            stats.event_types,
+            ["event_type", "count", "first_seen", "last_seen"],
         )
     return 0
 
@@ -160,12 +203,37 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(dest="command", required=True)
 
     events = subcommands.add_parser("events", help="Query indexed events")
-    events.add_argument("--contract", help="Filter by contract ID/address")
-    events.add_argument("--event-type", help="Filter by event type")
-    events.add_argument("--limit", type=int, default=10, help="Maximum events to return")
-    events.add_argument("--ordering", default="-timestamp", help="API ordering expression")
-    events.add_argument("--output", choices=["table", "json"], default="table")
-    events.set_defaults(func=_handle_events)
+    events_sub = events.add_subparsers(dest="events_command", required=True)
+
+    events_list = events_sub.add_parser("list", help="List events with filters")
+    events_list.add_argument("--contract", help="Filter by contract ID/address")
+    events_list.add_argument("--event-type", help="Filter by event type")
+    events_list.add_argument("--limit", type=int, default=10, help="Maximum events to return")
+    events_list.add_argument("--ordering", default="-timestamp", help="API ordering expression")
+    events_list.add_argument("--output", choices=["table", "json"], default="table")
+    events_list.set_defaults(func=_handle_events_list)
+
+    events_search = events_sub.add_parser("search", help="Full-text and field-level event search")
+    events_search.add_argument("--q", help="Free-text search in JSON payload")
+    events_search.add_argument("--contract-id", help="Filter by contract address")
+    events_search.add_argument("--event-type", help="Filter by event type")
+    events_search.add_argument("--payload-contains", help="JSON containment sub-string")
+    events_search.add_argument("--payload-field", help="Dot-notation field path")
+    events_search.add_argument(
+        "--payload-op",
+        choices=["eq", "neq", "gte", "lte", "gt", "lt", "contains", "startswith", "in"],
+        help="Field comparison operator",
+    )
+    events_search.add_argument("--payload-value", help="Value for field comparison")
+    events_search.add_argument("--page", type=int, default=1, help="Page number")
+    events_search.add_argument("--page-size", type=int, default=50, help="Results per page")
+    events_search.add_argument("--output", choices=["table", "json"], default="table")
+    events_search.set_defaults(func=_handle_events_search)
+
+    events_type_stats = events_sub.add_parser("type-stats", help="Event type distribution statistics")
+    events_type_stats.add_argument("--contract-id", help="Scope to a specific contract")
+    events_type_stats.add_argument("--output", choices=["table", "json"], default="table")
+    events_type_stats.set_defaults(func=_handle_events_type_stats)
 
     webhooks = subcommands.add_parser("webhooks", help="Manage webhook subscriptions")
     webhook_subcommands = webhooks.add_subparsers(dest="webhook_command", required=True)
