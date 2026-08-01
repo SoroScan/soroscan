@@ -4,14 +4,13 @@ SoroScan Python SDK
 Official Python client for the SoroScan API - Stellar/Soroban event indexing.
 """
 
-from soroscan.client import AsyncSoroScanClient, SoroScanClient
 from soroscan.builder import (
-    EventQueryBuilder,
+    AsyncContractQueryBuilder,
     AsyncEventQueryBuilder,
     ContractQueryBuilder,
-    AsyncContractQueryBuilder,
+    EventQueryBuilder,
 )
-from soroscan.pagination import AsyncPaginator, Paginator
+from soroscan.client import AsyncSoroScanClient, SoroScanClient
 from soroscan.exceptions import (
     SoroScanAPIError,
     SoroScanAuthError,
@@ -20,19 +19,24 @@ from soroscan.exceptions import (
     SoroScanRateLimitError,
     SoroScanValidationError,
 )
-from soroscan.webhook_verification import verify_webhook_signature
 from soroscan.models import (
     ContractEvent,
-    ContractEventTypeInfo,
+    ContractHealth,
     ContractStats,
     ContractStatus,
     EventEntry,
     PaginatedResponse,
+    AddIndexerRequest,
+    AddIndexerResponse,
+    IsIndexerResponse,
+    GetAdminResponse,
     RecordEventsBatchRequest,
     RecordEventsBatchResponse,
     TrackedContract,
     WebhookSubscription,
 )
+from soroscan.pagination import AsyncPaginator, Paginator
+from soroscan.webhook_verification import verify_webhook_signature
 
 __version__ = "0.2.0"
 __all__ = [
@@ -45,13 +49,19 @@ __all__ = [
     "Paginator",
     "AsyncPaginator",
     "ContractEvent",
-    "ContractEventTypeInfo",
+    "ContractHealth",
     "TrackedContract",
     "WebhookSubscription",
     "ContractStats",
     "ContractStatus",
+    "GetEventsByContractsRequest",
+    "GetEventsByContractsResponse",
     "PaginatedResponse",
+    "IsIndexerResponse",
+    "GetAdminResponse",
     "EventEntry",
+    "AddIndexerRequest",
+    "AddIndexerResponse",
     "RecordEventsBatchRequest",
     "RecordEventsBatchResponse",
     "SoroScanError",
