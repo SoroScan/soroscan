@@ -64,6 +64,8 @@ export type {
   RecordEventsBatchResponse,
   // SC-13: Per-indexer event statistics
   IndexerStats,
+  // SC-28: Contract pause status
+  ContractStatus,
   // SC-30: Recent contract events
   GetContractRecentEventsParams,
   // WebSocket

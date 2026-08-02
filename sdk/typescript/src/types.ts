@@ -519,6 +519,16 @@ export interface IndexerStats {
   indexer: string;
   /** Total events recorded by this indexer */
   eventsRecorded: number;
+// SC-28: Contract pause status
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ContractStatus {
+  /** Whether event recording is currently paused */
+  paused: boolean;
+  /** Current admin address */
+  admin: string;
+  /** Total events recorded so far */
+  totalEvents: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

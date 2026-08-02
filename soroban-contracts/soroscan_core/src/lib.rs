@@ -9,6 +9,7 @@ const ADMIN_KEY: Symbol = symbol_short!("admin");
 const INDEXERS_KEY: Symbol = symbol_short!("idxrs");
 const COUNTER_KEY: Symbol = symbol_short!("count");
 const INDEXER_COUNTS_KEY: Symbol = symbol_short!("idxcnt");
+const PAUSED_KEY: Symbol = symbol_short!("paused");
 const CONTRACT_STATS_KEY: Symbol = symbol_short!("cstats");
 const CONTRACT_EVENT_TYPES_KEY: Symbol = symbol_short!("etypes");
 const CONTRACT_RECENT_EVENTS_KEY: Symbol = symbol_short!("revents");
@@ -139,6 +140,8 @@ pub enum ContractError {
     NotInitialized = 4,
     /// Batch is empty or exceeds the maximum allowed size.
     InvalidBatchSize = 5,
+    /// Event recording is currently paused by the admin.
+    ContractPaused = 6,
     /// The indexer is currently paused and cannot record events (SC-10).
     IndexerPaused = 6,
     /// Structured event `schema_version` must be greater than zero (SC-38).
@@ -284,6 +287,11 @@ impl SoroScanCore {
     ) -> Result<u64, ContractError> {
         indexer.require_auth();
 
+        if Self::is_paused(env.clone()) {
+            return Err(ContractError::ContractPaused);
+        }
+
+        let indexers: Map<Address, bool> = env
         let indexers: Map<Address, IndexerStatus> = env
             .storage()
             .instance()
@@ -567,6 +575,10 @@ impl SoroScanCore {
     ) -> Result<u64, ContractError> {
         indexer.require_auth();
 
+        if Self::is_paused(env.clone()) {
+            return Err(ContractError::ContractPaused);
+        }
+
         let batch_len = events.len();
         if batch_len == 0 || batch_len > 25 {
             return Err(ContractError::InvalidBatchSize);
@@ -784,6 +796,69 @@ impl SoroScanCore {
         let current = counts.get(indexer.clone()).unwrap_or(0);
         counts.set(indexer.clone(), current.saturating_add(by));
         env.storage().instance().set(&INDEXER_COUNTS_KEY, &counts);
+    /// Pause event recording (SC-28).
+    /// While paused, `record_event` and `record_events_batch` are disabled.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `admin` - The admin address (must match stored admin)
+    pub fn pause(env: Env, admin: Address) -> Result<(), ContractError> {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&ADMIN_KEY)
+            .ok_or(ContractError::NotInitialized)?;
+
+        if admin != stored_admin {
+            return Err(ContractError::Unauthorized);
+        }
+
+        env.storage().instance().set(&PAUSED_KEY, &true);
+
+        env.events()
+            .publish((symbol_short!("admin"), symbol_short!("pause")), admin);
+
+        Ok(())
+    }
+
+    /// Unpause event recording (SC-28).
+    /// Restores normal operation of `record_event` and `record_events_batch`.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `admin` - The admin address (must match stored admin)
+    pub fn unpause(env: Env, admin: Address) -> Result<(), ContractError> {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&ADMIN_KEY)
+            .ok_or(ContractError::NotInitialized)?;
+
+        if admin != stored_admin {
+            return Err(ContractError::Unauthorized);
+        }
+
+        env.storage().instance().set(&PAUSED_KEY, &false);
+
+        env.events()
+            .publish((symbol_short!("admin"), symbol_short!("unpause")), admin);
+
+        Ok(())
+    }
+
+    /// Check whether event recording is currently paused (SC-28).
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    ///
+    /// # Returns
+    /// true if paused, false otherwise
+    pub fn is_paused(env: Env) -> bool {
+        env.storage().instance().get(&PAUSED_KEY).unwrap_or(false)
     /// Record an SC-24 tagged event.
     ///
     /// Works like `record_event` but accepts an optional list of producer-
@@ -1464,6 +1539,7 @@ mod tests {
 
     #[test]
     fn test_events_recorded_by_tracks_single_indexer() {
+    fn test_pause_blocks_record_event() {
     // ── SC-10: pause/resume indexer ─────────────────────────────────────────
 
     #[test]
@@ -1535,6 +1611,14 @@ mod tests {
         let target = Address::generate(&env);
 
         client.add_indexer(&admin, &indexer);
+        client.pause(&admin);
+        assert!(client.is_paused());
+
+        let event_type = symbol_short!("swap");
+        let payload_hash = BytesN::from_array(&env, &[0u8; 32]);
+
+        let result = client.try_record_event(&indexer, &target, &event_type, &payload_hash);
+        assert_eq!(result, Err(Ok(ContractError::ContractPaused)));
         client.pause_indexer(&admin, &indexer);
 
         let result = client.try_record_event(
@@ -1548,11 +1632,15 @@ mod tests {
     }
 
     #[test]
+    fn test_pause_blocks_record_events_batch() {
     fn test_paused_indexer_cannot_record_batch() {
         let env = Env::default();
         env.mock_all_auths();
 
         let (client, admin, indexer) = setup_contract(&env);
+
+        client.add_indexer(&admin, &indexer);
+        client.pause(&admin);
         client.add_indexer(&admin, &indexer);
         client.pause_indexer(&admin, &indexer);
 
@@ -1564,6 +1652,12 @@ mod tests {
         });
 
         let result = client.try_record_events_batch(&indexer, &entries);
+        assert_eq!(result, Err(Ok(ContractError::ContractPaused)));
+        assert_eq!(client.total_events(), 0);
+    }
+
+    #[test]
+    fn test_unpause_restores_recording() {
         assert_eq!(result, Err(Ok(ContractError::IndexerPaused)));
     }
 
@@ -1614,6 +1708,24 @@ mod tests {
         let target = Address::generate(&env);
 
         client.add_indexer(&admin, &indexer);
+        client.pause(&admin);
+
+        let event_type = symbol_short!("swap");
+        let payload_hash = BytesN::from_array(&env, &[0u8; 32]);
+
+        let blocked = client.try_record_event(&indexer, &target, &event_type, &payload_hash);
+        assert_eq!(blocked, Err(Ok(ContractError::ContractPaused)));
+
+        client.unpause(&admin);
+        assert!(!client.is_paused());
+
+        let count = client.record_event(&indexer, &target, &event_type, &payload_hash);
+        assert_eq!(count, 1);
+        assert_eq!(client.total_events(), 1);
+    }
+
+    #[test]
+    fn test_pause_unauthorized() {
         client.pause_indexer(&admin, &indexer);
         client.resume_indexer(&admin, &indexer);
 
@@ -1778,6 +1890,16 @@ mod tests {
         env.mock_all_auths();
 
         let (client, _admin, _indexer) = setup_contract(&env);
+        let non_admin = Address::generate(&env);
+
+        let result = client.try_pause(&non_admin);
+        assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+        assert!(!client.is_paused());
+    }
+
+    #[test]
+    fn test_is_paused_default_false() {
+        let env = Env::default();
         let target = Address::generate(&env);
 
         let result = client.try_recent_events(&target, &(MAX_RECENT_EVENTS_PER_CONTRACT + 1));
@@ -1826,6 +1948,9 @@ mod tests {
         let client = SoroScanCoreClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
+        client.init(&admin);
+
+        assert!(!client.is_paused());
         let indexer = Address::generate(&env);
         let target = Address::generate(&env);
 
