@@ -5,22 +5,29 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
+  Activity,
+  Radio,
   FileCode2,
   Webhook,
   Settings,
   Shield,
-  Radio,
+  Building2,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Drawer } from "@/components/ui/drawer";
 import { HamburgerToggle } from "@/components/ui/hamburger-toggle";
-import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { OrganizationSwitcher } from "@/components/organization/OrganizationSwitcher";
+import { useTheme } from "@/hooks/useTheme";
 
 const navItems = [
   { href: "/dashboard", label: "Events", icon: LayoutDashboard },
-  { href: "/monitor", label: "Monitor", icon: Radio },
+  { href: "/performance", label: "Performance", icon: Activity },
+  { href: "/live", label: "Live Stream", icon: Radio },
   { href: "/contracts", label: "Contracts", icon: FileCode2 },
   { href: "/webhooks", label: "Webhooks", icon: Webhook },
+  { href: "/organization", label: "Org", icon: Building2 },
   { href: "/admin", label: "Admin", icon: Shield },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
@@ -48,12 +55,13 @@ function NavLink({
     <Link
       href={href}
       onClick={onNavigate}
+      aria-current={isActive ? "page" : undefined}
       className={cn(
         "flex items-center gap-3 min-h-[44px] px-4 py-2 text-sm font-terminal-mono transition-colors rounded-sm",
-        "border-l-4",
+        "border-l-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-terminal-green",
         isActive
-          ? "border-terminal-green bg-terminal-green/10 text-terminal-green"
-          : "border-transparent text-terminal-gray hover:text-terminal-green hover:bg-terminal-green/5",
+          ? "border-terminal-green bg-terminal-green/10 text-terminal-green shadow-[0_0_12px_rgba(0,255,65,0.15)]"
+          : "border-transparent text-terminal-gray hover:text-terminal-green hover:bg-terminal-green/5 hover:border-terminal-green/40",
       )}
     >
       <Icon size={18} aria-hidden="true" />
@@ -91,13 +99,23 @@ function SidebarNav({
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
+  const { theme, toggleTheme, mounted } = useTheme();
 
   React.useEffect(() => {
     setSidebarOpen(false);
   }, [pathname]);
 
   return (
+    <div className="min-h-screen bg-terminal-black text-terminal-green font-terminal-mono transition-colors duration-200">
     <div className="min-h-screen bg-terminal-black text-terminal-green font-terminal-mono">
+      {/* Skip to main content link for screen reader and keyboard accessibility */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:px-4 focus:py-2 focus:bg-terminal-green focus:text-terminal-black focus:font-bold focus:rounded focus:outline-none focus:ring-2 focus:ring-terminal-cyan"
+      >
+        Skip to main content
+      </a>
+
       {/* Top header */}
       <header className="sticky top-0 z-30 flex h-[60px] items-center gap-3 border-b border-terminal-green/30 bg-gradient-to-r from-terminal-black to-[#1a1f3a] px-4">
         <HamburgerToggle
@@ -109,34 +127,50 @@ export function AppShell({ children }: AppShellProps) {
 
         <Link
           href="/dashboard"
-          className="text-lg font-bold tracking-wider text-terminal-green hover:text-terminal-cyan transition-colors min-h-[44px] inline-flex items-center"
+          className="text-lg font-bold tracking-wider text-terminal-green hover:text-terminal-cyan transition-colors min-h-[44px] inline-flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-terminal-green"
         >
           ◆ SoroScan
         </Link>
 
-        <div className="ml-auto flex items-center gap-1">
-          <div className="hidden sm:flex items-center gap-1">
-          {navItems.map((item) => {
-            const isActive =
-              pathname === item.href || pathname.startsWith(`${item.href}/`);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "min-h-[44px] min-w-[44px] inline-flex items-center justify-center px-3 text-xs uppercase tracking-wider transition-colors",
-                  isActive
-                    ? "text-terminal-green border-b-2 border-terminal-green"
-                    : "text-terminal-gray hover:text-terminal-green",
-                )}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-          </div>
+        <div className="ml-auto flex items-center gap-2">
+          <OrganizationSwitcher className="hidden sm:block" />
 
-          <NotificationBell />
+          {/* Theme Toggle Button */}
+          {mounted && (
+            <button
+              onClick={toggleTheme}
+              aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded p-2 text-terminal-gray hover:text-terminal-green transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-terminal-green"
+            >
+              {theme === "dark" ? (
+                <Sun className="h-5 w-5 text-terminal-warning" aria-hidden="true" />
+              ) : (
+                <Moon className="h-5 w-5 text-terminal-cyan" aria-hidden="true" />
+              )}
+            </button>
+          )}
+
+          <nav className="hidden sm:flex items-center gap-1" aria-label="Header navigation">
+            {navItems.map((item) => {
+              const isActive =
+                pathname === item.href || pathname.startsWith(`${item.href}/`);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={isActive ? "page" : undefined}
+                  className={cn(
+                    "min-h-[44px] min-w-[44px] inline-flex items-center justify-center px-3 text-xs uppercase tracking-wider transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-terminal-green",
+                    isActive
+                      ? "text-terminal-green border-b-2 border-terminal-green"
+                      : "text-terminal-gray hover:text-terminal-green",
+                  )}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
         </div>
       </header>
 
@@ -165,7 +199,9 @@ export function AppShell({ children }: AppShellProps) {
         </Drawer>
 
         {/* Main content */}
-        <main className="flex-1 min-w-0">{children}</main>
+        <main id="main-content" tabIndex={-1} className="flex-1 min-w-0 focus:outline-none">
+          {children}
+        </main>
       </div>
     </div>
   );

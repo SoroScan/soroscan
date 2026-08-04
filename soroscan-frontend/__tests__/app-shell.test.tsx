@@ -90,50 +90,18 @@ describe("AppShell mobile navigation", () => {
     expect(screen.getByTestId("page-content")).toBeInTheDocument();
   });
 
-  it("mounts the notification bell in the header", () => {
+  it("renders sidebar nav links with icon + label pattern", () => {
     render(
       <AppShell>
         <div>Content</div>
       </AppShell>,
     );
 
-    expect(
-      screen.getByRole("button", { name: /notifications/i }),
-    ).toBeInTheDocument();
-  });
-
-  it("shows the unread count badge on the bell", () => {
-    mockUseNotifications.mockReturnValue({
-      notifications: [],
-      unreadCount: 3,
-      loading: false,
-      markRead: jest.fn(),
-      markAllRead: jest.fn(),
-      clearAll: jest.fn(),
-      refetch: jest.fn(),
-    });
-
-    render(
-      <AppShell>
-        <div>Content</div>
-      </AppShell>,
+    const sidebar = document.getElementById("app-sidebar");
+    expect(sidebar).toBeTruthy();
+    expect(sidebar!.querySelector('a[href="/dashboard"]')).toHaveTextContent(
+      "Events",
     );
-
-    expect(
-      screen.getByRole("button", { name: /3 unread/i }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("3")).toBeInTheDocument();
-  });
-
-  it("links to the live event monitor", () => {
-    render(
-      <AppShell>
-        <div>Content</div>
-      </AppShell>,
-    );
-
-    expect(
-      screen.getAllByRole("link", { name: /monitor/i }).length,
-    ).toBeGreaterThan(0);
+    expect(sidebar!.querySelector('a[href="/admin"]')).toHaveTextContent("Admin");
   });
 });
