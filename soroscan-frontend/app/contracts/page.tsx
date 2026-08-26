@@ -6,6 +6,7 @@ import { Button } from "@/components/terminal/Button";
 import { ContractTable } from "./components/ContractTable";
 import { RegisterModal } from "./components/RegisterModal";
 import { DeleteConfirmModal } from "./components/DeleteConfirmModal";
+import { ContractCardSkeleton } from "@/components/ui/skeletons";
 import {
   listContracts,
   registerContract,
@@ -108,9 +109,7 @@ export default function ContractsPage() {
 
         <Card title="TRACKED_CONTRACTS">
           {isLoading ? (
-            <div className="text-center py-12 text-terminal-gray font-terminal-mono">
-              LOADING...
-            </div>
+            <ContractCardSkeleton />
           ) : (
             <ContractTable
                 contracts={contracts}
