@@ -26,6 +26,7 @@ jobs:
       HORIZON_URL: http://localhost:8000
       STELLAR_NETWORK_PASSPHRASE: "Standalone Network ; February 2017"
       SOROBAN_E2E: "1"
+      RUSTFLAGS: "-C target-feature=-reference-types"
 
     services:
       postgres:
@@ -75,8 +76,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            soroban-contracts/soroscan_core/target
-          key: ${{ runner.os }}-soroban-e2e-cargo-${{ hashFiles('soroban-contracts/soroscan_core/Cargo.lock') }}
+          key: ${{ runner.os }}-soroban-e2e-cargo-no-ref-types-${{ hashFiles('soroban-contracts/soroscan_core/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-soroban-e2e-cargo-
 

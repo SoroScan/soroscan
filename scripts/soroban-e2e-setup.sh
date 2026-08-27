@@ -51,8 +51,9 @@ fi
 
 echo "[soroban-e2e] Building soroscan_core.wasm"
 cd "${REPO_ROOT}/soroban-contracts/soroscan_core"
-# Standalone quickstart rejects WASM with reference-types (Rust stable default).
-export RUSTFLAGS='-C target-feature=-reference-types'
+# Standalone/local quickstart rejects WASM with reference-types (Rust stable default).
+export RUSTFLAGS="${RUSTFLAGS:--C target-feature=-reference-types}"
+cargo clean -p soroscan_core
 cargo build --target wasm32-unknown-unknown --release
 
 WASM="target/wasm32-unknown-unknown/release/soroscan_core.wasm"
