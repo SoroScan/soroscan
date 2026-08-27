@@ -778,6 +778,17 @@ class ContractEvent(models.Model):
         db_index=True,
         help_text="Result of event signature verification",
     )
+    status = models.CharField(
+        max_length=16,
+        choices=[
+            ("CONFIRMED", "Confirmed"),
+            ("PENDING_REORG", "Pending Re-org"),
+            ("ORPHANED", "Orphaned"),
+        ],
+        default="CONFIRMED",
+        db_index=True,
+        help_text="Chain confirmation status (re-org detection)",
+    )
 
     class Meta:
         ordering = ["-timestamp"]

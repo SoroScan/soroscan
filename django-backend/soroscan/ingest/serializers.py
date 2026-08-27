@@ -357,6 +357,7 @@ class ContractEventSerializer(serializers.ModelSerializer):
             "schema_version",
             "validation_status",
             "signature_status",
+            "status",
         ]
         read_only_fields = [
             "id",
