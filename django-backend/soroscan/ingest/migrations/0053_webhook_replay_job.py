@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     dependencies = [
         (
             "ingest",
-            "0051_remove_eventaggregation_unique_contract_event_type_timestamp_and_more",
+            "0052_invoice",
         ),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
