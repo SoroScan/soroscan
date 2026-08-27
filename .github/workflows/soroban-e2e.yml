@@ -92,7 +92,7 @@ jobs:
             ${{ runner.os }}-soroban-e2e-cargo-
 
       - name: Install Stellar CLI
-        run: cargo install --locked stellar-cli --features opt
+        run: cargo install --locked stellar-cli
 
       - name: Deploy contract and emit live events
         run: bash scripts/soroban-e2e-setup.sh
