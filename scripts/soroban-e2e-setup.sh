@@ -32,6 +32,8 @@ curl -sf "${HORIZON}/friendbot?addr=${ADDR}" >/dev/null || true
 
 echo "[soroban-e2e] Building soroscan_core.wasm"
 cd "${REPO_ROOT}/soroban-contracts/soroscan_core"
+# Standalone quickstart rejects WASM with reference-types (Rust stable default).
+export RUSTFLAGS='-C target-feature=-reference-types'
 cargo build --target wasm32-unknown-unknown --release
 
 WASM="target/wasm32-unknown-unknown/release/soroscan_core.wasm"
