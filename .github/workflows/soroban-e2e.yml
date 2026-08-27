@@ -92,7 +92,12 @@ jobs:
             ${{ runner.os }}-soroban-e2e-cargo-
 
       - name: Install Stellar CLI
-        run: cargo install --locked stellar-cli
+        run: |
+          curl -sSL -o /tmp/stellar-cli.tar.gz \
+            "https://github.com/stellar/stellar-cli/releases/download/v23.1.0/stellar-cli-23.1.0-x86_64-unknown-linux-gnu.tar.gz"
+          tar -xzf /tmp/stellar-cli.tar.gz -C /usr/local/bin
+          chmod +x /usr/local/bin/stellar
+          stellar --version
 
       - name: Deploy contract and emit live events
         run: bash scripts/soroban-e2e-setup.sh
