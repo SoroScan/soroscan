@@ -6,9 +6,10 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RPC_URL="${SOROBAN_RPC_URL:-http://localhost:8000/soroban/rpc}"
+RPC_URL="${SOROBAN_RPC_URL:-http://localhost:8000/rpc}"
 NETWORK="${STELLAR_NETWORK_PASSPHRASE:-Standalone Network ; February 2017}"
 HORIZON="${HORIZON_URL:-http://localhost:8000}"
+NETWORK_NAME="${STELLAR_NETWORK_NAME:-local}"
 IDENTITY="${STELLAR_IDENTITY:-e2e-admin}"
 CONTRACT_FILE="$REPO_ROOT/.soroban-e2e-contract-id"
 
@@ -21,14 +22,32 @@ for _ in $(seq 1 90); do
 done
 curl -sf "${HORIZON}/health" >/dev/null
 
+echo "[soroban-e2e] Configuring Stellar CLI network ${NETWORK_NAME}"
+stellar network add "${NETWORK_NAME}" \
+  --rpc-url "${RPC_URL}" \
+  --network-passphrase "${NETWORK}" \
+  2>/dev/null || true
+
 echo "[soroban-e2e] Ensuring Stellar identity ${IDENTITY}"
 if ! stellar keys address "${IDENTITY}" >/dev/null 2>&1; then
-  stellar keys generate "${IDENTITY}"
+  stellar keys generate "${IDENTITY}" --network "${NETWORK_NAME}"
 fi
 ADDR="$(stellar keys address "${IDENTITY}")"
 
 echo "[soroban-e2e] Funding ${ADDR} via friendbot"
-curl -sf "${HORIZON}/friendbot?addr=${ADDR}" >/dev/null || true
+for _ in $(seq 1 30); do
+  if stellar keys fund "${IDENTITY}" --network "${NETWORK_NAME}" >/dev/null 2>&1; then
+    break
+  fi
+  if curl -sf "${HORIZON}/friendbot?addr=${ADDR}" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 2
+done
+if ! curl -sf "${HORIZON}/accounts/${ADDR}" >/dev/null 2>&1; then
+  echo "[soroban-e2e] ERROR: account ${ADDR} was not funded"
+  exit 1
+fi
 
 echo "[soroban-e2e] Building soroscan_core.wasm"
 cd "${REPO_ROOT}/soroban-contracts/soroscan_core"
