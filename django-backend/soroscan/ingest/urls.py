@@ -20,6 +20,8 @@ from .views import (
     contract_health_view,
     event_type_statistics_view,
     contract_identity_view,
+    dlq_list_view,
+    dlq_replay_view,
     organization_cors_view,
     organization_cost_breakdown_view,
     WebhookSubscriptionViewSet,
@@ -117,4 +119,6 @@ urlpatterns = [
     path("compliance-export/", compliance_export_view, name="compliance-export"),
     path("networks/", networks_view, name="networks"),
     path("contract/identity/", contract_identity_view, name="contract-identity"),
+    path("dead-letter-queue/", dlq_list_view, name="dlq-list"),
+    path("dead-letter-queue/replay/", dlq_replay_view, name="dlq-replay"),
 ]
