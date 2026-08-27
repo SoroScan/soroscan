@@ -2214,12 +2214,18 @@ def ingest_latest_events() -> int:
     new_events = 0
 
     try:
-        reorg_result = check_and_handle_reorg(server)
-        if reorg_result:
-            logger.warning(
-                "Handled ledger re-org rollback: %s",
-                reorg_result,
-                extra={"ledger_sequence": reorg_result.get("from_ledger")},
+        try:
+            reorg_result = check_and_handle_reorg(server)
+            if reorg_result:
+                logger.warning(
+                    "Handled ledger re-org rollback: %s",
+                    reorg_result,
+                    extra={"ledger_sequence": reorg_result.get("from_ledger")},
+                )
+        except Exception:
+            logger.exception(
+                "Ledger re-org check failed — continuing with event ingestion",
+                extra={},
             )
 
         blacklisted_ids = set(
