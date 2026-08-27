@@ -56,24 +56,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Start stellar/quickstart local network (Soroban RPC + friendbot)
-        run: |
-          docker run -d --name stellar-quickstart \
-            -p 8000:8000 \
-            --health-cmd="curl -sf http://localhost:8000/health || exit 1" \
-            --health-interval=5s \
-            --health-timeout=5s \
-            --health-retries=30 \
-            stellar/quickstart:testing \
-            --local --enable rpc
-          for i in $(seq 1 60); do
-            if curl -sf http://localhost:8000/health >/dev/null 2>&1; then
-              echo "quickstart is healthy"
-              exit 0
-            fi
-            sleep 3
-          done
-          docker logs stellar-quickstart
-          exit 1
+        uses: stellar/quickstart@main
+        with:
+          tag: testing
+          network: local
+          enable: core,horizon,rpc
+          health_retries: "60"
+          health_interval: "10"
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -145,4 +134,4 @@ jobs:
 
       - name: Stop quickstart container
         if: always()
-        run: docker rm -f stellar-quickstart || true
+        run: docker rm -f stellar-quickstart stellar 2>/dev/null || true
