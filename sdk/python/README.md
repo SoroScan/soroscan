@@ -85,6 +85,33 @@ print(f"Total events: {stats.total_events}")
 client.close()
 ```
 
+### Pagination helpers
+
+Use `Paginator` / `AsyncPaginator` to auto-manage page numbers and offsets:
+
+```python
+from soroscan import SoroScanClient
+from soroscan.pagination import Paginator
+
+client = SoroScanClient(base_url="https://api.soroscan.io")
+
+paginator = Paginator(
+    client.get_events,
+    contract_id="CCAAA...",
+    page_size=20,
+)
+
+page1 = paginator.next_page()
+if paginator.has_next_page():
+    page2 = paginator.next_page()
+
+page5 = paginator.go_to_page(5)
+page4 = paginator.previous_page()
+```
+
+Both helpers expose `has_next_page()`, `next_page()`, `previous_page()`, and
+`go_to_page(n)` for Python and TypeScript SDKs.
+
 ### Async Client
 
 ```python

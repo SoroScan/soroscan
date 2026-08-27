@@ -294,6 +294,28 @@ do {
 } while (after);
 ```
 
+### Paginator helper
+
+The `Paginator` class wraps any list method and exposes `hasNextPage()`, `nextPage()`,
+`previousPage()`, and `goToPage(n)` with automatic cursor/offset handling:
+
+```ts
+import { Paginator, SoroScanClient } from "@soroscan/sdk";
+
+const client = new SoroScanClient({ baseUrl: "https://api.soroscan.io" });
+const paginator = new Paginator(
+  (params) => client.getEvents(params),
+  { contractId: "CCAAA...", first: 20 }
+);
+
+const page1 = await paginator.nextPage();
+if (paginator.hasNextPage()) {
+  await paginator.nextPage();
+}
+await paginator.goToPage(3);
+await paginator.previousPage();
+```
+
 ---
 
 ## TypeScript Usage
