@@ -15,7 +15,6 @@ from rest_framework.test import APIClient
 
 from soroscan.ingest.models import (
     ContractMetadata,
-    EventDeduplicationConfig,
     IngestError,
     RemediationRule,
     WebhookDeliveryLog,
@@ -152,7 +151,7 @@ class TestWebhookReplay:
     def test_create_and_run_dry_run_job(self):
         contract = TrackedContractFactory()
         webhook = WebhookSubscriptionFactory(contract=contract, event_type="")
-        event = ContractEventFactory(contract=contract, event_type="swap")
+        ContractEventFactory(contract=contract, event_type="swap")
         job = create_replay_job(
             subscription=webhook,
             contract_id=contract.contract_id,

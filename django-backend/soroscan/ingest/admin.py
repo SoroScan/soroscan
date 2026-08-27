@@ -13,7 +13,6 @@ import csv
 import json
 from datetime import datetime, timedelta
 import requests as http_requests
-import hashlib
 
 from .models import (
     AlertExecution,
@@ -1420,7 +1419,7 @@ class ContractMetadataAdmin(AdminAuditMixin, admin.ModelAdmin):
 
     def bulk_import_view(self, request):
         from django.contrib import messages
-        from django.shortcuts import render, redirect
+        from django.shortcuts import render
         from soroscan.ingest.services.metadata_bulk_import import (
             BulkImportError,
             detect_format,
