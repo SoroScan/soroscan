@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("ingest", "0050_transactioncost"),
+        ("ingest", "0053_webhook_replay_job"),
     ]
 
     operations = [
