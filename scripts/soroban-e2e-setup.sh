@@ -49,11 +49,8 @@ if ! curl -sf "${HORIZON}/accounts/${ADDR}" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "[soroban-e2e] Building soroscan_core.wasm"
+echo "[soroban-e2e] Building soroscan_core.wasm (Rust 1.81; 1.82+ enables unsupported WASM features)"
 cd "${REPO_ROOT}/soroban-contracts/soroscan_core"
-# Standalone/local quickstart rejects WASM with reference-types (Rust stable default).
-export RUSTFLAGS="${RUSTFLAGS:--C target-feature=-reference-types}"
-cargo clean -p soroscan_core
 cargo build --target wasm32-unknown-unknown --release
 
 WASM="target/wasm32-unknown-unknown/release/soroscan_core.wasm"

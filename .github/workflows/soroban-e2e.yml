@@ -26,7 +26,6 @@ jobs:
       HORIZON_URL: http://localhost:8000
       STELLAR_NETWORK_PASSPHRASE: "Standalone Network ; February 2017"
       SOROBAN_E2E: "1"
-      RUSTFLAGS: "-C target-feature=-reference-types"
 
     services:
       postgres:
@@ -65,8 +64,8 @@ jobs:
           health_retries: "60"
           health_interval: "10"
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust 1.81 (compatible with soroban-sdk 21 WASM target)
+        uses: dtolnay/rust-toolchain@1.81.0
         with:
           targets: wasm32-unknown-unknown
 
@@ -76,7 +75,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-soroban-e2e-cargo-no-ref-types-${{ hashFiles('soroban-contracts/soroscan_core/Cargo.lock') }}
+          key: ${{ runner.os }}-soroban-e2e-rust-1.81-${{ hashFiles('soroban-contracts/soroscan_core/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-soroban-e2e-cargo-
 
