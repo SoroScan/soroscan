@@ -15,6 +15,8 @@ from django.db.models.functions import Cast
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_control, cache_page
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParameter
 from rest_framework import renderers, serializers, status, viewsets
@@ -27,7 +29,7 @@ from rest_framework.pagination import PageNumberPagination
 
 import requests as http_requests
 
-from soroscan.throttles import IngestRateThrottle
+from soroscan.throttles import IngestRateThrottle, UnauthenticatedIPRateThrottle
 from soroscan.webhook_signing import build_x_signature_header, public_key_base64
 
 from .cache_utils import cache_result, get_or_set_json, query_cache_ttl, stable_cache_key
@@ -142,24 +144,14 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
                     warnings.append(warning)
         return warnings
 
+    @method_decorator(cache_page(query_cache_ttl(), key_prefix="contract_list"))
+    @method_decorator(cache_control(max_age=query_cache_ttl()))
     def list(self, request, *args, **kwargs):
-        """Cache the contracts list for 30 seconds (issue #488)."""
-        cache_key = stable_cache_key(
-            "rest_contracts_list",
-            {
-                "query": sorted(request.query_params.items()),
-                "user_id": getattr(request.user, "id", None),
-            },
-        )
-
-        def _build():
-            response = super(TrackedContractViewSet, self).list(request, *args, **kwargs)
-            if isinstance(response.data, dict) and "results" in response.data:
-                response.data["warnings"] = self._collect_warnings(response.data["results"])
-            return response.data
-
-        cached_data = get_or_set_json(cache_key, 30, _build)
-        return Response(cached_data)
+        """Cache the contracts list via @cache_page (issue #1011)."""
+        response = super().list(request, *args, **kwargs)
+        if isinstance(response.data, dict) and "results" in response.data:
+            response.data["warnings"] = self._collect_warnings(response.data["results"])
+        return response
 
     def retrieve(self, request, *args, **kwargs):
         response = super().retrieve(request, *args, **kwargs)
@@ -192,7 +184,7 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         from django.core.cache import cache as _cache
 
         if hasattr(_cache, "delete_pattern"):
-            _cache.delete_pattern("soroscan:rest_contracts_list:*")
+            _cache.delete_pattern("*contract_list*")
         else:
             _cache.clear()
 
@@ -1251,6 +1243,7 @@ def get_admin_view(request):
 )
 @api_view(["GET"])
 @permission_classes([AllowAny])
+@throttle_classes([UnauthenticatedIPRateThrottle])
 def webhook_signing_public_key_view(request):
     """Return the platform Ed25519 public key used for webhook X-Signature headers."""
     return Response(
@@ -1274,7 +1267,7 @@ def webhook_signing_public_key_view(request):
 )
 @api_view(["GET"])
 @permission_classes([AllowAny])
-@throttle_classes([])
+@throttle_classes([UnauthenticatedIPRateThrottle])
 def health_check(request):
     """Health check endpoint."""
     return Response({"status": "healthy", "service": "soroscan"})
@@ -1300,6 +1293,7 @@ def health_check(request):
 )
 @api_view(["GET"])
 @permission_classes([AllowAny])
+@throttle_classes([UnauthenticatedIPRateThrottle])
 def networks_view(request):
     """Return the list of Soroban networks supported by this indexer."""
     networks = getattr(settings, "SOROBAN_NETWORKS", [])
@@ -2429,6 +2423,44 @@ def contract_identity_view(request):
         "contract_id": getattr(settings, "SOROSCAN_CONTRACT_ID", ""),
         "network_passphrase": getattr(settings, "STELLAR_NETWORK_PASSPHRASE", ""),
         "rpc_url": getattr(settings, "SOROBAN_RPC_URL", ""),
+    })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([UserRateThrottle])
+def bulk_contract_metadata_view(request):
+    """
+    POST /api/ingest/contracts/metadata/bulk/
+
+    Accepts a list of contract IDs and returns metadata for each.
+    Maximum 50 contract IDs per request.
+    """
+    from .models import ContractMetadata
+    from .serializers import BulkContractMetadataRequestSerializer, ContractMetadataSerializer
+
+    req_serializer = BulkContractMetadataRequestSerializer(data=request.data)
+    req_serializer.is_valid(raise_exception=True)
+    contract_ids = req_serializer.validated_data["contract_ids"]
+
+    metadata_qs = ContractMetadata.objects.select_related("contract").filter(
+        contract__contract_id__in=contract_ids
+    )
+    metadata_map = {m.contract.contract_id: m for m in metadata_qs}
+
+    results = []
+    missing = []
+    for cid in contract_ids:
+        if cid in metadata_map:
+            results.append(ContractMetadataSerializer(metadata_map[cid]).data)
+        else:
+            missing.append(cid)
+
+    return Response({
+        "results": results,
+        "missing": missing,
+        "total_found": len(results),
+        "total_missing": len(missing),
     })
 
 

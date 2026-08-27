@@ -92,6 +92,9 @@ DATABASES = {
     }
 }
 
+# PostgreSQL statement timeout in milliseconds (issue #1007).
+DATABASE_STATEMENT_TIMEOUT = 5000
+
 # Password validation
 AUTH_PASSWORD_VALIDATORS = []
 
@@ -139,6 +142,7 @@ REST_FRAMEWORK = {
         "user": "10000/hour",
         "ingest": "100/hour",
         "graphql": "500/hour",
+        "unauthenticated_ip": "30/minute",
     },
 }
 

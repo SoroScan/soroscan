@@ -13,6 +13,7 @@ from .views import (
     TrackedContractViewSet,
     admin_ingest_errors_view,
     audit_trail_view,
+    bulk_contract_metadata_view,
     compliance_export_view,
     contract_event_explorer_view,
     contract_event_types_view,
@@ -121,4 +122,5 @@ urlpatterns = [
     path("contract/identity/", contract_identity_view, name="contract-identity"),
     path("dead-letter-queue/", dlq_list_view, name="dlq-list"),
     path("dead-letter-queue/replay/", dlq_replay_view, name="dlq-replay"),
+    path("contracts/metadata/bulk/", bulk_contract_metadata_view, name="bulk-contract-metadata"),
 ]
