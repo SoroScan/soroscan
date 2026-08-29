@@ -87,7 +87,7 @@ export function ResponsiveTable<T = unknown>({
 
   const renderCellContent = (item: T, column: ColumnDefinition<T>) => {
     const value = getValue(item, column)
-    return column.render ? column.render(item, value) : value
+    return column.render ? column.render(item, value) : (value as React.ReactNode)
   }
 
   if (loading) {
