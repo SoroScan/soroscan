@@ -178,6 +178,20 @@ if DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql":
             ),
         }
     )
+    DATABASE_STATEMENT_TIMEOUT = env.int(
+        "DATABASE_STATEMENT_TIMEOUT", default=5000
+    )
+    current_options = DATABASES["default"]["OPTIONS"].get("options", "")
+    timeout_flag = f"-c statement_timeout={DATABASE_STATEMENT_TIMEOUT}"
+    DATABASES["default"]["OPTIONS"]["options"] = (
+        f"{current_options} {timeout_flag}".strip()
+        if current_options
+        else timeout_flag
+    )
+else:
+    DATABASE_STATEMENT_TIMEOUT = env.int(
+        "DATABASE_STATEMENT_TIMEOUT", default=5000
+    )
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -222,6 +236,8 @@ RATE_LIMIT_INGEST = env("RATE_LIMIT_INGEST", default="10/minute")
 RATE_LIMIT_GRAPHQL = env("RATE_LIMIT_GRAPHQL", default="60/minute")
 ENDPOINT_RATE_LIMIT_SEARCH = env("ENDPOINT_RATE_LIMIT_SEARCH", default="30/minute")
 ENDPOINT_RATE_LIMIT_STATS = env("ENDPOINT_RATE_LIMIT_STATS", default="100/minute")
+ENDPOINT_RATE_LIMIT_DB_EXPLAIN = env("ENDPOINT_RATE_LIMIT_DB_EXPLAIN", default="10/minute")
+RATE_LIMIT_UNAUTHENTICATED_IP = env("RATE_LIMIT_UNAUTHENTICATED_IP", default="30/minute")
 
 # REST Framework
 REST_FRAMEWORK = {
@@ -257,6 +273,11 @@ REST_FRAMEWORK = {
         "webhook_replay": "10/hour",
         "contract_bulk_import": "20/hour",
         "dedup_test": "60/hour",
+        "db_explain": ENDPOINT_RATE_LIMIT_DB_EXPLAIN,
+        "webhook_replay": "10/hour",
+        "contract_bulk_import": "20/hour",
+        "dedup_test": "60/hour",
+        "unauthenticated_ip": RATE_LIMIT_UNAUTHENTICATED_IP,
     },
 }
 
