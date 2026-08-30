@@ -2,6 +2,111 @@
 
 This guide covers secure webhook signature verification using Ed25519 cryptography, including signature verification, public key rotation, and replay attack prevention.
 
+> **Current implementation vs. this guide.** SoroScan's shipped implementation
+> (`django-backend/soroscan/webhook_signing.py`) signs only the raw request
+> body — there is **no timestamp component** and the header format is
+> `X-Signature: ed25519=<base64-signature>`, not the `t=<timestamp>,v1=<signature>`
+> format shown in the sections below. The public key is served from
+> `GET /webhooks/signing-public-key/` (see
+> [`webhook_signing_public_key_view`](../../django-backend/soroscan/ingest/views.py)),
+> not `/v1/webhook/keys`, and there is a single active signing key — no
+> multi-key rotation endpoint exists yet.
+>
+> Use the **"Current Implementation"** section immediately below for anything
+> you build against today. The timestamp-based format, nonce tracking, and
+> key-rotation API further down this document describe a **possible future
+> hardening** of the scheme (replay protection via timestamps, graceful key
+> rotation) and are not implemented — treat them as a design proposal, not a
+> reference for the live API.
+>
+> If you need replay protection today, rely on your own idempotency key on
+> the webhook payload (e.g. `event_id`) rather than a timestamp header, since
+> none is sent.
+
+## Current Implementation
+
+### Signing
+
+Every outbound webhook delivery is signed with the platform's Ed25519 private
+key over the exact raw JSON body that is sent (see
+`build_x_signature_header` in `webhook_signing.py`):
+
+```python
+def build_x_signature_header(payload_bytes: bytes) -> str:
+    signature = get_signing_private_key().sign(payload_bytes)
+    encoded = base64.b64encode(signature).decode("ascii")
+    return f"ed25519={encoded}"
+```
+
+### Header format
+
+```
+X-Signature: ed25519=<base64-encoded-64-byte-signature>
+```
+
+There is no timestamp, key ID, or version prefix beyond the `ed25519=` tag —
+verification is a single Ed25519 signature check over the raw body bytes.
+
+### Fetching the public key
+
+```bash
+curl https://<your-soroscan-host>/webhooks/signing-public-key/
+```
+
+```json
+{
+  "public_key": "<base64-encoded-32-byte-Ed25519-public-key>",
+  "header": "X-Signature",
+  "format": "ed25519=<base64-signature>"
+}
+```
+
+### Verifying (recommended: use the SDK helper)
+
+Rather than reimplementing verification, use the maintained SDK helpers,
+which implement exactly the scheme above:
+
+- Python: [`soroscan.webhook_verification`](../../sdk/python/soroscan/webhook_verification.py)
+- TypeScript: [`webhookVerification`](../../sdk/typescript/src/webhookVerification.ts)
+
+```python
+from soroscan.webhook_verification import verify_webhook_signature
+
+is_valid = verify_webhook_signature(
+    payload=raw_request_body,          # bytes, exactly as received
+    signature_header=request.headers["X-Signature"],
+    public_key_base64="<value from /webhooks/signing-public-key/>",
+)
+```
+
+If you must verify manually without the SDK, the equivalent is:
+
+```python
+import base64
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+def verify(payload: bytes, signature_header: str, public_key_b64: str) -> bool:
+    if not signature_header.startswith("ed25519="):
+        return False
+    signature = base64.b64decode(signature_header[len("ed25519="):])
+    public_key = Ed25519PublicKey.from_public_bytes(base64.b64decode(public_key_b64))
+    try:
+        public_key.verify(signature, payload)
+        return True
+    except Exception:
+        return False
+```
+
+---
+
+## Proposed Future Hardening (not implemented)
+
+The remainder of this document (timestamp-based headers, nonce tracking,
+sliding-window replay prevention, and multi-key rotation) describes a
+possible future evolution of the signing scheme discussed for hardening
+against replay and key-compromise scenarios. None of it is live today —
+do not build against the header format or endpoints described below.
+
 ## Table of Contents
 
 1. [Overview](#overview)
