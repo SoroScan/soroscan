@@ -502,10 +502,16 @@ GRAPHQL_INTROSPECTION_ENABLED = env.bool(
 # Maximum allowed GraphQL query complexity score (see soroscan.graphql_complexity).
 GRAPHQL_MAX_COMPLEXITY = env.int("GRAPHQL_MAX_COMPLEXITY", default=1000)
 
-# N+1 query detection (issue #490) — enabled by default in DEBUG, disabled in production.
+# N+1 query detection (issue #1290) — enabled by default in DEBUG, disabled in production.
 GRAPHQL_N1_DETECTION_ENABLED = env.bool(
     "GRAPHQL_N1_DETECTION_ENABLED",
     default=DEBUG,
+)
+# Number of DB queries a single resolver must exceed before a warning is emitted.
+# Lower values catch smaller N+1 patterns; raise to suppress known multi-query resolvers.
+GRAPHQL_N1_DETECTION_THRESHOLD = env.int(
+    "GRAPHQL_N1_DETECTION_THRESHOLD",
+    default=5,
 )
 
 # Contract state snapshot capture (issue #798)

@@ -13,6 +13,7 @@ from .views import (
     TrackedContractViewSet,
     admin_ingest_errors_view,
     audit_trail_view,
+    celery_status_view,
     compliance_export_view,
     contract_event_explorer_view,
     contract_event_types_view,
@@ -117,4 +118,5 @@ urlpatterns = [
     path("compliance-export/", compliance_export_view, name="compliance-export"),
     path("networks/", networks_view, name="networks"),
     path("contract/identity/", contract_identity_view, name="contract-identity"),
+    path("celery/status/", celery_status_view, name="celery-status"),
 ]

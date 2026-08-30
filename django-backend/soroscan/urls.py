@@ -21,6 +21,7 @@ from soroscan.pact_provider import provider_states
 from soroscan.ingest.views import (
     audit_trail_view,
     cache_stats_view,
+    celery_status_view,
     contract_status,
     db_explain_view,
     rate_limit_analytics_view,
@@ -60,6 +61,7 @@ urlpatterns = [
     path("api/dev/summary/", dev_summary_view, name="dev-summary"),
     path("api/admin/db/explain/", db_explain_view, name="admin-db-explain"),
     path("api/cache/stats/", cache_stats_view, name="cache-stats"),
+    path("api/celery/status/", celery_status_view, name="celery-status"),
     path(
         "api/webhooks/deliveries/batch-status/",
         webhook_batch_delivery_status_view,
