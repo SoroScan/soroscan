@@ -2730,8 +2730,23 @@ def db_explain_view(request):
     POST /api/admin/db/explain/
 
     Returns the query execution plan for a given SQL SELECT statement.
-    Secured to admin (staff) users only and rate-limited.
+    Secured to admin (staff) users only and rate-limited to 10/min
+    (configurable via ENDPOINT_RATE_LIMIT_DB_EXPLAIN) to prevent abuse
+    of expensive EXPLAIN ANALYZE queries.
     """
+    # Dedicated throttle scope check (issue #1291) — also enforce the
+    # db_explain limit even when USER rate is higher.  We manually
+    # delegate to DBExplainThrottle so function-views respect the
+    # separate bucket.
+    from soroscan.throttles import DBExplainThrottle
+
+    throttle = DBExplainThrottle()
+    if not throttle.allow_request(request, db_explain_view):  # type: ignore[arg-type]
+        return Response(
+            {"detail": f"Request was throttled. Expected available in {throttle.wait():.0f} seconds."},
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
     if not request.user or not request.user.is_staff:
         return Response(
             {"error": "Admin access required."},
@@ -2751,8 +2766,34 @@ def db_explain_view(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    # Reject multi-statement payloads such as "SELECT 1; DROP TABLE foo"
+    # Trailing semicolon is allowed, but any additional non-whitespace
+    # statement after the first semicolon is denied.
+    stripped = sql.strip()
+    # Strip one trailing semicolon for the check, then look for any remaining semicolon
+    without_trailing = stripped.rstrip(";").strip()
+    if ";" in without_trailing:
+        return Response(
+            {"error": "Multiple statements not allowed; provide a single SELECT/WITH/EXPLAIN."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    # Also handle the case where the user supplied "SELECT 1; DROP"
+    # without_trailing already catches interior ;, but if they did "SELECT 1; "
+    # the rstrip approach would hide it — so also check count vs allowed trailing
+    if stripped.count(";") > 1 or (stripped.endswith(";") and ";" in stripped[:-1]):
+        return Response(
+            {"error": "Multiple statements not allowed; provide a single SELECT/WITH/EXPLAIN."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     analyze = bool(request.data.get("analyze", False))
     prefix = "EXPLAIN ANALYZE" if analyze else "EXPLAIN"
+    logger.info(
+        "db_explain requested by %s analyze=%s query=%.120s",
+        getattr(request.user, "username", str(getattr(request.user, "id", "unknown"))),
+        analyze,
+        sql,
+    )
 
     try:
         from django.db import connection
