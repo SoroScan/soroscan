@@ -52,6 +52,13 @@ query GetContractWithEvents($id: String!) {
 }
 ```
 
+### Query Complexity Limits
+
+Queries are scored for estimated cost and rejected before execution if they
+exceed the configured limit — see the
+[GraphQL Query Complexity guide](api-reference/graphql-query-complexity.md)
+for how scoring works and how to stay under it.
+
 ---
 
 ## Status Codes
