@@ -11,6 +11,8 @@ from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
 
+from .fields import CompressedJSONField
+
 User = get_user_model()
 
 
@@ -726,7 +728,7 @@ class ContractEvent(models.Model):
         db_index=True,
         help_text="Result of schema validation",
     )
-    payload = models.JSONField(help_text="Decoded event payload")
+    payload = CompressedJSONField(help_text="Decoded event payload")
     payload_hash = models.CharField(
         max_length=64,
         db_index=True,
