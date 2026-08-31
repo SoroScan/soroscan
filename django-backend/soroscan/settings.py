@@ -118,6 +118,7 @@ MIDDLEWARE = [
     "soroscan.middleware.CacheBustingMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "soroscan.middleware.RequestIdMiddleware",
+    "soroscan.tier_rate_limit_middleware.TieredAPIKeyRateLimitMiddleware",
     "soroscan.middleware.PlatformVersionMiddleware",
     "soroscan.perf_logger.SlowQueryLoggerMiddleware",
     "soroscan.middleware.SlowQueryMiddleware",

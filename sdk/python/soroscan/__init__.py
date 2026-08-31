@@ -12,7 +12,8 @@ from soroscan.builder import (
     EventQueryBuilder,
     WebhookQueryBuilder,
 )
-from soroscan.client import AsyncSoroScanClient, SoroScanClient
+from soroscan.async_client import AsyncSoroScanClient, AsyncSoroscanClient
+from soroscan.client import SoroScanClient
 from soroscan.exceptions import (
     SoroScanAPIError,
     SoroScanAuthError,
@@ -45,6 +46,7 @@ __version__ = "0.2.0"
 __all__ = [
     "SoroScanClient",
     "AsyncSoroScanClient",
+    "AsyncSoroscanClient",
     "EventQueryBuilder",
     "AsyncEventQueryBuilder",
     "ContractQueryBuilder",
