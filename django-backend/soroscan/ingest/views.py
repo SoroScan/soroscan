@@ -3586,6 +3586,8 @@ class AnalyticsViewSet(viewsets.ViewSet):
         "Worker list is retrieved via Celery inspect ping (timeout 0.5 s). "
         "Active task counts and metric snapshots come from the Prometheus "
         "``soroscan_celery_*`` metrics already exported via ``/metrics``."
+    ),
+)
 # Dead Letter Queue — query + replay (issue #1311)
 # ---------------------------------------------------------------------------
 

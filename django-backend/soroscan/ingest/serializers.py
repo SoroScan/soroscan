@@ -338,6 +338,11 @@ class ContractEventSerializer(serializers.ModelSerializer):
     contract_id = serializers.CharField(source="contract.contract_id", read_only=True)
     contract_name = serializers.CharField(source="contract.name", read_only=True)
     transaction_id = serializers.CharField(source="tx_hash", read_only=True)
+    # ContractEvent.payload is a CompressedJSONField (models.BinaryField subclass
+    # that stores/returns Python dicts); DRF has no default mapping for it and
+    # falls back to a generic ModelField that calls BinaryField.value_to_string
+    # (base64-encodes bytes), crashing on a dict. Declare it explicitly as JSON.
+    payload = serializers.JSONField(read_only=True)
 
     class Meta:
         model = ContractEvent
@@ -622,6 +627,8 @@ class EventSearchSerializer(serializers.ModelSerializer):
     contract_name = serializers.CharField(source="contract.name", read_only=True)
     transaction_id = serializers.CharField(source="tx_hash", read_only=True)
     relevance_score = serializers.SerializerMethodField()
+    # See ContractEventSerializer.payload for why this must be explicit.
+    payload = serializers.JSONField(read_only=True)
 
     class Meta:
         model = ContractEvent
