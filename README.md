@@ -62,6 +62,18 @@ soroscan/
 
 ---
 
+## 🏗️ Architecture Decision Records (ADRs)
+
+We document major architectural choices in ADRs to keep track of context, decisions, and consequences. You can read them here:
+
+- [ADR-0001: Event Ingestion Architecture](docs/adrs/0001-event-ingestion-architecture.md)
+- [ADR-0002: GraphQL vs REST Tradeoffs](docs/adrs/0002-graphql-vs-rest.md)
+- [ADR-0003: Database Schema Rationale](docs/adrs/0003-database-schema-rationale.md)
+- [ADR-0004: Webhook Delivery System](docs/adrs/0004-webhook-delivery-system.md)
+- [ADR-0005: Multi-Tenancy Design](docs/adrs/0005-multi-tenancy-design.md)
+
+---
+
 ## Environment Configuration
 
 See [ENVIRONMENT.md](docs/ENVIRONMENT.md) for the complete list of required and optional environment variables, their types and defaults, and development, testing, and production examples.

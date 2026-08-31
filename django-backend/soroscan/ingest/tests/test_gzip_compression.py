@@ -13,25 +13,25 @@ class GZipCompressionTest(TestCase):
     def test_gzip_middleware_enabled_in_settings(self):
         from django.conf import settings
 
-        self.assertIn("django.middleware.gzip.GZipMiddleware", settings.MIDDLEWARE)
+        self.assertIn("soroscan.middleware_gzip.CustomGZipMiddleware", settings.MIDDLEWARE)
 
     def test_gzip_positioned_after_common_middleware(self):
         from django.conf import settings
 
         mw = settings.MIDDLEWARE
-        gzip_idx = mw.index("django.middleware.gzip.GZipMiddleware")
+        gzip_idx = mw.index("soroscan.middleware_gzip.CustomGZipMiddleware")
         common_idx = mw.index("django.middleware.common.CommonMiddleware")
         self.assertGreater(gzip_idx, common_idx)
 
     def test_response_compressed_when_accept_encoding_gzip(self):
         from django.http import HttpResponse
 
-        from django.middleware.gzip import GZipMiddleware
+        from soroscan.middleware_gzip import CustomGZipMiddleware
 
         content = "x" * 2048
         def get_response(request):
             return HttpResponse(content, content_type="application/json")
-        middleware = GZipMiddleware(get_response)
+        middleware = CustomGZipMiddleware(get_response)
 
         request = self.factory.get(
             "/api/test/",
@@ -49,12 +49,12 @@ class GZipCompressionTest(TestCase):
     def test_response_not_compressed_when_no_accept_encoding(self):
         from django.http import HttpResponse
 
-        from django.middleware.gzip import GZipMiddleware
+        from soroscan.middleware_gzip import CustomGZipMiddleware
 
         content = "x" * 2048
         def get_response(request):
             return HttpResponse(content, content_type="application/json")
-        middleware = GZipMiddleware(get_response)
+        middleware = CustomGZipMiddleware(get_response)
 
         request = self.factory.get("/api/test/")
         response = middleware(request)
@@ -65,12 +65,12 @@ class GZipCompressionTest(TestCase):
     def test_small_response_not_compressed(self):
         from django.http import HttpResponse
 
-        from django.middleware.gzip import GZipMiddleware
+        from soroscan.middleware_gzip import CustomGZipMiddleware
 
-        content = "small"
+        content = "x" * 1023
         def get_response(request):
             return HttpResponse(content, content_type="application/json")
-        middleware = GZipMiddleware(get_response)
+        middleware = CustomGZipMiddleware(get_response)
 
         request = self.factory.get(
             "/api/test/",
@@ -84,12 +84,12 @@ class GZipCompressionTest(TestCase):
     def test_accept_encoding_gzip_honored(self):
         from django.http import HttpResponse
 
-        from django.middleware.gzip import GZipMiddleware
+        from soroscan.middleware_gzip import CustomGZipMiddleware
 
         content = "y" * 5000
         def get_response(request):
             return HttpResponse(content, content_type="application/json")
-        middleware = GZipMiddleware(get_response)
+        middleware = CustomGZipMiddleware(get_response)
 
         request = self.factory.get(
             "/api/test/",
@@ -102,14 +102,14 @@ class GZipCompressionTest(TestCase):
     def test_already_compressed_response_not_double_compressed(self):
         from django.http import HttpResponse
 
-        from django.middleware.gzip import GZipMiddleware
+        from soroscan.middleware_gzip import CustomGZipMiddleware
 
         content = "z" * 5000
         def get_response(request):
             return HttpResponse(
                     content, content_type="application/json"
                 )
-        middleware = GZipMiddleware(get_response)
+        middleware = CustomGZipMiddleware(get_response)
 
         request = self.factory.get(
             "/api/test/",
@@ -126,7 +126,7 @@ class GZipCompressionTest(TestCase):
     def test_json_api_response_compressed(self):
         from django.http import HttpResponse
 
-        from django.middleware.gzip import GZipMiddleware
+        from soroscan.middleware_gzip import CustomGZipMiddleware
 
         import json
 
@@ -135,7 +135,7 @@ class GZipCompressionTest(TestCase):
             return HttpResponse(
                     large_payload, content_type="application/json"
                 )
-        middleware = GZipMiddleware(get_response)
+        middleware = CustomGZipMiddleware(get_response)
 
         request = self.factory.get(
             "/api/contracts/",
@@ -152,12 +152,12 @@ class GZipCompressionTest(TestCase):
     def test_compressed_response_is_smaller_than_uncompressed(self):
         from django.http import HttpResponse
 
-        from django.middleware.gzip import GZipMiddleware
+        from soroscan.middleware_gzip import CustomGZipMiddleware
 
         content = "a" * 10000
         def get_response(request):
             return HttpResponse(content, content_type="text/plain")
-        middleware = GZipMiddleware(get_response)
+        middleware = CustomGZipMiddleware(get_response)
 
         request_uncompressed = self.factory.get("/api/test/")
         response_uncompressed = middleware(request_uncompressed)
