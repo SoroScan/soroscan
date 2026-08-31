@@ -61,22 +61,50 @@ def readiness_view(request):
         "soroban_rpc": "healthy"
     }
     overall_status = "healthy"
+    
+    db_pool_active = 0
+    db_pool_max = 0
+    redis_latency_ms = 0
+    celery_workers_online = 0
 
     # 1. Database Check
     try:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1")
+        from soroscan.db_pool import calculate_pool_limits
+        _, max_conn = calculate_pool_limits()
+        db_pool_max = max(int(max_conn or 0), 1)
+
+        if connection.vendor == "postgresql":
+            from soroscan.meta_views import _collect_postgres_pool_stats
+            stats = _collect_postgres_pool_stats(connection)
+        else:
+            from soroscan.meta_views import _collect_fallback_pool_stats
+            stats = _collect_fallback_pool_stats(connection)
+        
+        db_pool_active = int(stats.get("active") or 0)
+
+        if db_pool_active >= db_pool_max:
+            components["database"] = "degraded: connection pool exhausted"
+            overall_status = "degraded"
+        else:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
     except Exception as e:
         components["database"] = f"degraded: {str(e)}"
         overall_status = "degraded"
 
-    # 2. Redis Check — direct PING via redis-py
+    # 2. Redis Check — direct PING via redis-py with Latency check
     redis_url = getattr(settings, "REDIS_URL", None)
     if redis_url:
         try:
+            start_time = time.perf_counter()
             r = redis_lib.Redis.from_url(redis_url, socket_timeout=2)
             r.ping()
             r.close()
+            redis_latency_ms = int((time.perf_counter() - start_time) * 1000)
+            
+            if redis_latency_ms > 2000:
+                components["redis"] = f"degraded: high latency ({redis_latency_ms}ms > 2000ms)"
+                overall_status = "degraded"
         except redis_lib.ConnectionError as e:
             components["redis"] = f"degraded: connection refused: {e}"
             overall_status = "degraded"
@@ -112,11 +140,24 @@ def readiness_view(request):
         components["soroban_rpc"] = f"degraded: {str(e)}"
         overall_status = "degraded"
 
+    # 4. Celery Workers Status Check
+    try:
+        inspector = app.control.inspect(timeout=1.0)
+        worker_status = inspector.ping()
+        if worker_status:
+            celery_workers_online = len(worker_status)
+    except Exception:
+        celery_workers_online = 0
+
     status_code = 200 if overall_status == "healthy" else 503
 
     return Response({
         "status": overall_status,
-        "components": components
+        "components": components,
+        "db_pool_active": db_pool_active,
+        "db_pool_max": db_pool_max,
+        "redis_latency_ms": redis_latency_ms,
+        "celery_workers_online": celery_workers_online,
     }, status=status_code)
 
 
