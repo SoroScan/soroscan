@@ -3549,6 +3549,43 @@ class AnalyticsViewSet(viewsets.ViewSet):
 
 
 # ---------------------------------------------------------------------------
+# Celery task queue status endpoint (issue #1292)
+# ---------------------------------------------------------------------------
+
+@extend_schema(
+    responses=inline_serializer(
+        name="CeleryStatusResponse",
+        fields={
+            "queues": serializers.DictField(
+                child=serializers.IntegerField(),
+                help_text="Pending message count per queue name.",
+            ),
+            "workers": serializers.DictField(
+                child=serializers.CharField(),
+                help_text="Per-worker status ('online' or 'offline').",
+            ),
+            "workers_online": serializers.IntegerField(
+                help_text="Total number of workers responding to health probes.",
+            ),
+            "active_tasks": serializers.DictField(
+                child=serializers.IntegerField(),
+                help_text="Number of currently executing tasks per task name.",
+            ),
+            "metrics": serializers.DictField(
+                help_text=(
+                    "Latest Prometheus counter/gauge snapshot. "
+                    "task_failure_rate is the fraction of failures over all terminal outcomes."
+                ),
+            ),
+        },
+    ),
+    description=(
+        "Return a snapshot of Celery queue depths, worker status, and task "
+        "execution metrics.  Intended for internal dashboards and health checks.\n\n"
+        "Queue depth data comes from Redis (same broker used by Celery). "
+        "Worker list is retrieved via Celery inspect ping (timeout 0.5 s). "
+        "Active task counts and metric snapshots come from the Prometheus "
+        "``soroscan_celery_*`` metrics already exported via ``/metrics``."
 # Dead Letter Queue — query + replay (issue #1311)
 # ---------------------------------------------------------------------------
 
@@ -3571,6 +3608,122 @@ class AnalyticsViewSet(viewsets.ViewSet):
 )
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
+@throttle_classes([UserRateThrottle])
+def celery_status_view(request):
+    """
+    GET /api/celery/status/
+
+    Returns a snapshot of Celery queue depths, worker health, and
+    task metrics.  Requires authentication.
+
+    Response schema
+    ---------------
+    ``queues``        — dict of queue_name → pending message count
+    ``workers``       — dict of worker_name → "online" | "offline"
+    ``workers_online`` — count of online workers
+    ``active_tasks``  — dict of task_name → currently executing count
+    ``metrics``       — task outcome counters and failure rate
+    """
+    from urllib.parse import urlparse
+
+    import logging as _logging
+
+    _log = _logging.getLogger("soroscan.celery_status")
+
+    # ------------------------------------------------------------------
+    # 1. Queue depths via Redis
+    # ------------------------------------------------------------------
+    queues: dict[str, int] = {}
+    monitored_queues = ("high_priority", "default", "low_priority", "backfill")
+    try:
+        from redis import Redis as _Redis
+
+        parsed = urlparse(settings.CELERY_BROKER_URL)
+        redis = _Redis.from_url(parsed.geturl(), socket_timeout=2)
+        for q in monitored_queues:
+            queues[q] = int(redis.llen(q))
+    except Exception:
+        _log.exception("celery_status_view: could not read queue depths")
+        for q in monitored_queues:
+            queues.setdefault(q, -1)
+
+    # ------------------------------------------------------------------
+    # 2. Worker status via Celery inspect
+    # ------------------------------------------------------------------
+    workers: dict[str, str] = {}
+    workers_online = 0
+    try:
+        from soroscan.celery import app as _celery_app
+
+        responses = _celery_app.control.inspect(timeout=0.5).ping() or {}
+        for worker_name in responses:
+            workers[worker_name] = "online"
+            workers_online += 1
+    except Exception:
+        _log.exception("celery_status_view: could not ping workers")
+
+    if not workers:
+        workers["none"] = "offline"
+
+    # ------------------------------------------------------------------
+    # 3. Active task counts from Prometheus Gauge
+    # ------------------------------------------------------------------
+    active_tasks: dict[str, int] = {}
+    try:
+        from prometheus_client import REGISTRY as _REGISTRY
+
+        for metric in _REGISTRY.collect():
+            if metric.name == "soroscan_celery_tasks_active":
+                for sample in metric.samples:
+                    task_name = sample.labels.get("task_name", "unknown")
+                    active_tasks[task_name] = int(sample.value)
+    except Exception:
+        _log.exception("celery_status_view: could not read active task metrics")
+
+    # ------------------------------------------------------------------
+    # 4. Outcome counters and failure rate
+    # ------------------------------------------------------------------
+    metrics: dict[str, object] = {
+        "tasks_total": {},
+        "task_failure_rate": None,
+    }
+    try:
+        from prometheus_client import REGISTRY as _REGISTRY
+
+        total_all = 0.0
+        total_failure = 0.0
+        tasks_total: dict[str, int] = {}
+
+        for metric in _REGISTRY.collect():
+            if metric.name == "soroscan_celery_tasks_total":
+                for sample in metric.samples:
+                    if sample.name.endswith("_total"):
+                        task_name = sample.labels.get("task_name", "unknown")
+                        s = sample.labels.get("status", "")
+                        key = f"{task_name}.{s}" if s else task_name
+                        tasks_total[key] = int(sample.value)
+                        total_all += sample.value
+                        if s == "failure":
+                            total_failure += sample.value
+
+        metrics["tasks_total"] = tasks_total
+        if total_all > 0:
+            metrics["task_failure_rate"] = round(total_failure / total_all, 4)
+        else:
+            metrics["task_failure_rate"] = 0.0
+    except Exception:
+        _log.exception("celery_status_view: could not collect task metrics")
+
+    return Response(
+        {
+            "queues": queues,
+            "workers": workers,
+            "workers_online": workers_online,
+            "active_tasks": active_tasks,
+            "metrics": metrics,
+        },
+        status=status.HTTP_200_OK,
+    )
 def dlq_list_view(request):
     """List dead-letter queue entries (admin only)."""
     if not request.user.is_staff:
