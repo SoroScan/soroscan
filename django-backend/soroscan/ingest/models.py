@@ -19,7 +19,19 @@ User = get_user_model()
 class Organization(models.Model):
     """Top-level tenant boundary for contracts, teams, and members."""
 
+
+    class Tier(models.TextChoices):
+        FREE = "free", "Free"
+        PRO = "pro", "Pro"
+        ENTERPRISE = "enterprise", "Enterprise"
+
     name = models.CharField(max_length=128)
+    tier = models.CharField(
+        max_length=16,
+        choices=Tier.choices,
+        default=Tier.FREE,
+        db_index=True,
+    )
     slug = models.SlugField(max_length=160, unique=True, db_index=True)
     owner = models.ForeignKey(
         User,
