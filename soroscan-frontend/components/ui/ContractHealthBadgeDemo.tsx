@@ -13,7 +13,7 @@
 "use client";
 
 import * as React from "react";
-import { ContractHealthBadge, HEALTH_STATUS_CONFIG, HealthBadgePresets } from "./ContractHealthBadge";
+import { ContractHealthBadge, HEALTH_STATUS_CONFIG, HealthBadgePresets, type ContractHealthStatus } from "./ContractHealthBadge";
 import { COMMON_DEGRADATION_SCENARIOS } from "@/lib/tooltip-content-guidelines";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card";
 

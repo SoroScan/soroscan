@@ -230,8 +230,64 @@ export const DEGRADATION_CONTENT_TEMPLATES = {
       ],
       severe: [
         "Emergency resource scaling",
-        "Implement circuit breakers", 
+        "Implement circuit breakers",
         "Contact infrastructure team"
+      ]
+    }
+  },
+  configuration: {
+    title: "Configuration Issue",
+    descriptions: {
+      minor: "Minor configuration drift detected. Contract operations mostly unaffected.",
+      moderate: "Configuration mismatch affecting some contract behavior.",
+      severe: "Critical configuration error. Contract functionality significantly impaired."
+    },
+    causes: [
+      "Invalid or outdated configuration values",
+      "Missing required environment settings",
+      "Configuration drift between environments",
+      "Recent deployment with incomplete rollout"
+    ],
+    actions: {
+      minor: [
+        "Review recent configuration changes",
+        "Validate configuration against schema"
+      ],
+      moderate: [
+        "Compare configuration against known-good baseline",
+        "Roll back recent configuration changes"
+      ],
+      severe: [
+        "Revert to last known-good configuration",
+        "Escalate to platform team"
+      ]
+    }
+  },
+  network_issues: {
+    title: "Network Issues Detected",
+    descriptions: {
+      minor: "Intermittent network latency observed. Most requests unaffected.",
+      moderate: "Elevated network errors affecting contract connectivity.",
+      severe: "Severe network disruption. Contract connectivity largely unavailable."
+    },
+    causes: [
+      "Upstream network provider issues",
+      "DNS resolution failures",
+      "Firewall or routing misconfiguration",
+      "Regional network outage"
+    ],
+    actions: {
+      minor: [
+        "Monitor network latency trends",
+        "Check upstream provider status"
+      ],
+      moderate: [
+        "Verify DNS and routing configuration",
+        "Failover to backup network path"
+      ],
+      severe: [
+        "Activate incident response",
+        "Contact network provider support"
       ]
     }
   }
