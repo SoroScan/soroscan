@@ -119,12 +119,14 @@ MIDDLEWARE = [
     "django.contrib.sessions.middleware.SessionMiddleware",
     "soroscan.middleware.TraceContextMiddleware",
     "soroscan.middleware.RequestIdMiddleware",
+    "soroscan.tier_rate_limit_middleware.TieredAPIKeyRateLimitMiddleware",
     "soroscan.middleware.PlatformVersionMiddleware",
     "soroscan.perf_logger.SlowQueryLoggerMiddleware",
     "soroscan.middleware.SlowQueryMiddleware",
     "soroscan.middleware.ApiDeprecationMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "django.middleware.gzip.GZipMiddleware",
+    "soroscan.middleware_zstd.ZstdMiddleware",
+    "soroscan.middleware_gzip.CustomGZipMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -266,10 +268,10 @@ REST_FRAMEWORK = {
         "graphql": RATE_LIMIT_GRAPHQL,
         "events_search": ENDPOINT_RATE_LIMIT_SEARCH,
         "contract_stats": ENDPOINT_RATE_LIMIT_STATS,
-        "db_explain": ENDPOINT_RATE_LIMIT_DB_EXPLAIN,
         "webhook_replay": "10/hour",
         "contract_bulk_import": "20/hour",
         "dedup_test": "60/hour",
+        "db_explain": ENDPOINT_RATE_LIMIT_DB_EXPLAIN,
         "unauthenticated_ip": RATE_LIMIT_UNAUTHENTICATED_IP,
     },
 }
@@ -466,7 +468,20 @@ SOROBAN_NETWORKS = [
 
 GRAPHQL_INTROSPECTION_ENABLED = env.bool("GRAPHQL_INTROSPECTION_ENABLED", default=DEBUG)
 GRAPHQL_MAX_COMPLEXITY = env.int("GRAPHQL_MAX_COMPLEXITY", default=1000)
-GRAPHQL_N1_DETECTION_ENABLED = env.bool("GRAPHQL_N1_DETECTION_ENABLED", default=DEBUG)
+
+# N+1 query detection (issue #1290) — enabled by default in DEBUG, disabled in production.
+GRAPHQL_N1_DETECTION_ENABLED = env.bool(
+    "GRAPHQL_N1_DETECTION_ENABLED",
+    default=DEBUG,
+)
+# Number of DB queries a single resolver must exceed before a warning is emitted.
+# Lower values catch smaller N+1 patterns; raise to suppress known multi-query resolvers.
+GRAPHQL_N1_DETECTION_THRESHOLD = env.int(
+    "GRAPHQL_N1_DETECTION_THRESHOLD",
+    default=5,
+)
+
+# Contract state snapshot capture (issue #798)
 CONTRACT_SNAPSHOT_INTERVAL = env.int("CONTRACT_SNAPSHOT_INTERVAL", default=1000)
 CONTRACT_SNAPSHOT_MAX_BYTES = env.int("CONTRACT_SNAPSHOT_MAX_BYTES", default=1_048_576)
 

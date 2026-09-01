@@ -43,6 +43,7 @@ from ..graphql_extensions import (
     IsAuthenticated,
     IsStaff,
     permission_classes,
+    field_permission_classes,
 )
 from ..graphql_n1_detector import N1QueryDetectorExtension
 
@@ -91,13 +92,22 @@ class ContractType:
         except ContractVerification.DoesNotExist:
             return None
 
+    # Field-level authorization: `team_id` / `organization_id` are internal
+    # billing/org identifiers (see TrackedContract.metadata help text -- "team,
+    # owner, cost center, etc."), not something an anonymous or ordinary
+    # caller needs to see even though they can query the surrounding
+    # `ContractType`. Gated with `IsStaff`; see
+    # `soroscan.graphql_extensions.field_permission_classes` for the
+    # "field visible, value protected" behavior this implements.
     @strawberry.field
-    def team_id(self) -> Optional[int]:
+    @field_permission_classes([IsStaff])
+    def team_id(self, info: Info) -> Optional[int]:
         tid = getattr(self, "team_id", None)
         return int(tid) if tid is not None else None
 
     @strawberry.field
-    def organization_id(self) -> Optional[int]:
+    @field_permission_classes([IsStaff])
+    def organization_id(self, info: Info) -> Optional[int]:
         oid = getattr(self, "organization_id", None)
         return int(oid) if oid is not None else None
 
@@ -127,7 +137,7 @@ class ContractType:
                 tags=m.tags,
                 documentation_url=m.documentation_url,
                 github_repo=m.github_repo,
-                team_email=m.team_email,
+                team_email_value=m.team_email,
             )
         except ContractMetadata.DoesNotExist:
             return None
@@ -141,12 +151,26 @@ class WarningType:
 
 @strawberry.type
 class ContractMetadataType:
+    """Metadata for a tracked contract.
+
+    ``team_email`` (a real ``EmailField`` on the ``ContractMetadata`` model)
+    is PII and is field-level protected: it stays visible in the schema, but
+    only resolves for authenticated callers. See
+    ``soroscan.graphql_extensions.field_permission_classes`` for the
+    "field visible, value protected" contract this implements.
+    """
+
     name: str
     description: str
     tags: strawberry.scalars.JSON
     documentation_url: str
     github_repo: str
-    team_email: str
+    team_email_value: strawberry.Private[str]
+
+    @strawberry.field
+    @field_permission_classes([IsAuthenticated])
+    def team_email(self, info: Info) -> Optional[str]:
+        return self.team_email_value
 
 
 @strawberry.type
@@ -497,7 +521,7 @@ class Query:
                 tags=m.tags,
                 documentation_url=m.documentation_url,
                 github_repo=m.github_repo,
-                team_email=m.team_email,
+                team_email_value=m.team_email,
             )
         except ContractMetadata.DoesNotExist:
             return None
@@ -1043,7 +1067,7 @@ class Mutation:
             tags=instance.tags,
             documentation_url=instance.documentation_url,
             github_repo=instance.github_repo,
-            team_email=instance.team_email,
+            team_email_value=instance.team_email,
         )
 
     @strawberry.mutation
