@@ -52,6 +52,13 @@ query GetContractWithEvents($id: String!) {
 }
 ```
 
+### Query Complexity Limits
+
+Queries are scored for estimated cost and rejected before execution if they
+exceed the configured limit — see the
+[GraphQL Query Complexity guide](api-reference/graphql-query-complexity.md)
+for how scoring works and how to stay under it.
+
 ### Evolving the Schema
 
 Adding fields, deprecating fields, renaming types, and versioning strategy for the GraphQL schema are covered in the [GraphQL Schema Migration Guide](api-reference/graphql-schema-migration.md).
