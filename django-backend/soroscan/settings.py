@@ -275,11 +275,6 @@ REST_FRAMEWORK = {
         "webhook_replay": "10/hour",
         "contract_bulk_import": "20/hour",
         "dedup_test": "60/hour",
-        "db_explain": ENDPOINT_RATE_LIMIT_DB_EXPLAIN,
-        "webhook_replay": "10/hour",
-        "contract_bulk_import": "20/hour",
-        "dedup_test": "60/hour",
-        "unauthenticated_ip": RATE_LIMIT_UNAUTHENTICATED_IP,
     },
 }
 
