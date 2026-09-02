@@ -309,6 +309,8 @@ do {
 
 ### Paginator helper
 
+The `Paginator` class wraps any list method and exposes `hasNextPage()`, `nextPage()`,
+`previousPage()`, and `goToPage(n)` with automatic cursor/offset handling:
 Use the stateful `Paginator` class to auto-manage cursors:
 
 ```ts
@@ -322,6 +324,12 @@ const paginator = new Paginator(
 
 const page1 = await paginator.nextPage();
 if (paginator.hasNextPage()) {
+  await paginator.nextPage();
+}
+await paginator.goToPage(3);
+await paginator.previousPage();
+```
+
   const page2 = await paginator.nextPage();
 }
 const page5 = await paginator.goToPage(5);
