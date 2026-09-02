@@ -16,6 +16,7 @@ import {
   DegradationContext,
   DegradationType,
   DegradationSeverity,
+  DEGRADATION_CONTENT_TEMPLATES,
   generateDegradedTooltipContent,
   generateAccessibleTooltipContent,
   formatTooltipForContext,

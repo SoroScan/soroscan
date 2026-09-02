@@ -31,11 +31,11 @@ import {
   type AnimationType,
   type AnimationContext 
 } from "@/lib/status-animations";
-import { 
+import {
   useDegradedStatusTooltip,
-  TooltipUtils,
-  type DegradationContext
+  TooltipUtils
 } from "@/hooks/useDegradedStatusTooltip";
+import { type DegradationContext } from "@/lib/tooltip-content-guidelines";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 export type ContractHealthStatus = "healthy" | "degraded" | "paused" | "error";

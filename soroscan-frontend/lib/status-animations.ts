@@ -10,7 +10,9 @@
  * - Accessibility-aware animation management
  */
 
-export type AnimationType = 
+import * as React from "react";
+
+export type AnimationType =
   | "healthy" 
   | "degraded" 
   | "processing" 
@@ -134,7 +136,7 @@ export function getAnimationStyles(
   return {
     "--animation-duration": `${duration}ms`,
     animationDuration: `${duration}ms`,
-  };
+  } as React.CSSProperties;
 }
 
 /**
@@ -238,7 +240,7 @@ export function useStatusAnimation(
       return "";
     }
     
-    const contextConfig = context ? ANIMATION_CONTEXTS[context] : { intensity: "normal" };
+    const contextConfig = context ? ANIMATION_CONTEXTS[context] : { intensity: "normal" as const };
     const effectiveIntensity = contextConfig.intensity || intensity;
     
     return getAnimationClasses(type, effectiveIntensity, context);
@@ -249,7 +251,7 @@ export function useStatusAnimation(
       return {};
     }
     
-    const contextConfig = context ? ANIMATION_CONTEXTS[context] : { intensity: "normal" };
+    const contextConfig = context ? ANIMATION_CONTEXTS[context] : { intensity: "normal" as const };
     const effectiveIntensity = contextConfig.intensity || intensity;
     
     return getAnimationStyles(type, effectiveIntensity);
