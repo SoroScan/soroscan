@@ -1,5 +1,5 @@
 /**
- * Tests for Paginator helper — issue #483
+ * Tests for Paginator helper — issue #483 / #1283
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Paginator } from "../src/client.js";

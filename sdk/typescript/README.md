@@ -307,6 +307,36 @@ do {
 } while (after);
 ```
 
+### Paginator helper
+
+The `Paginator` class wraps any list method and exposes `hasNextPage()`, `nextPage()`,
+`previousPage()`, and `goToPage(n)` with automatic cursor/offset handling:
+Use the stateful `Paginator` class to auto-manage cursors:
+
+```ts
+import { Paginator, SoroScanClient } from "@soroscan/sdk";
+
+const client = new SoroScanClient({ baseUrl: "https://api.soroscan.io" });
+const paginator = new Paginator(
+  (params) => client.getEvents(params),
+  { contractId: "CCAAA...", first: 20 }
+);
+
+const page1 = await paginator.nextPage();
+if (paginator.hasNextPage()) {
+  await paginator.nextPage();
+}
+await paginator.goToPage(3);
+await paginator.previousPage();
+```
+
+  const page2 = await paginator.nextPage();
+}
+const page5 = await paginator.goToPage(5);
+```
+
+See also [`docs/react-hooks.md`](./docs/react-hooks.md) for Apollo-integrated React hooks.
+
 ---
 
 ## TypeScript Usage
