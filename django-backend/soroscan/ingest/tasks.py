@@ -44,6 +44,7 @@ from .cache_utils import (
     _SENTINEL,
 )
 from .telemetry import inject_trace_headers, payload_compression_ratio, tracer
+from .reorg import check_and_handle_reorg, is_event_deliverable
 from .models import (
     BlacklistedContract,
     ContractABI,
@@ -841,6 +842,14 @@ def dispatch_webhook(self, subscription_id: int, event_id: int, replay: bool = F
                 "ContractEvent %s not found — skipping dispatch for subscription %s",
                 event_id,
                 subscription_id,
+                extra={"event_id": event_id, "webhook_id": subscription_id},
+            )
+            return False
+
+        if not is_event_deliverable(event):
+            logger.info(
+                "Skipping webhook dispatch for orphaned event %s",
+                event_id,
                 extra={"event_id": event_id, "webhook_id": subscription_id},
             )
             return False
@@ -1878,6 +1887,15 @@ def process_new_event(event_data: dict[str, Any]) -> None:
         )
         return
 
+    if not is_event_deliverable(event_obj):
+        logger.info(
+            "Skipping webhook dispatch for orphaned event ledger=%s index=%s",
+            event_obj.ledger,
+            event_obj.event_index,
+            extra={"contract_id": contract_id},
+        )
+        return
+
     dispatched = 0
     for webhook in webhooks:
         if webhook.filter_condition:
@@ -2209,6 +2227,20 @@ def ingest_latest_events() -> int:
     new_events = 0
 
     try:
+        try:
+            reorg_result = check_and_handle_reorg(server)
+            if reorg_result:
+                logger.warning(
+                    "Handled ledger re-org rollback: %s",
+                    reorg_result,
+                    extra={"ledger_sequence": reorg_result.get("from_ledger")},
+                )
+        except Exception:
+            logger.exception(
+                "Ledger re-org check failed — continuing with event ingestion",
+                extra={},
+            )
+
         blacklisted_ids = set(
             BlacklistedContract.objects.values_list("contract_id", flat=True)
         )
