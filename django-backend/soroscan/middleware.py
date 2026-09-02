@@ -5,6 +5,7 @@ import json
 import logging
 import time
 import uuid
+import secrets
 
 from django.conf import settings
 from django.db import connection
@@ -15,6 +16,35 @@ from .log_context import set_request_id
 
 logger = logging.getLogger(__name__)
 slow_query_logger = logging.getLogger("soroscan.slow_queries")
+
+
+class TraceContextMiddleware:
+    """
+    Extract incoming W3C traceparent headers or generate a new trace ID to propagate 
+    distributed tracing context across HTTP handlers.
+    """
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        traceparent = request.META.get("HTTP_TRACEPARENT")
+        
+        if not traceparent:
+            # Generate new W3C traceparent: 00-{trace-id}-{span-id}-{trace-flags}
+            trace_id = secrets.token_hex(16)
+            span_id = secrets.token_hex(8)
+            traceparent = f"00-{trace_id}-{span_id}-01"
+            
+        request.traceparent = traceparent
+        
+        # Save trace context into our thread-local storage for tasks/loggers
+        from .log_context import log_context_var
+        ctx = log_context_var.get()
+        ctx["traceparent"] = traceparent
+        
+        response = self.get_response(request)
+        response["traceparent"] = traceparent
+        return response
 
 
 class RequestIdMiddleware:
@@ -122,9 +152,6 @@ class SlowQueryMiddleware:
             response = self.get_response(request)
 
         # Forward RateLimit-* headers set by throttle classes.
-        # _throttle_headers is the unified dict written by RateLimitHeaderMixin
-        # and APIKeyThrottle.  _api_key_throttle_headers is the legacy attribute
-        # kept for backwards-compatibility; it wins on conflict.
         throttle_headers: dict = {}
         generic = getattr(request, "_throttle_headers", None)
         if generic:
@@ -143,7 +170,6 @@ class RequestBodySizeMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        # We check this at the very beginning of the __call__
         if request.method == "POST":
             max_size = getattr(settings, "MAX_REQUEST_BODY_SIZE", 10485760)
             try:
@@ -224,10 +250,6 @@ class ClientIPLoggingMiddleware:
     """
     Log the client IP address, HTTP method, and request path for every
     incoming API request.
-
-    The client IP is read from REMOTE_ADDR, which is expected to already
-    be set correctly by ReverseProxyFixedIPMiddleware when running behind
-    a proxy. Static-asset paths are excluded to avoid log noise.
     """
 
     def __init__(self, get_response):
@@ -311,12 +333,7 @@ REQUEST_LATENCY_SECONDS = Histogram(
 
 
 class RequestLatencyMiddleware:
-    """Record per-endpoint request latency for percentile analysis.
-
-    The endpoint label uses the resolved URL pattern (``resolver_match.route``)
-    once available, falling back to the raw path, so dashboards can compute
-    ``histogram_quantile`` over ``soroscan_request_latency_seconds_bucket``.
-    """
+    """Record per-endpoint request latency for percentile analysis."""
 
     def __init__(self, get_response):
         self.get_response = get_response
