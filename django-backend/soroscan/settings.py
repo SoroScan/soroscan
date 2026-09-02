@@ -117,6 +117,7 @@ MIDDLEWARE = [
     "soroscan.middleware.ClientIPLoggingMiddleware",
     "soroscan.middleware.CacheBustingMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "soroscan.middleware.TraceContextMiddleware",
     "soroscan.middleware.RequestIdMiddleware",
     "soroscan.tier_rate_limit_middleware.TieredAPIKeyRateLimitMiddleware",
     "soroscan.middleware.PlatformVersionMiddleware",
@@ -227,11 +228,6 @@ CACHES = {
 QUERY_CACHE_TTL_SECONDS = env.int("QUERY_CACHE_TTL_SECONDS", default=60)
 
 # Rate limiting configuration (via environment variables)
-# To add a new endpoint rate limit:
-# 1. Define a new environment variable here (e.g. ENDPOINT_RATE_LIMIT_MYFEATURE).
-# 2. Add it to the DEFAULT_THROTTLE_RATES dictionary below with a custom scope name.
-# 3. Apply the `DynamicEndpointThrottle` to your ViewSet and map the action in `action_throttle_scopes`,
-#    or set `throttle_scope = "my_scope"` on an APIView.
 RATE_LIMIT_ANON = env("RATE_LIMIT_ANON", default="60/minute")
 RATE_LIMIT_USER = env("RATE_LIMIT_USER", default="300/minute")
 RATE_LIMIT_INGEST = env("RATE_LIMIT_INGEST", default="10/minute")
@@ -276,9 +272,6 @@ REST_FRAMEWORK = {
         "contract_bulk_import": "20/hour",
         "dedup_test": "60/hour",
         "db_explain": ENDPOINT_RATE_LIMIT_DB_EXPLAIN,
-        "webhook_replay": "10/hour",
-        "contract_bulk_import": "20/hour",
-        "dedup_test": "60/hour",
         "unauthenticated_ip": RATE_LIMIT_UNAUTHENTICATED_IP,
     },
 }
@@ -293,14 +286,10 @@ SPECTACULAR_SETTINGS = {
         "and monitoring ingest health."
     ),
     "VERSION": SOFTWARE_VERSION,
-    # Exclude the schema endpoint itself from the generated schema
     "SERVE_INCLUDE_SCHEMA": False,
-    # Split request/response components for cleaner schema output
     "COMPONENT_SPLIT_REQUEST": True,
-    # Contact and license info
     "CONTACT": {"name": "SoroScan", "url": "https://github.com/SoroScan/soroscan"},
     "LICENSE": {"name": "MIT"},
-    # Tags for logical grouping in Swagger UI
     "TAGS": [
         {"name": "contracts", "description": "Tracked contract management"},
         {"name": "events", "description": "Indexed contract event queries"},
@@ -353,10 +342,8 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
-# Graceful shutdown: wait up to 30s for active tasks after SIGTERM
 CELERY_WORKER_SOFT_SHUTDOWN_TIMEOUT = 30
 SHUTDOWN_TIMEOUT_SECONDS = env.int("SHUTDOWN_TIMEOUT_SECONDS", default=30)
-# Task timeout limits — hard limit kills the task, soft limit raises SoftTimeLimitExceeded
 CELERY_TASK_TIME_LIMIT = env.int("CELERY_TASK_TIME_LIMIT", default=600)
 CELERY_TASK_SOFT_TIME_LIMIT = env.int("CELERY_TASK_SOFT_TIME_LIMIT", default=540)
 CELERY_TASK_ROUTES = {
@@ -371,115 +358,84 @@ CELERY_TASK_ROUTES = {
 CELERY_BEAT_SCHEDULE = {
     "cleanup-webhook-delivery-logs": {
         "task": "soroscan.ingest.tasks.cleanup_webhook_delivery_logs",
-        "schedule": 86400,  # daily
+        "schedule": 86400,
     },
     "cleanup-old-dedup-logs": {
         "task": "soroscan.ingest.tasks.cleanup_old_dedup_logs",
-        "schedule": 86400,  # daily
+        "schedule": 86400,
     },
     "cleanup-silk-data": {
         "task": "soroscan.ingest.tasks.cleanup_silk_data",
-        "schedule": 604800,  # weekly
+        "schedule": 604800,
     },
     "archive-old-events": {
         "task": "soroscan.ingest.tasks.archive_old_events",
-        "schedule": 86400,  # daily
+        "schedule": 86400,
     },
     "evaluate-remediation-rules": {
         "task": "soroscan.ingest.tasks.evaluate_remediation_rules",
-        "schedule": 300,  # every 5 minutes
+        "schedule": 300,
     },
     "aggregate-event-statistics": {
         "task": "ingest.tasks.aggregate_event_statistics",
-        "schedule": 3600,  # hourly
+        "schedule": 3600,
     },
     "aggregate-organization-costs": {
         "task": "ingest.tasks.aggregate_organization_costs",
-        "schedule": 3600,  # hourly
+        "schedule": 3600,
     },
     "reconcile-event-completeness": {
         "task": "ingest.tasks.reconcile_event_completeness",
-        "schedule": 300,  # every 5 minutes
+        "schedule": 300,
     },
     "recompute-call-graph": {
         "task": "ingest.tasks.recompute_call_graph",
-        "schedule": 3600,  # hourly
+        "schedule": 3600,
     },
     "warm-event-count-cache": {
         "task": "ingest.tasks.warm_event_count_cache",
-        "schedule": 300,  # every 5 minutes
+        "schedule": 300,
     },
     "snapshot-contract-state": {
         "task": "ingest.tasks.snapshot_contract_state",
-        "schedule": 600,  # every 10 minutes
+        "schedule": 600,
     },
     "auto-resume-paused-contracts": {
         "task": "ingest.tasks.auto_resume_paused_contracts",
-        "schedule": 300,  # every 5 minutes
+        "schedule": 300,
     },
-    # Issue #778 — warm contract name lookup cache daily
     "warm-contract-name-cache": {
         "task": "soroscan.ingest.tasks.warm_contract_name_cache",
-        "schedule": 86400,  # daily
+        "schedule": 86400,
     },
 }
 
-# Analytics — anomaly detection threshold
-# Volume drop percentage that triggers an anomaly flag on an aggregation bucket.
-# e.g. 50 means: flag the bucket if current count < 50 % of the 7-day rolling avg.
 ANALYTICS_ANOMALY_DROP_PCT = env.int("ANALYTICS_ANOMALY_DROP_PCT", default=50)
-# Minimum events in the rolling average before anomaly detection kicks in.
-# Prevents false positives on very low-traffic contracts.
 ANALYTICS_ANOMALY_MIN_BASELINE = env.int("ANALYTICS_ANOMALY_MIN_BASELINE", default=10)
 
-# Contract health check thresholds (configurable via environment)
-# Minutes without a new event before a contract is considered degraded
 HEALTH_DEGRADED_MINUTES = env.int("HEALTH_DEGRADED_MINUTES", default=30)
-# Minutes without a new event before a contract is considered failed
 HEALTH_FAILED_MINUTES = env.int("HEALTH_FAILED_MINUTES", default=120)
-# ABI decode error count in the last hour that triggers degraded status
 HEALTH_ABI_ERROR_THRESHOLD = env.int("HEALTH_ABI_ERROR_THRESHOLD", default=5)
 
-# Data Retention Configuration
-# Number of days to retain deduplication logs before cleanup
 DEDUP_LOG_RETENTION_DAYS = env("DEDUP_LOG_RETENTION_DAYS", default=90, cast=int)
-# Number of days to retain contract events before pruning
 EVENT_RETENTION_DAYS = env("EVENT_RETENTION_DAYS", default=30, cast=int)
-# Issue #765 — number of days to retain webhook delivery logs
 WEBHOOK_DELIVERY_RETENTION_DAYS = env.int("WEBHOOK_DELIVERY_RETENTION_DAYS", default=30)
 
-# Alert deduplication window
 ALERT_DEDUP_WINDOW_SECONDS = env.int("ALERT_DEDUP_WINDOW_SECONDS", default=300)
 
-# Webhook delivery + escalation configuration
-WEBHOOK_ESCALATION_TIMEOUT_SECONDS = env.int(
-    "WEBHOOK_ESCALATION_TIMEOUT_SECONDS", default=10
-)
-WEBHOOK_ESCALATION_DEDUP_SECONDS = env.int(
-    "WEBHOOK_ESCALATION_DEDUP_SECONDS", default=300
-)
-WEBHOOK_ESCALATION_SLACK_TARGET = env(
-    "WEBHOOK_ESCALATION_SLACK_TARGET", default=""
-)
-WEBHOOK_ESCALATION_SMS_TARGET = env(
-    "WEBHOOK_ESCALATION_SMS_TARGET", default=""
-)
-WEBHOOK_ESCALATION_PAGERDUTY_TARGET = env(
-    "WEBHOOK_ESCALATION_PAGERDUTY_TARGET", default=""
-)
+WEBHOOK_ESCALATION_TIMEOUT_SECONDS = env.int("WEBHOOK_ESCALATION_TIMEOUT_SECONDS", default=10)
+WEBHOOK_ESCALATION_DEDUP_SECONDS = env.int("WEBHOOK_ESCALATION_DEDUP_SECONDS", default=300)
+WEBHOOK_ESCALATION_SLACK_TARGET = env("WEBHOOK_ESCALATION_SLACK_TARGET", default="")
+WEBHOOK_ESCALATION_SMS_TARGET = env("WEBHOOK_ESCALATION_SMS_TARGET", default="")
+WEBHOOK_ESCALATION_PAGERDUTY_TARGET = env("WEBHOOK_ESCALATION_PAGERDUTY_TARGET", default="")
 
-# Webhook deduplication window
 WEBHOOK_DEDUP_WINDOW_SECONDS = env.int("WEBHOOK_DEDUP_WINDOW_SECONDS", default=300)
-
-# Dependency change alert deduplication
 DOWNSTREAM_ALERT_DEDUP_SECONDS = env.int("DOWNSTREAM_ALERT_DEDUP_SECONDS", default=3600)
 
-# Cost model defaults (USD)
 COST_RPC_PER_CALL_USD = env("COST_RPC_PER_CALL_USD", default="0.00001")
 COST_STORAGE_PER_GB_USD = env("COST_STORAGE_PER_GB_USD", default="0.10")
 COST_COMPUTE_PER_UNIT_USD = env("COST_COMPUTE_PER_UNIT_USD", default="0.00002")
 
-# Stellar / Soroban Configuration
 SOROBAN_RPC_URL = env("SOROBAN_RPC_URL", default="https://soroban-testnet.stellar.org")
 STELLAR_NETWORK_PASSPHRASE = env(
     "STELLAR_NETWORK_PASSPHRASE",
@@ -489,8 +445,6 @@ SOROSCAN_CONTRACT_ID = env("SOROSCAN_CONTRACT_ID", default="")
 INDEXER_SECRET_KEY = env("INDEXER_SECRET_KEY", default="")
 ADMIN_SECRET_KEY = env("ADMIN_SECRET_KEY", default=INDEXER_SECRET_KEY)
 
-# Available Soroban networks exposed via GET /api/ingest/networks/.
-# Override individual RPC URLs via the corresponding env vars if needed.
 SOROBAN_NETWORKS = [
     {
         "id": "testnet",
@@ -512,17 +466,7 @@ SOROBAN_NETWORKS = [
     },
 ]
 
-# ---------------------------------------------------------------------------
-# GraphQL Introspection (security: disable in production)
-# ---------------------------------------------------------------------------
-# Set GRAPHQL_INTROSPECTION_ENABLED=True to allow introspection queries.
-# Defaults to True in DEBUG mode, False otherwise.
-GRAPHQL_INTROSPECTION_ENABLED = env.bool(
-    "GRAPHQL_INTROSPECTION_ENABLED",
-    default=DEBUG,
-)
-
-# Maximum allowed GraphQL query complexity score (see soroscan.graphql_complexity).
+GRAPHQL_INTROSPECTION_ENABLED = env.bool("GRAPHQL_INTROSPECTION_ENABLED", default=DEBUG)
 GRAPHQL_MAX_COMPLEXITY = env.int("GRAPHQL_MAX_COMPLEXITY", default=1000)
 
 # N+1 query detection (issue #1290) — enabled by default in DEBUG, disabled in production.
@@ -541,13 +485,9 @@ GRAPHQL_N1_DETECTION_THRESHOLD = env.int(
 CONTRACT_SNAPSHOT_INTERVAL = env.int("CONTRACT_SNAPSHOT_INTERVAL", default=1000)
 CONTRACT_SNAPSHOT_MAX_BYTES = env.int("CONTRACT_SNAPSHOT_MAX_BYTES", default=1_048_576)
 
-# Ed25519 seed (32 bytes hex) for webhook X-Signature headers.
 WEBHOOK_ED25519_SIGNING_SEED = env("WEBHOOK_ED25519_SIGNING_SEED", default="")
 
-# Prometheus
-# Expose the /metrics endpoint without authentication.
-# The URL is registered in urls.py via django_prometheus.urls.
-PROMETHEUS_EXPORT_MIGRATIONS = False  # avoid migration noise in metrics
+PROMETHEUS_EXPORT_MIGRATIONS = False
 LOG_FORMAT = env("LOG_FORMAT", default="")
 LOGGING = {
     "version": 1,
@@ -579,18 +519,13 @@ LOGGING = {
     },
 }
 
-# ---------------------------------------------------------------------------
-# Slow-query logging (Issue: perf monitoring)
-# ---------------------------------------------------------------------------
 LOGGING_SLOW_QUERIES_THRESHOLD_MS = env.int("SLOW_QUERY_THRESHOLD_MS", default=100)
 DATABASE_SLOW_QUERY_THRESHOLD = env.float("DATABASE_SLOW_QUERY_THRESHOLD", default=1.0)
 
-# Ensure log directories exist before configuring handlers
 _LOG_DIR = BASE_DIR / "logs"
 _LOG_DIR.mkdir(parents=True, exist_ok=True)
 (BASE_DIR / "logs" / "profiler").mkdir(parents=True, exist_ok=True)
 
-# Extend LOGGING to capture slow queries in a separate rotating file
 LOGGING.setdefault("loggers", {})
 LOGGING["handlers"]["slow_queries"] = {
     "level": "WARNING",
@@ -626,9 +561,6 @@ LOGGING["loggers"]["soroscan.graphql"] = {
     "propagate": False,
 }
 
-# ---------------------------------------------------------------------------
-# Security audit logger — admin login success / failure events
-# ---------------------------------------------------------------------------
 LOGGING["handlers"]["security_audit"] = {
     "level": "INFO",
     "class": "logging.handlers.TimedRotatingFileHandler",
@@ -643,27 +575,18 @@ LOGGING["loggers"]["soroscan.security_audit"] = {
     "propagate": False,
 }
 
-# ---------------------------------------------------------------------------
-# IP access logger — client IP, method, and path for every API request
-# ---------------------------------------------------------------------------
 LOGGING["loggers"]["soroscan.ip_access"] = {
     "handlers": ["console"],
     "level": "INFO",
     "propagate": False,
 }
 
-# ---------------------------------------------------------------------------
-# Django Silk profiler (Issue: perf monitoring) — enabled via ENABLE_SILK=true
-# ---------------------------------------------------------------------------
 SILK_PROFILER_LOG_DIR = env("SILK_PROFILER_LOG_DIR", default=str(BASE_DIR / "logs" / "profiler"))
-SILK_META_MAX_RESPONSE_SIZE = 4096  # bytes, keep overhead minimal
-SILK_MAX_RECORDED_REQUESTS = 1000   # ring-buffer per process
+SILK_META_MAX_RESPONSE_SIZE = 4096
+SILK_MAX_RECORDED_REQUESTS = 1000
 SILK_AUTHENTICATION_REQUIRED = not DEBUG
 SILK_AUTHORISATION_REQUIRED = not DEBUG
 
-# ---------------------------------------------------------------------------
-# Email backend (Issue: event-driven alerts)
-# ---------------------------------------------------------------------------
 EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.smtp.EmailBackend")
 EMAIL_HOST = env("EMAIL_HOST", default="smtp.gmail.com")
 EMAIL_PORT = env.int("EMAIL_PORT", default=587)
@@ -672,15 +595,11 @@ EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@soroscan.io")
 
-# Alert settings
 SLACK_ALERT_TIMEOUT_SECONDS = env.int("SLACK_ALERT_TIMEOUT_SECONDS", default=10)
 
-# ---------------------------------------------------------------------------
-# Event Streaming Configuration (Issue: Downstream Integration)
-# ---------------------------------------------------------------------------
 EVENT_STREAMING = {
     "enabled": env.bool("EVENT_STREAMING_ENABLED", default=False),
-    "backend": env("EVENT_STREAMING_BACKEND", default="kafka"),  # 'kafka', 'pubsub', or 'sqs'
+    "backend": env("EVENT_STREAMING_BACKEND", default="kafka"),
     "kafka": {
         "bootstrap_servers": env.list("KAFKA_BOOTSTRAP_SERVERS", default=["localhost:9092"]),
         "topic": env("KAFKA_TOPIC", default="soroscan.events"),
@@ -695,16 +614,11 @@ EVENT_STREAMING = {
     },
 }
 
-# ---------------------------------------------------------------------------
-# S3 / Archive storage configuration
-# ---------------------------------------------------------------------------
 AWS_ACCESS_KEY_ID = env("AWS_ACCESS_KEY_ID", default="")
 AWS_SECRET_ACCESS_KEY = env("AWS_SECRET_ACCESS_KEY", default="")
 AWS_S3_REGION_NAME = env("AWS_S3_REGION_NAME", default="us-east-1")
-# Set AWS_S3_ENDPOINT_URL for S3-compatible stores (MinIO, Localstack, etc.)
 AWS_S3_ENDPOINT_URL = env("AWS_S3_ENDPOINT_URL", default="")
 
-# Sentry (optional): init only when SENTRY_DSN is set. Celery task failures reported via CeleryIntegration.
 SENTRY_DSN = env("SENTRY_DSN", default="")
 if SENTRY_DSN:
     import sentry_sdk
@@ -719,11 +633,8 @@ if SENTRY_DSN:
         environment=env("SENTRY_ENVIRONMENT", default="production"),
     )
 
-# --- Request Size Limit (Issue #338) ---
-# Default to 10MB (10 * 1024 * 1024 bytes)
 MAX_REQUEST_BODY_SIZE = env.int("MAX_REQUEST_BODY_SIZE", default=10485760)
 
-# --- API Deprecation (Issue #336) ---
 DEPRECATED_ENDPOINTS = {
     "/api/audit-trail/": {
         "sunset": "2026-12-31",
