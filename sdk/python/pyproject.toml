@@ -34,6 +34,7 @@ soroscan = "soroscan.cli:main"
 
 [project.optional-dependencies]
 dev = [
+    "ariadne-codegen>=0.9.0",
     "pytest>=8.0.0",
     "pytest-cov>=5.0.0",
     "pytest-asyncio>=0.23.0",
@@ -42,6 +43,12 @@ dev = [
     "ruff>=0.2.0",
     "pact-python>=3.4.0",
 ]
+
+[tool.ariadne-codegen]
+schema = "../../django-backend/schema.graphql"
+target_package = "soroscan.generated"
+target_directory = "soroscan/"
+type_hints = "pydantic"
 
 [project.urls]
 Homepage = "https://soroscan.io"

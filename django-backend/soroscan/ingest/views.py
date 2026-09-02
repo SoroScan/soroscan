@@ -15,6 +15,8 @@ from django.db.models.functions import Cast
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_control, cache_page
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParameter
 from rest_framework import renderers, serializers, status, viewsets
@@ -27,12 +29,13 @@ from rest_framework.pagination import PageNumberPagination
 
 import requests as http_requests
 
-from soroscan.throttles import IngestRateThrottle
+from soroscan.throttles import IngestRateThrottle, UnauthenticatedIPRateThrottle
 from soroscan.webhook_signing import build_x_signature_header, public_key_base64
 
 from .cache_utils import cache_result, get_or_set_json, query_cache_ttl, stable_cache_key
 from .decorators import validate_webhook_signature
-from .models import (
+from .telemetry import tracer
+from .models import (  # noqa: E402
     APIKey,
     AdminAction,
     ArchivedEventBatch,
@@ -149,24 +152,14 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
                     warnings.append(warning)
         return warnings
 
+    @method_decorator(cache_page(query_cache_ttl(), key_prefix="contract_list"))
+    @method_decorator(cache_control(max_age=query_cache_ttl()))
     def list(self, request, *args, **kwargs):
-        """Cache the contracts list for 30 seconds (issue #488)."""
-        cache_key = stable_cache_key(
-            "rest_contracts_list",
-            {
-                "query": sorted(request.query_params.items()),
-                "user_id": getattr(request.user, "id", None),
-            },
-        )
-
-        def _build():
-            response = super(TrackedContractViewSet, self).list(request, *args, **kwargs)
-            if isinstance(response.data, dict) and "results" in response.data:
-                response.data["warnings"] = self._collect_warnings(response.data["results"])
-            return response.data
-
-        cached_data = get_or_set_json(cache_key, 30, _build)
-        return Response(cached_data)
+        """Cache the contracts list via @cache_page (issue #1011)."""
+        response = super().list(request, *args, **kwargs)
+        if isinstance(response.data, dict) and "results" in response.data:
+            response.data["warnings"] = self._collect_warnings(response.data["results"])
+        return response
 
     def retrieve(self, request, *args, **kwargs):
         response = super().retrieve(request, *args, **kwargs)
@@ -199,7 +192,7 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         from django.core.cache import cache as _cache
 
         if hasattr(_cache, "delete_pattern"):
-            _cache.delete_pattern("soroscan:rest_contracts_list:*")
+            _cache.delete_pattern("*contract_list*")
         else:
             _cache.clear()
 
@@ -1267,12 +1260,19 @@ def record_event_view(request):
     data = serializer.validated_data
 
     try:
-        client = SorobanClient()
-        result = client.record_event(
-            target_contract_id=data["contract_id"],
-            event_type=data["event_type"],
-            payload_hash_hex=data["payload_hash"],
-        )
+        with tracer.start_as_current_span(
+            "event.record",
+            attributes={
+                "contract_id": data["contract_id"],
+                "event_type": data["event_type"],
+            },
+        ):
+            client = SorobanClient()
+            result = client.record_event(
+                target_contract_id=data["contract_id"],
+                event_type=data["event_type"],
+                payload_hash_hex=data["payload_hash"],
+            )
 
         if result.success:
             return Response(
@@ -1315,13 +1315,20 @@ def record_structured_event_view(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     data = serializer.validated_data
-    result = SorobanClient().record_structured_event(
-        target_contract_id=data["contract_id"],
-        event_type=data["event_type"],
-        payload_hash_hex=data["payload_hash"],
-        schema_version=data["schema_version"],
-        correlation_id_hex=data["correlation_id"],
-    )
+    with tracer.start_as_current_span(
+        "event.record",
+        attributes={
+            "contract_id": data["contract_id"],
+            "event_type": data["event_type"],
+        },
+    ):
+        result = SorobanClient().record_structured_event(
+            target_contract_id=data["contract_id"],
+            event_type=data["event_type"],
+            payload_hash_hex=data["payload_hash"],
+            schema_version=data["schema_version"],
+            correlation_id_hex=data["correlation_id"],
+        )
     if result.success:
         return Response(
             {
@@ -1489,6 +1496,7 @@ def get_admin_view(request):
 )
 @api_view(["GET"])
 @permission_classes([AllowAny])
+@throttle_classes([UnauthenticatedIPRateThrottle])
 def webhook_signing_public_key_view(request):
     """Return the platform Ed25519 public key used for webhook X-Signature headers."""
     return Response(
@@ -1512,7 +1520,7 @@ def webhook_signing_public_key_view(request):
 )
 @api_view(["GET"])
 @permission_classes([AllowAny])
-@throttle_classes([])
+@throttle_classes([UnauthenticatedIPRateThrottle])
 def health_check(request):
     """Health check endpoint."""
     return Response({"status": "healthy", "service": "soroscan"})
@@ -1538,6 +1546,7 @@ def health_check(request):
 )
 @api_view(["GET"])
 @permission_classes([AllowAny])
+@throttle_classes([UnauthenticatedIPRateThrottle])
 def networks_view(request):
     """Return the list of Soroban networks supported by this indexer."""
     networks = getattr(settings, "SOROBAN_NETWORKS", [])
@@ -2671,6 +2680,112 @@ def contract_identity_view(request):
 
 
 # ---------------------------------------------------------------------------
+# Issue: Supported event schema (ABI) versions
+# ---------------------------------------------------------------------------
+
+# Canonical list of Soroban contract event schema (ABI) versions that the
+# indexer is able to decode and validate.  New versions are appended as the
+# event format evolves; ``latest`` advertises the recommended version for new
+# events.  Each entry documents the supported ``schema_version`` value used by
+# SC-38 structured events.
+SUPPORTED_EVENT_SCHEMA_VERSIONS: list[dict[str, object]] = [
+    {
+        "version": 1,
+        "name": "SoroScan Event Schema v1",
+        "description": (
+            "Initial event schema version covering the SC-20, SC-21, SC-31, "
+            "SC-36 and SC-38 contract standards."
+        ),
+        "status": "supported",
+    },
+]
+
+
+@extend_schema(
+    responses=inline_serializer(
+        name="SchemaVersionsResponse",
+        fields={
+            "versions": serializers.ListField(
+                child=inline_serializer(
+                    name="SchemaVersionEntry",
+                    fields={
+                        "version": serializers.IntegerField(),
+                        "name": serializers.CharField(),
+                        "description": serializers.CharField(),
+                        "status": serializers.CharField(),
+                    },
+                )
+            ),
+            "latest": serializers.IntegerField(),
+            "count": serializers.IntegerField(),
+        },
+    ),
+    description=(
+        "Return the list of Soroban contract event schema (ABI) versions that "
+        "this indexer supports for decoding and validation."
+    ),
+)
+@api_view(["GET"])
+@permission_classes([AllowAny])
+@throttle_classes([UnauthenticatedIPRateThrottle])
+def schema_versions_view(request):
+    """
+    GET /api/schema/versions/
+
+    Returns the supported Soroban contract event schema (ABI) versions.
+    """
+    latest = max(
+        (entry["version"] for entry in SUPPORTED_EVENT_SCHEMA_VERSIONS),
+        default=None,
+    )
+    return Response(
+        {
+            "versions": SUPPORTED_EVENT_SCHEMA_VERSIONS,
+            "latest": latest,
+            "count": len(SUPPORTED_EVENT_SCHEMA_VERSIONS),
+        }
+    )
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([UserRateThrottle])
+def bulk_contract_metadata_view(request):
+    """
+    POST /api/ingest/contracts/metadata/bulk/
+
+    Accepts a list of contract IDs and returns metadata for each.
+    Maximum 50 contract IDs per request.
+    """
+    from .models import ContractMetadata
+    from .serializers import BulkContractMetadataRequestSerializer, ContractMetadataSerializer
+
+    req_serializer = BulkContractMetadataRequestSerializer(data=request.data)
+    req_serializer.is_valid(raise_exception=True)
+    contract_ids = req_serializer.validated_data["contract_ids"]
+
+    metadata_qs = ContractMetadata.objects.select_related("contract").filter(
+        contract__contract_id__in=contract_ids
+    )
+    metadata_map = {m.contract.contract_id: m for m in metadata_qs}
+
+    results = []
+    missing = []
+    for cid in contract_ids:
+        if cid in metadata_map:
+            results.append(ContractMetadataSerializer(metadata_map[cid]).data)
+        else:
+            missing.append(cid)
+
+    return Response({
+        "results": results,
+        "missing": missing,
+        "total_found": len(results),
+        "total_missing": len(missing),
+    })
+
+
+# ---------------------------------------------------------------------------
 # Issue #491: EXPLAIN ANALYZE endpoint for query debugging
 # ---------------------------------------------------------------------------
 
@@ -2715,8 +2830,23 @@ def db_explain_view(request):
     POST /api/admin/db/explain/
 
     Returns the query execution plan for a given SQL SELECT statement.
-    Secured to admin (staff) users only and rate-limited.
+    Secured to admin (staff) users only and rate-limited to 10/min
+    (configurable via ENDPOINT_RATE_LIMIT_DB_EXPLAIN) to prevent abuse
+    of expensive EXPLAIN ANALYZE queries.
     """
+    # Dedicated throttle scope check (issue #1291) — also enforce the
+    # db_explain limit even when USER rate is higher.  We manually
+    # delegate to DBExplainThrottle so function-views respect the
+    # separate bucket.
+    from soroscan.throttles import DBExplainThrottle
+
+    throttle = DBExplainThrottle()
+    if not throttle.allow_request(request, db_explain_view):  # type: ignore[arg-type]
+        return Response(
+            {"detail": f"Request was throttled. Expected available in {throttle.wait():.0f} seconds."},
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
     if not request.user or not request.user.is_staff:
         return Response(
             {"error": "Admin access required."},
@@ -2736,8 +2866,34 @@ def db_explain_view(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    # Reject multi-statement payloads such as "SELECT 1; DROP TABLE foo"
+    # Trailing semicolon is allowed, but any additional non-whitespace
+    # statement after the first semicolon is denied.
+    stripped = sql.strip()
+    # Strip one trailing semicolon for the check, then look for any remaining semicolon
+    without_trailing = stripped.rstrip(";").strip()
+    if ";" in without_trailing:
+        return Response(
+            {"error": "Multiple statements not allowed; provide a single SELECT/WITH/EXPLAIN."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    # Also handle the case where the user supplied "SELECT 1; DROP"
+    # without_trailing already catches interior ;, but if they did "SELECT 1; "
+    # the rstrip approach would hide it — so also check count vs allowed trailing
+    if stripped.count(";") > 1 or (stripped.endswith(";") and ";" in stripped[:-1]):
+        return Response(
+            {"error": "Multiple statements not allowed; provide a single SELECT/WITH/EXPLAIN."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     analyze = bool(request.data.get("analyze", False))
     prefix = "EXPLAIN ANALYZE" if analyze else "EXPLAIN"
+    logger.info(
+        "db_explain requested by %s analyze=%s query=%.120s",
+        getattr(request.user, "username", str(getattr(request.user, "id", "unknown"))),
+        analyze,
+        sql,
+    )
 
     try:
         from django.db import connection
@@ -3390,3 +3546,260 @@ class AnalyticsViewSet(viewsets.ViewSet):
             for row in qs.iterator(chunk_size=2000)
         ]
         return Response({"range_days": range_days, "data": data})
+
+
+# ---------------------------------------------------------------------------
+# Celery task queue status endpoint (issue #1292)
+# ---------------------------------------------------------------------------
+
+@extend_schema(
+    responses=inline_serializer(
+        name="CeleryStatusResponse",
+        fields={
+            "queues": serializers.DictField(
+                child=serializers.IntegerField(),
+                help_text="Pending message count per queue name.",
+            ),
+            "workers": serializers.DictField(
+                child=serializers.CharField(),
+                help_text="Per-worker status ('online' or 'offline').",
+            ),
+            "workers_online": serializers.IntegerField(
+                help_text="Total number of workers responding to health probes.",
+            ),
+            "active_tasks": serializers.DictField(
+                child=serializers.IntegerField(),
+                help_text="Number of currently executing tasks per task name.",
+            ),
+            "metrics": serializers.DictField(
+                help_text=(
+                    "Latest Prometheus counter/gauge snapshot. "
+                    "task_failure_rate is the fraction of failures over all terminal outcomes."
+                ),
+            ),
+        },
+    ),
+    description=(
+        "Return a snapshot of Celery queue depths, worker status, and task "
+        "execution metrics.  Intended for internal dashboards and health checks.\n\n"
+        "Queue depth data comes from Redis (same broker used by Celery). "
+        "Worker list is retrieved via Celery inspect ping (timeout 0.5 s). "
+        "Active task counts and metric snapshots come from the Prometheus "
+        "``soroscan_celery_*`` metrics already exported via ``/metrics``."
+# Dead Letter Queue — query + replay (issue #1311)
+# ---------------------------------------------------------------------------
+
+
+@extend_schema(
+    responses=inline_serializer(
+        name="DLQEntrySerializer",
+        fields={
+            "id": serializers.IntegerField(),
+            "subscription_id": serializers.IntegerField(),
+            "event_id": serializers.IntegerField(allow_null=True),
+            "status_code": serializers.IntegerField(allow_null=True),
+            "error": serializers.CharField(),
+            "retries_exhausted": serializers.IntegerField(),
+            "resolved": serializers.BooleanField(),
+            "created_at": serializers.DateTimeField(),
+        },
+        many=True,
+    ),
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([UserRateThrottle])
+def celery_status_view(request):
+    """
+    GET /api/celery/status/
+
+    Returns a snapshot of Celery queue depths, worker health, and
+    task metrics.  Requires authentication.
+
+    Response schema
+    ---------------
+    ``queues``        — dict of queue_name → pending message count
+    ``workers``       — dict of worker_name → "online" | "offline"
+    ``workers_online`` — count of online workers
+    ``active_tasks``  — dict of task_name → currently executing count
+    ``metrics``       — task outcome counters and failure rate
+    """
+    from urllib.parse import urlparse
+
+    import logging as _logging
+
+    _log = _logging.getLogger("soroscan.celery_status")
+
+    # ------------------------------------------------------------------
+    # 1. Queue depths via Redis
+    # ------------------------------------------------------------------
+    queues: dict[str, int] = {}
+    monitored_queues = ("high_priority", "default", "low_priority", "backfill")
+    try:
+        from redis import Redis as _Redis
+
+        parsed = urlparse(settings.CELERY_BROKER_URL)
+        redis = _Redis.from_url(parsed.geturl(), socket_timeout=2)
+        for q in monitored_queues:
+            queues[q] = int(redis.llen(q))
+    except Exception:
+        _log.exception("celery_status_view: could not read queue depths")
+        for q in monitored_queues:
+            queues.setdefault(q, -1)
+
+    # ------------------------------------------------------------------
+    # 2. Worker status via Celery inspect
+    # ------------------------------------------------------------------
+    workers: dict[str, str] = {}
+    workers_online = 0
+    try:
+        from soroscan.celery import app as _celery_app
+
+        responses = _celery_app.control.inspect(timeout=0.5).ping() or {}
+        for worker_name in responses:
+            workers[worker_name] = "online"
+            workers_online += 1
+    except Exception:
+        _log.exception("celery_status_view: could not ping workers")
+
+    if not workers:
+        workers["none"] = "offline"
+
+    # ------------------------------------------------------------------
+    # 3. Active task counts from Prometheus Gauge
+    # ------------------------------------------------------------------
+    active_tasks: dict[str, int] = {}
+    try:
+        from prometheus_client import REGISTRY as _REGISTRY
+
+        for metric in _REGISTRY.collect():
+            if metric.name == "soroscan_celery_tasks_active":
+                for sample in metric.samples:
+                    task_name = sample.labels.get("task_name", "unknown")
+                    active_tasks[task_name] = int(sample.value)
+    except Exception:
+        _log.exception("celery_status_view: could not read active task metrics")
+
+    # ------------------------------------------------------------------
+    # 4. Outcome counters and failure rate
+    # ------------------------------------------------------------------
+    metrics: dict[str, object] = {
+        "tasks_total": {},
+        "task_failure_rate": None,
+    }
+    try:
+        from prometheus_client import REGISTRY as _REGISTRY
+
+        total_all = 0.0
+        total_failure = 0.0
+        tasks_total: dict[str, int] = {}
+
+        for metric in _REGISTRY.collect():
+            if metric.name == "soroscan_celery_tasks_total":
+                for sample in metric.samples:
+                    if sample.name.endswith("_total"):
+                        task_name = sample.labels.get("task_name", "unknown")
+                        s = sample.labels.get("status", "")
+                        key = f"{task_name}.{s}" if s else task_name
+                        tasks_total[key] = int(sample.value)
+                        total_all += sample.value
+                        if s == "failure":
+                            total_failure += sample.value
+
+        metrics["tasks_total"] = tasks_total
+        if total_all > 0:
+            metrics["task_failure_rate"] = round(total_failure / total_all, 4)
+        else:
+            metrics["task_failure_rate"] = 0.0
+    except Exception:
+        _log.exception("celery_status_view: could not collect task metrics")
+
+    return Response(
+        {
+            "queues": queues,
+            "workers": workers,
+            "workers_online": workers_online,
+            "active_tasks": active_tasks,
+            "metrics": metrics,
+        },
+        status=status.HTTP_200_OK,
+    )
+def dlq_list_view(request):
+    """List dead-letter queue entries (admin only)."""
+    if not request.user.is_staff:
+        return Response({"error": "Admin access required"}, status=status.HTTP_403_FORBIDDEN)
+
+    from soroscan.ingest.models import WebhookDeadLetter
+
+    qs = WebhookDeadLetter.objects.select_related("subscription", "event").all()
+
+    resolved = request.query_params.get("resolved")
+    if resolved is not None:
+        qs = qs.filter(resolved=resolved.lower() in ("true", "1"))
+
+    subscription_id = request.query_params.get("subscription_id")
+    if subscription_id:
+        qs = qs.filter(subscription_id=subscription_id)
+
+    try:
+        limit = max(1, min(int(request.query_params.get("limit", 50)), 500))
+    except (TypeError, ValueError):
+        limit = 50
+
+    data = [
+        {
+            "id": entry.id,
+            "subscription_id": entry.subscription_id,
+            "event_id": entry.event_id,
+            "status_code": entry.status_code,
+            "error": entry.error,
+            "retries_exhausted": entry.retries_exhausted,
+            "resolved": entry.resolved,
+            "created_at": entry.created_at.isoformat(),
+        }
+        for entry in qs[:limit]
+    ]
+    return Response(data)
+
+
+@extend_schema(
+    request=inline_serializer(
+        name="DLQReplayRequest",
+        fields={"entry_ids": serializers.ListField(child=serializers.IntegerField())},
+    ),
+    responses=inline_serializer(
+        name="DLQReplayResponse",
+        fields={
+            "queued": serializers.IntegerField(),
+            "skipped": serializers.IntegerField(),
+        },
+    ),
+)
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def dlq_replay_view(request):
+    """Replay selected dead-letter entries (admin only)."""
+    if not request.user.is_staff:
+        return Response({"error": "Admin access required"}, status=status.HTTP_403_FORBIDDEN)
+
+    from soroscan.ingest.models import WebhookDeadLetter
+    from soroscan.ingest.tasks import replay_dead_letter
+
+    entry_ids = request.data.get("entry_ids", [])
+    if not entry_ids:
+        return Response({"error": "entry_ids required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    entries = WebhookDeadLetter.objects.filter(
+        id__in=entry_ids, resolved=False
+    ).select_related("event")
+
+    queued = 0
+    skipped = 0
+    for entry in entries:
+        if entry.event is None:
+            skipped += 1
+            continue
+        replay_dead_letter.delay(entry.id)
+        queued += 1
+
+    return Response({"queued": queued, "skipped": skipped})

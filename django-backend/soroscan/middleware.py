@@ -9,6 +9,7 @@ import uuid
 from django.conf import settings
 from django.db import connection
 from django.http import JsonResponse
+from prometheus_client import Histogram
 
 from .log_context import set_request_id
 
@@ -120,10 +121,19 @@ class SlowQueryMiddleware:
         with connection.execute_wrapper(_execute):
             response = self.get_response(request)
 
-        # Forward RateLimit-* headers set by APIKeyThrottle
-        headers = getattr(request, "_api_key_throttle_headers", None)
-        if headers and hasattr(response, "__setitem__"):
-            for name, value in headers.items():
+        # Forward RateLimit-* headers set by throttle classes.
+        # _throttle_headers is the unified dict written by RateLimitHeaderMixin
+        # and APIKeyThrottle.  _api_key_throttle_headers is the legacy attribute
+        # kept for backwards-compatibility; it wins on conflict.
+        throttle_headers: dict = {}
+        generic = getattr(request, "_throttle_headers", None)
+        if generic:
+            throttle_headers.update(generic)
+        api_key = getattr(request, "_api_key_throttle_headers", None)
+        if api_key:
+            throttle_headers.update(api_key)  # API-key values override generic
+        if throttle_headers and hasattr(response, "__setitem__"):
+            for name, value in throttle_headers.items():
                 response[name] = value
 
         return response
@@ -270,6 +280,54 @@ class CacheBustingMiddleware:
                 response["Cache-Control"] = "no-cache, no-store, must-revalidate"
                 response["Pragma"] = "no-cache"
             else:
-                response["Cache-Control"] = "private, max-age=0"
+                existing = response.get("Cache-Control", "")
+                if "max-age" not in existing:
+                    response["Cache-Control"] = "private, max-age=0"
 
+        return response
+
+
+# Histogram buckets are chosen to make p50/p95/p99 percentiles meaningful
+# (5ms … 30s) while keeping cardinality bounded via the per-endpoint label.
+REQUEST_LATENCY_SECONDS = Histogram(
+    "soroscan_request_latency_seconds",
+    "Request latency distribution used to derive p50/p95/p99 percentiles",
+    ["method", "endpoint", "status"],
+    buckets=(
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        2.5,
+        5.0,
+        10.0,
+        30.0,
+    ),
+)
+
+
+class RequestLatencyMiddleware:
+    """Record per-endpoint request latency for percentile analysis.
+
+    The endpoint label uses the resolved URL pattern (``resolver_match.route``)
+    once available, falling back to the raw path, so dashboards can compute
+    ``histogram_quantile`` over ``soroscan_request_latency_seconds_bucket``.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        start = time.perf_counter()
+        response = self.get_response(request)
+        duration = time.perf_counter() - start
+
+        match = getattr(request, "resolver_match", None)
+        endpoint = getattr(match, "route", None) or request.path
+        status = getattr(response, "status_code", 0)
+        REQUEST_LATENCY_SECONDS.labels(request.method, endpoint, status).observe(duration)
         return response

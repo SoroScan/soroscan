@@ -40,7 +40,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "npm run build:esm && npm run build:cjs && npm run build:cjs:rename",
+    "generate": "graphql-codegen --config codegen.ts",
+    "build": "npm run generate && npm run build:esm && npm run build:cjs && npm run build:cjs:rename",
     "build:esm": "tsc -p tsconfig.json --outDir dist/esm --module esnext --moduleResolution bundler --declaration --declarationDir dist/esm",
     "build:cjs": "tsc -p tsconfig.cjs.json",
     "build:cjs:rename": "node scripts/rename-cjs.mjs",
@@ -52,6 +53,8 @@
     "prepublishOnly": "npm run build && npm test"
   },
   "devDependencies": {
+    "@graphql-codegen/cli": "^5.0.0",
+    "@graphql-codegen/typescript": "^4.0.0",
     "@pact-foundation/pact": "^13.2.0",
     "@types/node": "^22.0.0",
     "typescript": "^5.4.5",
