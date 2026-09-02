@@ -73,6 +73,9 @@ export class SoroScanClient {
   readonly #baseUrl: string;
   readonly #apiKey: string | undefined;
   readonly #timeoutMs: number;
+  readonly #maxRetries: number;
+  readonly #initialDelayMs: number;
+  readonly #maxDelayMs: number;
 
   constructor(config: SoroScanClientConfig) {
     if (!config.baseUrl) {
@@ -81,10 +84,12 @@ export class SoroScanClient {
     this.#baseUrl = config.baseUrl.replace(/\/$/, "");
     this.#apiKey = config.apiKey;
     this.#timeoutMs = config.timeoutMs ?? 30_000;
+    this.#maxRetries = Math.max(0, Math.trunc(config.maxRetries ?? 3));
+    this.#initialDelayMs = Math.max(0, config.initialDelayMs ?? 250);
+    this.#maxDelayMs = Math.max(0, config.maxDelayMs ?? 10_000);
   }
 
   // ─── Core fetch ────────────────────────────────────────────────────────────
-
   async #request<T>(
     method: "GET" | "POST" | "PATCH" | "DELETE",
     path: string,
@@ -97,7 +102,6 @@ export class SoroScanClient {
       this.#baseUrl +
       path +
       (options.query ? toQueryString(options.query) : "");
-
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: "application/json",
@@ -106,45 +110,67 @@ export class SoroScanClient {
       headers["Authorization"] = `Bearer ${this.#apiKey}`;
     }
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.#timeoutMs);
+    const init: Omit<RequestInit, "signal"> = {
+      method,
+      headers,
+    };
+    if (options.body !== undefined) {
+      init.body = JSON.stringify(options.body);
+    }
 
-    let response: Response;
-    try {
-      const init: RequestInit = {
-        method,
-        headers,
-        signal: controller.signal as RequestInit["signal"],
-      };
-      if (options.body !== undefined) {
-        init.body = JSON.stringify(options.body);
+    for (let attempt = 0; ; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.#timeoutMs);
+      let response: Response;
+
+      try {
+        response = await fetch(url, {
+          ...init,
+          signal: controller.signal as RequestInit["signal"],
+        });
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          throw new Error(
+            `SoroScanClient: request timed out after ${this.#timeoutMs}ms`
+          );
+        }
+        throw err;
+      } finally {
+        clearTimeout(timer);
       }
-      response = await fetch(url, init);
-    } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") {
-        throw new Error(`SoroScanClient: request timed out after ${this.#timeoutMs}ms`);
+
+      const retryable =
+        response.status === 429 ||
+        (response.status >= 500 && response.status <= 599);
+
+      if (retryable && attempt < this.#maxRetries) {
+        const exponentialCeiling = Math.min(
+          this.#maxDelayMs,
+          this.#initialDelayMs * 2 ** attempt
+        );
+        const delayMs = Math.random() * exponentialCeiling;
+        if (delayMs > 0) {
+          await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+        }
+        continue;
       }
-      throw err;
-    } finally {
-      clearTimeout(timer);
+
+      if (response.status === 204) {
+        return undefined as T;
+      }
+
+      const json = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const apiError: SoroScanApiError = json ?? {
+          code: "UNKNOWN_ERROR",
+          message: `HTTP ${response.status} ${response.statusText}`,
+        };
+        throw new SoroScanError(response.status, apiError);
+      }
+
+      return json as T;
     }
-
-    // 204 No Content
-    if (response.status === 204) {
-      return undefined as T;
-    }
-
-    const json = await response.json().catch(() => null);
-
-    if (!response.ok) {
-      const apiError: SoroScanApiError = json ?? {
-        code: "UNKNOWN_ERROR",
-        message: `HTTP ${response.status} ${response.statusText}`,
-      };
-      throw new SoroScanError(response.status, apiError);
-    }
-
-    return json as T;
   }
 
   // ─── Builder factories (SC-10) ────────────────────────────────────────────

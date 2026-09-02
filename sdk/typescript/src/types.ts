@@ -9,6 +9,12 @@ export interface SoroScanClientConfig {
   apiKey?: string;
   /** Request timeout in milliseconds (default: 30_000) */
   timeoutMs?: number;
+  /** Maximum retry attempts after the initial request (default: 3) */
+  maxRetries?: number;
+  /** Initial full-jitter backoff ceiling in milliseconds (default: 250) */
+  initialDelayMs?: number;
+  /** Maximum full-jitter backoff ceiling in milliseconds (default: 10_000) */
+  maxDelayMs?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

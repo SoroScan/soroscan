@@ -13,6 +13,7 @@ from stellar_sdk import Keypair, TransactionBuilder, scval
 from stellar_sdk.soroban_server import SorobanServer
 
 from soroscan.circuit_breaker import execute_with_circuit_breaker
+from soroscan.ingest.telemetry import tracer
 from stellar_sdk.xdr import (
     SCVal,
     SCValType,
@@ -50,6 +51,64 @@ class InvocationData:
     ledger_sequence: int
     success: bool
     error: Optional[str] = None
+
+
+class XDRDecoder:
+    """Decode Soroban event SCVal XDR into JSON-safe Python values."""
+
+    @classmethod
+    def decode(cls, value: SCVal | bytes | str) -> Any:
+        """Decode an SCVal object, raw XDR bytes, or base64 XDR string."""
+        return cls._json_safe(scval.to_native(value))
+
+    @classmethod
+    def decode_event(
+        cls,
+        topics: list[SCVal | bytes | str],
+        payload: SCVal | bytes | str,
+    ) -> dict[str, Any]:
+        """Decode event topics and payload into a clean JSON-compatible dict."""
+        return {
+            "topics": [cls.decode(topic) for topic in topics],
+            "payload": cls.decode(payload),
+        }
+
+    @classmethod
+    def _json_safe(cls, value: Any) -> Any:
+        if value is None or isinstance(value, (bool, int, float, str)):
+            return value
+
+        if isinstance(value, (bytes, bytearray)):
+            return f"0x{bytes(value).hex()}"
+
+        if isinstance(value, dict):
+            return {
+                cls._json_key(key): cls._json_safe(item)
+                for key, item in value.items()
+            }
+
+        if isinstance(value, (list, tuple)):
+            return [cls._json_safe(item) for item in value]
+
+        address = getattr(value, "address", None)
+        if isinstance(address, str):
+            return address
+
+        if isinstance(value, SCVal):
+            raise TypeError(f"Unsupported Soroban SCVal type: {value.type}")
+
+        return str(value)
+
+    @classmethod
+    def _json_key(cls, value: Any) -> str:
+        decoded = cls._json_safe(value)
+        if isinstance(decoded, str):
+            return decoded
+        if decoded is None:
+            return "null"
+        if isinstance(decoded, bool):
+            return "true" if decoded else "false"
+        return str(decoded)
 
 
 class RateLimiter:
@@ -705,12 +764,18 @@ class SorobanClient:
             return payload
 
         try:
-            self._rate_limiter.acquire()
-            response = execute_with_circuit_breaker(
-                "soroban_rpc",
-                get_entries,
-                keys=[{"contractData": {"contract": contract_id, "key": "AAAA"}}],
-            )
+            attributes = {"contract_id": contract_id}
+            if ledger is not None:
+                attributes["ledger"] = ledger
+            with tracer.start_as_current_span(
+                "soroban.rpc.get_contract_state", attributes=attributes
+            ):
+                self._rate_limiter.acquire()
+                response = execute_with_circuit_breaker(
+                    "soroban_rpc",
+                    get_entries,
+                    keys=[{"contractData": {"contract": contract_id, "key": "AAAA"}}],
+                )
         except Exception:
             logger.exception("Failed to fetch contract state for %s", contract_id)
             return payload

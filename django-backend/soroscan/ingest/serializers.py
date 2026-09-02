@@ -12,6 +12,7 @@ from .models import (
     APIKey,
     ContractEvent,
     ContractInvocation,
+    ContractMetadata,
     ContractSnapshot,
     ContractSource,
     ContractVerification,
@@ -357,6 +358,7 @@ class ContractEventSerializer(serializers.ModelSerializer):
             "schema_version",
             "validation_status",
             "signature_status",
+            "status",
         ]
         read_only_fields = [
             "id",

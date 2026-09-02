@@ -13,6 +13,13 @@ from rest_framework.response import Response
 
 from soroscan.ingest.models import ContractEvent, TrackedContract
 
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+from soroscan.ingest.models import WebhookDeadLetter
+from soroscan.ingest.services.webhook_replay import create_replay_job
+
 
 def _isoformat(value) -> str | None:
     if value is None:
@@ -120,3 +127,43 @@ def get_contract(request, contract_id: str):
             status=status.HTTP_404_NOT_FOUND,
         )
     return Response(_contract_to_sdk(contract))
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def bulk_replay_dead_letters(request):
+    """
+    Bulk replay dead-letter webhooks.
+    Expected payload: {"dead_letter_ids": [1, 2, 3]}
+    """
+    dead_letter_ids = request.data.get("dead_letter_ids", [])
+    if not isinstance(dead_letter_ids, list) or not dead_letter_ids:
+        return Response(
+            {"error": "A non-empty list of dead_letter_ids is required."}, 
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    dead_letters = WebhookDeadLetter.objects.filter(id__in=dead_letter_ids, resolved=False).select_related('subscription', 'event')
+    
+    jobs_created = []
+    for dl in dead_letters:
+        if dl.event:
+            # Leverage the existing replay job creation logic
+            job = create_replay_job(
+                subscription=dl.subscription,
+                requested_by=request.user,
+                contract_id=dl.subscription.contract.contract_id,
+                event_type=dl.event.event_type,
+                limit=1
+            )
+            jobs_created.append(job.pk)
+            
+            # Optionally mark as resolved or pending
+            dl.resolved = True
+            dl.resolution_note = f"Enqueued replay job {job.pk}"
+            dl.save(update_fields=["resolved", "resolution_note"])
+
+    return Response({
+        "message": f"Successfully queued {len(jobs_created)} replay jobs.",
+        "job_ids": jobs_created
+    }, status=status.HTTP_202_ACCEPTED)
