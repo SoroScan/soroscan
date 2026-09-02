@@ -44,6 +44,7 @@ from .cache_utils import (
     _SENTINEL,
 )
 from .telemetry import inject_trace_headers, payload_compression_ratio, tracer
+from .reorg import check_and_handle_reorg, is_event_deliverable
 from .models import (
     BlacklistedContract,
     ContractABI,
@@ -845,6 +846,14 @@ def dispatch_webhook(self, subscription_id: int, event_id: int, replay: bool = F
             )
             return False
 
+        if not is_event_deliverable(event):
+            logger.info(
+                "Skipping webhook dispatch for orphaned event %s",
+                event_id,
+                extra={"event_id": event_id, "webhook_id": subscription_id},
+            )
+            return False
+
         # Deduplicate identical webhook deliveries to prevent floods.
         # Replay skips dedup so operators can retest the same historical event.
         if not replay:
@@ -908,9 +917,14 @@ def dispatch_webhook(self, subscription_id: int, event_id: int, replay: bool = F
 
         headers = {
             "Content-Type": "application/json",
-            "X-SoroScan-Signature": _build_webhook_signature_header(webhook, payload_bytes),
             "X-SoroScan-Timestamp": timezone.now().isoformat(),
         }
+        with tracer.start_as_current_span(
+            "webhook.sign", attributes={"webhook_id": subscription_id}
+        ):
+            headers["X-SoroScan-Signature"] = _build_webhook_signature_header(
+                webhook, payload_bytes
+            )
         if replay:
             headers["X-SoroScan-Replay"] = "true"
             original_ts = event_data.get("timestamp")
@@ -935,12 +949,20 @@ def dispatch_webhook(self, subscription_id: int, event_id: int, replay: bool = F
             timeout_value = 10
 
         try:
-            response = requests.post(
-                webhook.target_url,
-                data=payload_bytes,
-                headers=headers,
-                timeout=timeout_value,
-            )
+            with tracer.start_as_current_span(
+                "webhook.http_post",
+                attributes={
+                    "webhook_id": subscription_id,
+                    "target_url": webhook.target_url,
+                    "attempt": attempt_number,
+                },
+            ):
+                response = requests.post(
+                    webhook.target_url,
+                    data=payload_bytes,
+                    headers=headers,
+                    timeout=timeout_value,
+                )
             status_code = response.status_code
             elapsed_s = time.monotonic() - _start
             latency_ms = int(elapsed_s * 1000)
@@ -1865,6 +1887,15 @@ def process_new_event(event_data: dict[str, Any]) -> None:
         )
         return
 
+    if not is_event_deliverable(event_obj):
+        logger.info(
+            "Skipping webhook dispatch for orphaned event ledger=%s index=%s",
+            event_obj.ledger,
+            event_obj.event_index,
+            extra={"contract_id": contract_id},
+        )
+        return
+
     dispatched = 0
     for webhook in webhooks:
         if webhook.filter_condition:
@@ -2196,6 +2227,20 @@ def ingest_latest_events() -> int:
     new_events = 0
 
     try:
+        try:
+            reorg_result = check_and_handle_reorg(server)
+            if reorg_result:
+                logger.warning(
+                    "Handled ledger re-org rollback: %s",
+                    reorg_result,
+                    extra={"ledger_sequence": reorg_result.get("from_ledger")},
+                )
+        except Exception:
+            logger.exception(
+                "Ledger re-org check failed — continuing with event ingestion",
+                extra={},
+            )
+
         blacklisted_ids = set(
             BlacklistedContract.objects.values_list("contract_id", flat=True)
         )

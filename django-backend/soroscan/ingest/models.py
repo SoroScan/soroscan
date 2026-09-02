@@ -11,13 +11,27 @@ from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
 
+from .fields import CompressedJSONField
+
 User = get_user_model()
 
 
 class Organization(models.Model):
     """Top-level tenant boundary for contracts, teams, and members."""
 
+
+    class Tier(models.TextChoices):
+        FREE = "free", "Free"
+        PRO = "pro", "Pro"
+        ENTERPRISE = "enterprise", "Enterprise"
+
     name = models.CharField(max_length=128)
+    tier = models.CharField(
+        max_length=16,
+        choices=Tier.choices,
+        default=Tier.FREE,
+        db_index=True,
+    )
     slug = models.SlugField(max_length=160, unique=True, db_index=True)
     owner = models.ForeignKey(
         User,
@@ -726,7 +740,7 @@ class ContractEvent(models.Model):
         db_index=True,
         help_text="Result of schema validation",
     )
-    payload = models.JSONField(help_text="Decoded event payload")
+    payload = CompressedJSONField(help_text="Decoded event payload")
     payload_hash = models.CharField(
         max_length=64,
         db_index=True,
@@ -777,6 +791,17 @@ class ContractEvent(models.Model):
         default="missing",
         db_index=True,
         help_text="Result of event signature verification",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=[
+            ("CONFIRMED", "Confirmed"),
+            ("PENDING_REORG", "Pending Re-org"),
+            ("ORPHANED", "Orphaned"),
+        ],
+        default="CONFIRMED",
+        db_index=True,
+        help_text="Chain confirmation status (re-org detection)",
     )
 
     class Meta:

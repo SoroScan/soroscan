@@ -107,6 +107,7 @@ MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
     "soroscan.middleware.GracefulShutdownMiddleware",
     "soroscan.monitoring.ErrorRateMetricsMiddleware",
+    "soroscan.middleware.RequestLatencyMiddleware",
     "soroscan.middleware.RequestBodySizeMiddleware",
     "soroscan.middleware.MaintenanceModeMiddleware",
     "django.middleware.security.SecurityMiddleware",
@@ -117,12 +118,14 @@ MIDDLEWARE = [
     "soroscan.middleware.CacheBustingMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "soroscan.middleware.RequestIdMiddleware",
+    "soroscan.tier_rate_limit_middleware.TieredAPIKeyRateLimitMiddleware",
     "soroscan.middleware.PlatformVersionMiddleware",
     "soroscan.perf_logger.SlowQueryLoggerMiddleware",
     "soroscan.middleware.SlowQueryMiddleware",
     "soroscan.middleware.ApiDeprecationMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "django.middleware.gzip.GZipMiddleware",
+    "soroscan.middleware_zstd.ZstdMiddleware",
+    "soroscan.middleware_gzip.CustomGZipMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -177,6 +180,20 @@ if DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql":
             ),
         }
     )
+    DATABASE_STATEMENT_TIMEOUT = env.int(
+        "DATABASE_STATEMENT_TIMEOUT", default=5000
+    )
+    current_options = DATABASES["default"]["OPTIONS"].get("options", "")
+    timeout_flag = f"-c statement_timeout={DATABASE_STATEMENT_TIMEOUT}"
+    DATABASES["default"]["OPTIONS"]["options"] = (
+        f"{current_options} {timeout_flag}".strip()
+        if current_options
+        else timeout_flag
+    )
+else:
+    DATABASE_STATEMENT_TIMEOUT = env.int(
+        "DATABASE_STATEMENT_TIMEOUT", default=5000
+    )
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -221,6 +238,8 @@ RATE_LIMIT_INGEST = env("RATE_LIMIT_INGEST", default="10/minute")
 RATE_LIMIT_GRAPHQL = env("RATE_LIMIT_GRAPHQL", default="60/minute")
 ENDPOINT_RATE_LIMIT_SEARCH = env("ENDPOINT_RATE_LIMIT_SEARCH", default="30/minute")
 ENDPOINT_RATE_LIMIT_STATS = env("ENDPOINT_RATE_LIMIT_STATS", default="100/minute")
+ENDPOINT_RATE_LIMIT_DB_EXPLAIN = env("ENDPOINT_RATE_LIMIT_DB_EXPLAIN", default="10/minute")
+RATE_LIMIT_UNAUTHENTICATED_IP = env("RATE_LIMIT_UNAUTHENTICATED_IP", default="30/minute")
 
 # REST Framework
 REST_FRAMEWORK = {
@@ -501,10 +520,16 @@ GRAPHQL_INTROSPECTION_ENABLED = env.bool(
 # Maximum allowed GraphQL query complexity score (see soroscan.graphql_complexity).
 GRAPHQL_MAX_COMPLEXITY = env.int("GRAPHQL_MAX_COMPLEXITY", default=1000)
 
-# N+1 query detection (issue #490) — enabled by default in DEBUG, disabled in production.
+# N+1 query detection (issue #1290) — enabled by default in DEBUG, disabled in production.
 GRAPHQL_N1_DETECTION_ENABLED = env.bool(
     "GRAPHQL_N1_DETECTION_ENABLED",
     default=DEBUG,
+)
+# Number of DB queries a single resolver must exceed before a warning is emitted.
+# Lower values catch smaller N+1 patterns; raise to suppress known multi-query resolvers.
+GRAPHQL_N1_DETECTION_THRESHOLD = env.int(
+    "GRAPHQL_N1_DETECTION_THRESHOLD",
+    default=5,
 )
 
 # Contract state snapshot capture (issue #798)
