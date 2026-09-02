@@ -12,6 +12,7 @@ from .models import (
     APIKey,
     ContractEvent,
     ContractInvocation,
+    ContractMetadata,
     ContractSnapshot,
     ContractSource,
     ContractVerification,

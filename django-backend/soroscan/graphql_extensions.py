@@ -72,6 +72,62 @@ def permission_classes(permissions):
         return wrapper
     return decorator
 
+
+class PermissionDeniedError(Exception):
+    """Raised when a field-level permission check fails."""
+
+
+def field_permission_classes(permissions, *, redact: bool = True):
+    """
+    Field-level authorization decorator for individual Strawberry
+    ``@strawberry.field`` resolvers (as opposed to ``permission_classes``
+    above, which only guards top-level ``Query``/``Mutation`` resolvers).
+
+    Usage::
+
+        @strawberry.field
+        @field_permission_classes([IsStaff])
+        def internal_notes(self, info: Info) -> Optional[str]:
+            return self._internal_notes
+
+    "Hidden from schema" contract
+    ------------------------------
+    Strawberry (like most statically-typed GraphQL schema libraries,
+    including GitHub's own public GraphQL API) compiles a single schema that
+    is shared by every caller -- a field cannot be dynamically removed from
+    introspection on a per-request/per-user basis without a bespoke
+    schema-generation pipeline, which would add a lot of complexity for
+    little real benefit (the field's *name* is rarely sensitive; its *value*
+    is). Instead, this decorator treats "hidden" as "the field stays visible
+    in the schema/introspection, but its value is inaccessible to an
+    unauthorized caller":
+
+    - By default (``redact=True``), an unauthorized caller receives ``None``
+      for the field. Sibling fields on the same type still resolve normally,
+      so a user who can query a type but lacks permission for one field
+      simply sees that one field come back null.
+    - With ``redact=False``, a ``PermissionDeniedError`` is raised instead,
+      which GraphQL surfaces as a per-field error (the field's value is
+      ``null`` in the response and an entry is added to ``errors``) while
+      sibling fields are still resolved.
+
+    Permission classes are re-used from the operation-level system above
+    (``IsAuthenticated``, ``IsStaff``, ``IsSuperuser``), each exposing
+    ``has_permission(info) -> bool``.
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(self, info: Info, *args, **kwargs):
+            for permission in permissions:
+                if not permission().has_permission(info):
+                    if redact:
+                        return None
+                    raise PermissionDeniedError("Permission denied")
+            return func(self, info, *args, **kwargs)
+        return wrapper
+    return decorator
+
 # Sensitive keys to mask in logs
 SENSITIVE_KEYS = {"password", "secret", "token", "key", "authorization", "api_key"}
 
