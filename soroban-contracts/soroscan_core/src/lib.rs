@@ -389,13 +389,19 @@ impl SoroScanCore {
             return Err(ContractError::InvalidSchemaVersion);
         }
 
-        let indexers: Map<Address, bool> = env
+        // `INDEXERS_KEY` holds `IndexerStatus` (written by `init`/`add_indexer`).
+        // Reading it as `Map<Address, bool>` aborted the host, so SC-38
+        // structured events could never be recorded. Match the same way
+        // `record_event` does.
+        let indexers: Map<Address, IndexerStatus> = env
             .storage()
             .instance()
             .get(&INDEXERS_KEY)
             .ok_or(ContractError::NotInitialized)?;
-        if !indexers.get(indexer.clone()).unwrap_or(false) {
-            return Err(ContractError::IndexerNotFound);
+        match indexers.get(indexer.clone()) {
+            Some(IndexerStatus::Active) => {}
+            Some(IndexerStatus::Paused) => return Err(ContractError::IndexerPaused),
+            None => return Err(ContractError::IndexerNotFound),
         }
 
         let correlation_key = DataKey::StructuredByCorrelation(correlation_id.clone());
@@ -953,13 +959,19 @@ impl SoroScanCore {
             return Err(ContractError::TooManyTags);
         }
 
-        let indexers: Map<Address, bool> = env
+        // `INDEXERS_KEY` holds `IndexerStatus` (written by `init`/`add_indexer`).
+        // Reading it as `Map<Address, bool>` aborted the host, so SC-24 tagged
+        // events could never be recorded. Match the same way `record_event`
+        // does.
+        let indexers: Map<Address, IndexerStatus> = env
             .storage()
             .instance()
             .get(&INDEXERS_KEY)
             .ok_or(ContractError::NotInitialized)?;
-        if !indexers.get(indexer).unwrap_or(false) {
-            return Err(ContractError::IndexerNotFound);
+        match indexers.get(indexer.clone()) {
+            Some(IndexerStatus::Active) => {}
+            Some(IndexerStatus::Paused) => return Err(ContractError::IndexerPaused),
+            None => return Err(ContractError::IndexerNotFound),
         }
 
         let record = TaggedEventRecord {
@@ -998,6 +1010,13 @@ impl SoroScanCore {
             .get(&DataKey::LatestTaggedByType(event_type))
     }
 }
+
+/// Event-logging unit tests (issue #1412) live in their own file so the
+/// topic/payload contract that the off-chain indexer depends on is easy to
+/// audit independently of the behavioural tests below.
+#[cfg(test)]
+#[path = "tests.rs"]
+mod event_emission_tests;
 
 #[cfg(test)]
 mod tests {
