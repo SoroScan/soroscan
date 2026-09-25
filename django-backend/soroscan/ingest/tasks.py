@@ -3681,6 +3681,88 @@ def replay_dead_letter(self, dead_letter_id: int) -> dict[str, Any]:
     return {"status": "replayed", "dlq_id": dead_letter_id}
 
 
+@shared_task(
+    name="ingest.tasks.replay_dead_letter_webhooks",
+    bind=True,
+    max_retries=2,
+    soft_time_limit=60,
+)
+def replay_dead_letter_webhooks(
+    self,
+    delivery_ids: list[int] | None = None,
+    contract_id: str | None = None,
+) -> dict[str, Any]:
+    """
+    Batch re-queue dead-lettered webhook deliveries (issue #1406).
+
+    Selects ``WebhookDeliveryLog`` rows that are in ``dead_letter`` state,
+    either by explicit ``delivery_ids`` or by every delivery belonging to
+    ``contract_id``, resets them to ``pending``, and re-dispatches each one
+    through the ``webhook_dispatch`` queue (``ingest.tasks.dispatch_webhook``)
+    with ``replay=True`` so delivery de-duplication does not suppress the
+    retry.
+
+    Rows without an event cannot be redelivered and are counted as skipped.
+    Suspended subscriptions are re-activated first, because
+    ``dispatch_webhook`` skips inactive subscriptions and the replay would
+    otherwise be silently dropped.
+
+    ``WebhookDeadLetter`` rows are intentionally left untouched so this batch
+    path and the single-entry :func:`replay_dead_letter` path cannot resolve
+    the same entry twice.
+    """
+    if not delivery_ids and not contract_id:
+        return {
+            "status": "skipped",
+            "reason": "no_selection",
+            "requeued": 0,
+            "skipped": 0,
+        }
+
+    qs = WebhookDeliveryLog.objects.filter(
+        status=WebhookDeliveryLog.STATUS_DEAD_LETTER
+    ).select_related("subscription")
+
+    if delivery_ids:
+        qs = qs.filter(id__in=delivery_ids)
+    if contract_id:
+        qs = qs.filter(subscription__contract__contract_id=contract_id)
+
+    requeued = 0
+    skipped = 0
+    for delivery in qs.iterator():
+        if delivery.event_id is None:
+            skipped += 1
+            continue
+
+        subscription = delivery.subscription
+        if (
+            not subscription.is_active
+            or subscription.status != WebhookSubscription.STATUS_ACTIVE
+        ):
+            WebhookSubscription.objects.filter(pk=subscription.pk).update(
+                is_active=True,
+                status=WebhookSubscription.STATUS_ACTIVE,
+                failure_count=0,
+            )
+            subscription.refresh_from_db()
+
+        WebhookDeliveryLog.objects.filter(pk=delivery.pk).update(
+            status=WebhookDeliveryLog.STATUS_PENDING
+        )
+        dispatch_webhook.delay(subscription.id, delivery.event_id, replay=True)
+        requeued += 1
+
+    logger.info(
+        "Batch DLQ replay complete: requeued=%s skipped=%s contract_id=%s",
+        requeued,
+        skipped,
+        contract_id or "",
+        extra={"requeued": requeued, "skipped": skipped},
+    )
+    return {"status": "ok", "requeued": requeued, "skipped": skipped}
+
+
 def _check_single_contract_health(contract: TrackedContract, now=None, cutoff_1h=None) -> tuple[str, str]:
     """
     Checks and updates health status for a single contract.
