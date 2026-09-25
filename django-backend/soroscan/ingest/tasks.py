@@ -69,7 +69,6 @@ from .models import (
     ContractHealthCheck,
     ContractDeployment,
     ContractVerification,
-    ContractSource,
     WebhookDeliveryLog,
     IngestError,
     DataRetentionPolicy,
@@ -4093,20 +4092,131 @@ def cleanup_silk_data(days_to_keep: int = 7) -> int:
         return 0
 
 
+# ---------------------------------------------------------------------------
+# Issue #1403: automated ContractEvent partition creation (Celery Beat)
+# ---------------------------------------------------------------------------
+
+# Current month plus this many upcoming months are kept pre-created so
+# ingest never races a month boundary.
+PARTITION_MONTHS_AHEAD = 2
+
+# Parent table name from issue #1403. On PostgreSQL the partitioned parent is
+# detected at runtime (migration 0054_contractevent_partitioning partitioned
+# the model's real table), falling back to this name elsewhere.
+EVENT_PARTITION_PARENT = "contract_events"
 
 
+def _add_months(value: date, months: int) -> date:
+    """Return the first day of the month ``months`` after ``value``."""
+    month_index = value.year * 12 + (value.month - 1) + months
+    return date(month_index // 12, month_index % 12 + 1, 1)
+
+
+def event_partition_windows(
+    parent: str = EVENT_PARTITION_PARENT,
+    today: date | None = None,
+) -> list[tuple[str, str, str]]:
+    """Return ``(table, range_start, range_end)`` for current + next 2 months.
+
+    ``table`` follows the ``<parent>_yYYYYmMM`` convention; the range bounds
+    are ISO dates covering each full calendar month.
+    """
+    month_start = (today or timezone.localdate()).replace(day=1)
+    windows: list[tuple[str, str, str]] = []
+    for offset in range(PARTITION_MONTHS_AHEAD + 1):
+        start = _add_months(month_start, offset)
+        end = _add_months(start, 1)
+        table = f"{parent}_y{start.year}m{start.month:02d}"
+        windows.append((table, start.isoformat(), end.isoformat()))
+    return windows
+
+
+def _detect_event_partition_parent() -> str:
+    """Return the partitioned ContractEvent parent table name.
+
+    Uses the real model table when it exists as a partitioned table on
+    PostgreSQL; otherwise falls back to ``EVENT_PARTITION_PARENT``.
+    """
+    from django.db import connection  # noqa: PLC0415
+
+    if connection.vendor != "postgresql":
+        return EVENT_PARTITION_PARENT
+
+    candidates: list[str] = []
+    for name in (ContractEvent._meta.db_table, EVENT_PARTITION_PARENT):
+        if name and name not in candidates:
+            candidates.append(name)
+
+    from django.db import DatabaseError  # noqa: PLC0415
+
+    try:
+        with connection.cursor() as cursor:
+            for name in candidates:
+                cursor.execute(
+                    "SELECT c.relkind = 'p' FROM pg_class c "
+                    "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                    "WHERE n.nspname = current_schema() AND c.relname = %s",
+                    [name],
+                )
+                row = cursor.fetchone()
+                if row and row[0]:
+                    return name
+    except DatabaseError as exc:
+        logger.warning("Could not detect partitioned parent table: %s", exc)
+
+    return EVENT_PARTITION_PARENT
+
+
+@shared_task
+def create_upcoming_event_partitions() -> dict[str, Any]:
+    """
+    Pre-create monthly ContractEvent partitions (issue #1403).
+
+    Executes ``CREATE TABLE IF NOT EXISTS <parent>_yYYYYmMM PARTITION OF
+    <parent>`` for the current month and the next two months, so the task is
+    idempotent and safe to run repeatedly from Celery Beat.
+
+    Migration ``0054_contractevent_partitioning`` made the events table
+    partitioned by ``timestamp`` range on PostgreSQL. On other backends (the
+    SQLite test suite) statements that the backend rejects are recorded as
+    errors instead of raising, so the task itself never fails.
+    """
+    from django.db import DatabaseError, connection  # noqa: PLC0415
+
+    parent = _detect_event_partition_parent()
+    windows = event_partition_windows(parent)
+
+    created: list[str] = []
+    errors: list[str] = []
+
+    with connection.cursor() as cursor:
+        for table, range_start, range_end in windows:
+            sql = (
+                f"CREATE TABLE IF NOT EXISTS {table} PARTITION OF {parent} "
+                f"FOR VALUES FROM ('{range_start}') TO ('{range_end}')"
+            )
+            try:
+                cursor.execute(sql)
+                created.append(table)
+            except DatabaseError as exc:
+                errors.append(f"{table}: {exc}")
+                # The connection/transaction may be unusable after a failed
+                # statement — stop rather than hammering it twice more.
+                logger.warning(
+                    "Could not create partition %s for %s: %s", table, parent, exc
+                )
+                break
+
+    summary = {
+        "parent": parent,
+        "partitions": [table for table, _, _ in windows],
+        "created": created,
+        "errors": errors,
+    }
     logger.info(
-        "Health alert sent for contract %s (status=%s)",
-        contract_id,
-        status,
-        extra={"contract_id": contract_id, "health_status": status},
+        "create_upcoming_event_partitions: parent=%s created=%d errors=%d",
+        parent,
+        len(created),
+        len(errors),
     )
-    return "sent"
-
-
-@shared_task(bind=True, max_retries=0)
-def run_webhook_replay_job(self, job_id: int) -> dict[str, Any]:
-    """Celery entrypoint for webhook replay jobs (issue #1329)."""
-    from soroscan.ingest.services.webhook_replay import run_replay_job
-
-    return run_replay_job(job_id)
+    return summary
