@@ -65,6 +65,20 @@ function toQueryString(params: Record<string, unknown>): string {
   return "?" + new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString();
 }
 
+/**
+ * True for errors raised when a request signal aborts, whether via an explicit
+ * AbortController (name "AbortError") or AbortSignal.timeout (name
+ * "TimeoutError"). Duck-typed on `name` because DOMException is not a reliable
+ * `instanceof Error` across every runtime.
+ */
+function isAbortError(err: unknown): boolean {
+  if (typeof err !== "object" || err === null || !("name" in err)) {
+    return false;
+  }
+  const { name } = err as { name: unknown };
+  return name === "AbortError" || name === "TimeoutError";
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Client
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,7 +97,7 @@ export class SoroScanClient {
     }
     this.#baseUrl = config.baseUrl.replace(/\/$/, "");
     this.#apiKey = config.apiKey;
-    this.#timeoutMs = config.timeoutMs ?? 30_000;
+    this.#timeoutMs = config.timeoutMs ?? 10_000;
     this.#maxRetries = Math.max(0, Math.trunc(config.maxRetries ?? 3));
     this.#initialDelayMs = Math.max(0, config.initialDelayMs ?? 250);
     this.#maxDelayMs = Math.max(0, config.maxDelayMs ?? 10_000);
@@ -119,24 +133,20 @@ export class SoroScanClient {
     }
 
     for (let attempt = 0; ; attempt += 1) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), this.#timeoutMs);
       let response: Response;
 
       try {
         response = await fetch(url, {
           ...init,
-          signal: controller.signal as RequestInit["signal"],
+          signal: AbortSignal.timeout(this.#timeoutMs),
         });
       } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") {
+        if (isAbortError(err)) {
           throw new Error(
             `SoroScanClient: request timed out after ${this.#timeoutMs}ms`
           );
         }
         throw err;
-      } finally {
-        clearTimeout(timer);
       }
 
       const retryable =

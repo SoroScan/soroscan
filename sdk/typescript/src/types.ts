@@ -7,7 +7,7 @@ export interface SoroScanClientConfig {
   baseUrl: string;
   /** Optional API key sent as Bearer token */
   apiKey?: string;
-  /** Request timeout in milliseconds (default: 30_000) */
+  /** Request timeout in milliseconds (default: 10_000) */
   timeoutMs?: number;
   /** Maximum retry attempts after the initial request (default: 3) */
   maxRetries?: number;
