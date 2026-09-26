@@ -77,9 +77,21 @@ class SoroScanClient:
         self._client = httpx.Client(timeout=timeout)
 
     def __enter__(self) -> "SoroScanClient":
+        """
+        Enter the runtime context.
+
+        Returns:
+            The client instance itself
+        """
         return self
 
     def __exit__(self, *args: Any) -> None:
+        """
+        Exit the runtime context and close the HTTP client.
+
+        Args:
+            *args: Exception type, value, and traceback, if any
+        """
         self.close()
 
     def close(self) -> None:
@@ -89,14 +101,14 @@ class SoroScanClient:
     def events(self) -> "EventQueryBuilder":
         """
         Create a fluent event query builder (issue #481).
-        
+
         Example:
             >>> events = (client.events()
             ...     .filter_by_contract("CCAAA...")
             ...     .filter_by_event_type("transfer")
             ...     .paginate(limit=50, offset=0)
             ...     .execute())
-        
+
         Returns:
             EventQueryBuilder instance for method chaining
         """
@@ -106,13 +118,13 @@ class SoroScanClient:
     def contracts(self) -> "ContractQueryBuilder":
         """
         Create a fluent contract query builder (issue #481).
-        
+
         Example:
             >>> contracts = (client.contracts()
             ...     .filter_by_active(True)
             ...     .search("token")
             ...     .execute())
-        
+
         Returns:
             ContractQueryBuilder instance for method chaining
         """
@@ -144,7 +156,23 @@ class SoroScanClient:
         return headers
 
     def _handle_response(self, response: httpx.Response) -> dict[str, Any]:
-        """Handle API response and raise appropriate exceptions."""
+        """
+        Handle API response and raise appropriate exceptions.
+
+        Args:
+            response: Raw HTTP response returned by the API
+
+        Returns:
+            Parsed JSON body for successful (2xx) responses
+
+        Raises:
+            SoroScanValidationError: If the API responds with HTTP 400
+            SoroScanAuthError: If the API responds with HTTP 401 or 403
+            SoroScanNotFoundError: If the API responds with HTTP 404
+            SoroScanRateLimitError: If the API responds with HTTP 429
+            SoroScanServerError: If the API responds with HTTP 5xx
+            SoroScanAPIError: If the API responds with any other error status
+        """
         if response.status_code == 200 or response.status_code == 201:
             return response.json()  # type: ignore[no-any-return]
         elif response.status_code == 202:
@@ -213,6 +241,9 @@ class SoroScanClient:
 
         Returns:
             Paginated list of tracked contracts
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         params: dict[str, Any] = {"page": page, "page_size": page_size}
         if is_active is not None:
@@ -236,6 +267,9 @@ class SoroScanClient:
 
         Returns:
             Contract details
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/")
         response = self._client.get(url, headers=self._get_headers())
@@ -260,6 +294,9 @@ class SoroScanClient:
 
         Returns:
             Created contract
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, "/api/contracts/")
         payload: dict[str, Any] = {
@@ -292,6 +329,9 @@ class SoroScanClient:
 
         Returns:
             Updated contract
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/")
         payload: dict[str, Any] = {}
@@ -312,6 +352,9 @@ class SoroScanClient:
 
         Args:
             contract_id: Contract database ID
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/")
         response = self._client.delete(url, headers=self._get_headers())
@@ -327,6 +370,9 @@ class SoroScanClient:
 
         Returns:
             Contract statistics
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/stats/")
         response = self._client.get(url, headers=self._get_headers())
@@ -347,6 +393,9 @@ class SoroScanClient:
 
         Returns:
             List of contract events ordered by recency
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         params: dict[str, Any] = {"limit": limit}
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/events/")
@@ -363,6 +412,9 @@ class SoroScanClient:
 
         Returns:
             Contract health status including error counts and last event time
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/health/")
         response = self._client.get(url, headers=self._get_headers())
@@ -386,6 +438,7 @@ class SoroScanClient:
 
         Raises:
             ValueError: If limit is not between 1 and MAX_RECENT_EVENTS_LIMIT
+            SoroScanAPIError: If the API returns an error response
         """
         if not 1 <= limit <= MAX_RECENT_EVENTS_LIMIT:
             raise ValueError(f"limit must be between 1 and {MAX_RECENT_EVENTS_LIMIT}")
@@ -423,6 +476,9 @@ class SoroScanClient:
 
         Returns:
             Paginated list of events
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         params: dict[str, Any] = {
             "page": page,
@@ -458,6 +514,9 @@ class SoroScanClient:
 
         Returns:
             Event details
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/events/{event_id}/")
         response = self._client.get(url, headers=self._get_headers())
@@ -474,7 +533,24 @@ class SoroScanClient:
         page: int = 1,
         page_size: int = 50,
     ) -> GetEventsByContractsResponse:
-        """Query indexed events across up to ten contracts (SC-23)."""
+        """
+        Query indexed events across up to ten contracts (SC-23).
+
+        Args:
+            contract_ids: Contract addresses to query (maximum 10)
+            event_type: Filter by event type
+            ledger_min: Filter events from this ledger onwards
+            ledger_max: Filter events up to this ledger
+            ordering: Sort order (prefix with - for descending)
+            page: Page number (1-indexed)
+            page_size: Number of results per page
+
+        Returns:
+            Aggregated events across the requested contracts
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
+        """
         request = GetEventsByContractsRequest(
             contract_ids=contract_ids, event_type=event_type, ledger_min=ledger_min,
             ledger_max=ledger_max, ordering=ordering, page=page, page_size=page_size,
@@ -501,6 +577,9 @@ class SoroScanClient:
 
         Returns:
             Submission result
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, "/api/record-event/")
         request = RecordEventRequest(
@@ -519,7 +598,22 @@ class SoroScanClient:
         schema_version: int,
         correlation_id: str,
     ) -> RecordEventResponse:
-        """Submit an idempotent SC-38 structured event."""
+        """
+        Submit an idempotent SC-38 structured event.
+
+        Args:
+            contract_id: Target contract address
+            event_type: Event type name
+            payload_hash: SHA-256 hash of payload (hex)
+            schema_version: Version of the event payload schema
+            correlation_id: Idempotency key used to deduplicate submissions
+
+        Returns:
+            Submission result
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
+        """
         request = StructuredEventRequest(
             contract_id=contract_id,
             event_type=event_type,
@@ -555,6 +649,9 @@ class SoroScanClient:
 
         Returns:
             TaggedEventResponse with submission status and echoed tags
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         request = TaggedEventRequest(
             contract_id=contract_id,
@@ -578,6 +675,9 @@ class SoroScanClient:
 
         Returns:
             Submission result with transaction hash
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, "/api/ingest/indexers/add/")
         request = AddIndexerRequest(indexer_address=indexer_address)
@@ -586,8 +686,20 @@ class SoroScanClient:
         )
         data = self._handle_response(response)
         return AddIndexerResponse.model_validate(data)
+
     def is_indexer(self, indexer_address: str) -> IsIndexerResponse:
-        """Check whether an address is an authorized indexer (SC-15)."""
+        """
+        Check whether an address is an authorized indexer (SC-15).
+
+        Args:
+            indexer_address: Stellar address to check
+
+        Returns:
+            Whether the address is an authorized indexer
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
+        """
         url = urljoin(self.base_url, "/api/ingest/indexers/check/")
         response = self._client.get(
             url,
@@ -598,7 +710,15 @@ class SoroScanClient:
         return IsIndexerResponse.model_validate(data)
 
     def get_admin(self) -> GetAdminResponse:
-        """Return the current SoroScan contract admin address (SC-15)."""
+        """
+        Return the current SoroScan contract admin address (SC-15).
+
+        Returns:
+            The admin address of the SoroScan contract
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
+        """
         url = urljoin(self.base_url, "/api/ingest/contract/admin/")
         response = self._client.get(url, headers=self._get_headers())
         data = self._handle_response(response)
@@ -610,6 +730,7 @@ class SoroScanClient:
     ) -> RecordEventsBatchResponse:
         """
         Record multiple events in a single transaction (SC-29).
+
         Maximum 25 events per batch.
 
         Args:
@@ -617,6 +738,9 @@ class SoroScanClient:
 
         Returns:
             Batch submission result including new total event count
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, "/api/record-events-batch/")
         request = RecordEventsBatchRequest(events=events)
@@ -635,17 +759,24 @@ class SoroScanClient:
 
         Returns:
             IndexerStats with the indexer's address and total events recorded
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/indexer-stats/{indexer}/")
         response = self._client.get(url, headers=self._get_headers())
         data = self._handle_response(response)
         return IndexerStats.model_validate(data)
+
     def get_contract_status(self) -> ContractStatus:
         """
         Get the contract's current pause/health status (SC-28).
 
         Returns:
             ContractStatus with paused flag, admin address, and total event count
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, "/api/contract-status/")
         response = self._client.get(url, headers=self._get_headers())
@@ -666,6 +797,9 @@ class SoroScanClient:
 
         Returns:
             Paginated list of webhooks
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         params: dict[str, Any] = {"page": page, "page_size": page_size}
         url = urljoin(self.base_url, "/api/webhooks/")
@@ -684,6 +818,9 @@ class SoroScanClient:
 
         Returns:
             Webhook details
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/webhooks/{webhook_id}/")
         response = self._client.get(url, headers=self._get_headers())
@@ -706,6 +843,9 @@ class SoroScanClient:
 
         Returns:
             Created webhook
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, "/api/webhooks/")
         payload = {
@@ -735,6 +875,9 @@ class SoroScanClient:
 
         Returns:
             Updated webhook
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/webhooks/{webhook_id}/")
         payload: dict[str, Any] = {}
@@ -755,6 +898,9 @@ class SoroScanClient:
 
         Args:
             webhook_id: Webhook database ID
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/webhooks/{webhook_id}/")
         response = self._client.delete(url, headers=self._get_headers())
@@ -770,6 +916,9 @@ class SoroScanClient:
 
         Returns:
             Test result
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/webhooks/{webhook_id}/test/")
         response = self._client.post(url, headers=self._get_headers())
@@ -805,9 +954,21 @@ class AsyncSoroScanClient:
         self._client = httpx.AsyncClient(timeout=timeout)
 
     async def __aenter__(self) -> "AsyncSoroScanClient":
+        """
+        Enter the async runtime context.
+
+        Returns:
+            The client instance itself
+        """
         return self
 
     async def __aexit__(self, *args: Any) -> None:
+        """
+        Exit the async runtime context and close the HTTP client.
+
+        Args:
+            *args: Exception type, value, and traceback, if any
+        """
         await self.close()
 
     async def close(self) -> None:
@@ -817,13 +978,13 @@ class AsyncSoroScanClient:
     def events(self) -> "AsyncEventQueryBuilder":
         """
         Create a fluent async event query builder (issue #481).
-        
+
         Example:
             >>> events = await (client.events()
             ...     .filter_by_contract("CCAAA...")
             ...     .filter_by_event_type("transfer")
             ...     .execute())
-        
+
         Returns:
             AsyncEventQueryBuilder instance for method chaining
         """
@@ -833,12 +994,12 @@ class AsyncSoroScanClient:
     def contracts(self) -> "AsyncContractQueryBuilder":
         """
         Create a fluent async contract query builder (issue #481).
-        
+
         Example:
             >>> contracts = await (client.contracts()
             ...     .filter_by_active(True)
             ...     .execute())
-        
+
         Returns:
             AsyncContractQueryBuilder instance for method chaining
         """
@@ -868,7 +1029,23 @@ class AsyncSoroScanClient:
         return headers
 
     def _handle_response(self, response: httpx.Response) -> dict[str, Any]:
-        """Handle API response and raise appropriate exceptions."""
+        """
+        Handle API response and raise appropriate exceptions.
+
+        Args:
+            response: Raw HTTP response returned by the API
+
+        Returns:
+            Parsed JSON body for successful (2xx) responses
+
+        Raises:
+            SoroScanValidationError: If the API responds with HTTP 400
+            SoroScanAuthError: If the API responds with HTTP 401 or 403
+            SoroScanNotFoundError: If the API responds with HTTP 404
+            SoroScanRateLimitError: If the API responds with HTTP 429
+            SoroScanServerError: If the API responds with HTTP 5xx
+            SoroScanAPIError: If the API responds with any other error status
+        """
         if response.status_code == 200 or response.status_code == 201:
             return response.json()  # type: ignore[no-any-return]
         elif response.status_code == 202:
@@ -936,6 +1113,9 @@ class AsyncSoroScanClient:
 
         Returns:
             Paginated list of tracked contracts
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         params: dict[str, Any] = {"page": page, "page_size": page_size}
         if is_active is not None:
@@ -959,6 +1139,9 @@ class AsyncSoroScanClient:
 
         Returns:
             Contract details
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/")
         response = await self._client.get(url, headers=self._get_headers())
@@ -983,6 +1166,9 @@ class AsyncSoroScanClient:
 
         Returns:
             Created contract
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, "/api/contracts/")
         payload: dict[str, Any] = {
@@ -1015,6 +1201,9 @@ class AsyncSoroScanClient:
 
         Returns:
             Updated contract
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/")
         payload: dict[str, Any] = {}
@@ -1035,6 +1224,9 @@ class AsyncSoroScanClient:
 
         Args:
             contract_id: Contract database ID
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/")
         response = await self._client.delete(url, headers=self._get_headers())
@@ -1050,6 +1242,9 @@ class AsyncSoroScanClient:
 
         Returns:
             Contract statistics
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/stats/")
         response = await self._client.get(url, headers=self._get_headers())
@@ -1070,6 +1265,9 @@ class AsyncSoroScanClient:
 
         Returns:
             List of contract events ordered by recency
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         params: dict[str, Any] = {"limit": limit}
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/events/")
@@ -1086,6 +1284,9 @@ class AsyncSoroScanClient:
 
         Returns:
             Contract health status including error counts and last event time
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/health/")
         response = await self._client.get(url, headers=self._get_headers())
@@ -1109,6 +1310,7 @@ class AsyncSoroScanClient:
 
         Raises:
             ValueError: If limit is not between 1 and MAX_RECENT_EVENTS_LIMIT
+            SoroScanAPIError: If the API returns an error response
         """
         if not 1 <= limit <= MAX_RECENT_EVENTS_LIMIT:
             raise ValueError(f"limit must be between 1 and {MAX_RECENT_EVENTS_LIMIT}")
@@ -1148,6 +1350,9 @@ class AsyncSoroScanClient:
 
         Returns:
             Paginated list of events
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         params: dict[str, Any] = {
             "page": page,
@@ -1183,6 +1388,9 @@ class AsyncSoroScanClient:
 
         Returns:
             Event details
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/events/{event_id}/")
         response = await self._client.get(url, headers=self._get_headers())
@@ -1199,7 +1407,24 @@ class AsyncSoroScanClient:
         page: int = 1,
         page_size: int = 50,
     ) -> GetEventsByContractsResponse:
-        """Query indexed events across up to ten contracts asynchronously (SC-23)."""
+        """
+        Query indexed events across up to ten contracts asynchronously (SC-23).
+
+        Args:
+            contract_ids: Contract addresses to query (maximum 10)
+            event_type: Filter by event type
+            ledger_min: Filter events from this ledger onwards
+            ledger_max: Filter events up to this ledger
+            ordering: Sort order (prefix with - for descending)
+            page: Page number (1-indexed)
+            page_size: Number of results per page
+
+        Returns:
+            Aggregated events across the requested contracts
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
+        """
         request = GetEventsByContractsRequest(
             contract_ids=contract_ids, event_type=event_type, ledger_min=ledger_min,
             ledger_max=ledger_max, ordering=ordering, page=page, page_size=page_size,
@@ -1226,6 +1451,9 @@ class AsyncSoroScanClient:
 
         Returns:
             Submission result
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, "/api/record-event/")
         request = RecordEventRequest(
@@ -1248,6 +1476,9 @@ class AsyncSoroScanClient:
 
         Returns:
             Submission result with transaction hash
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, "/api/ingest/indexers/add/")
         request = AddIndexerRequest(indexer_address=indexer_address)
@@ -1256,8 +1487,20 @@ class AsyncSoroScanClient:
         )
         data = self._handle_response(response)
         return AddIndexerResponse.model_validate(data)
+
     async def is_indexer(self, indexer_address: str) -> IsIndexerResponse:
-        """Check whether an address is an authorized indexer (SC-15)."""
+        """
+        Check whether an address is an authorized indexer (SC-15).
+
+        Args:
+            indexer_address: Stellar address to check
+
+        Returns:
+            Whether the address is an authorized indexer
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
+        """
         url = urljoin(self.base_url, "/api/ingest/indexers/check/")
         response = await self._client.get(
             url,
@@ -1268,7 +1511,15 @@ class AsyncSoroScanClient:
         return IsIndexerResponse.model_validate(data)
 
     async def get_admin(self) -> GetAdminResponse:
-        """Return the current SoroScan contract admin address (SC-15)."""
+        """
+        Return the current SoroScan contract admin address (SC-15).
+
+        Returns:
+            The admin address of the SoroScan contract
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
+        """
         url = urljoin(self.base_url, "/api/ingest/contract/admin/")
         response = await self._client.get(url, headers=self._get_headers())
         data = self._handle_response(response)
@@ -1280,6 +1531,7 @@ class AsyncSoroScanClient:
     ) -> RecordEventsBatchResponse:
         """
         Record multiple events in a single transaction (SC-29).
+
         Maximum 25 events per batch.
 
         Args:
@@ -1287,6 +1539,9 @@ class AsyncSoroScanClient:
 
         Returns:
             Batch submission result including new total event count
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, "/api/record-events-batch/")
         request = RecordEventsBatchRequest(events=events)
@@ -1305,17 +1560,24 @@ class AsyncSoroScanClient:
 
         Returns:
             IndexerStats with the indexer's address and total events recorded
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/indexer-stats/{indexer}/")
         response = await self._client.get(url, headers=self._get_headers())
         data = self._handle_response(response)
         return IndexerStats.model_validate(data)
+
     async def get_contract_status(self) -> ContractStatus:
         """
         Get the contract's current pause/health status (SC-28).
 
         Returns:
             ContractStatus with paused flag, admin address, and total event count
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, "/api/contract-status/")
         response = await self._client.get(url, headers=self._get_headers())
@@ -1336,6 +1598,9 @@ class AsyncSoroScanClient:
 
         Returns:
             Paginated list of webhooks
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         params: dict[str, Any] = {"page": page, "page_size": page_size}
         url = urljoin(self.base_url, "/api/webhooks/")
@@ -1354,6 +1619,9 @@ class AsyncSoroScanClient:
 
         Returns:
             Webhook details
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/webhooks/{webhook_id}/")
         response = await self._client.get(url, headers=self._get_headers())
@@ -1376,6 +1644,9 @@ class AsyncSoroScanClient:
 
         Returns:
             Created webhook
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, "/api/webhooks/")
         payload = {
@@ -1405,6 +1676,9 @@ class AsyncSoroScanClient:
 
         Returns:
             Updated webhook
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/webhooks/{webhook_id}/")
         payload: dict[str, Any] = {}
@@ -1425,6 +1699,9 @@ class AsyncSoroScanClient:
 
         Args:
             webhook_id: Webhook database ID
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/webhooks/{webhook_id}/")
         response = await self._client.delete(url, headers=self._get_headers())
@@ -1440,6 +1717,9 @@ class AsyncSoroScanClient:
 
         Returns:
             Test result
+
+        Raises:
+            SoroScanAPIError: If the API returns an error response
         """
         url = urljoin(self.base_url, f"/api/webhooks/{webhook_id}/test/")
         response = await self._client.post(url, headers=self._get_headers())
