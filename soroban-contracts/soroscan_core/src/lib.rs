@@ -1,7 +1,7 @@
 #![no_std]
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, Address, BytesN, Env, Map,
-    Symbol, Vec,
+    Symbol, Val, Vec,
 };
 
 // Storage keys
@@ -13,6 +13,24 @@ const PAUSED_KEY: Symbol = symbol_short!("paused");
 const CONTRACT_STATS_KEY: Symbol = symbol_short!("cstats");
 const CONTRACT_EVENT_TYPES_KEY: Symbol = symbol_short!("etypes");
 const CONTRACT_RECENT_EVENTS_KEY: Symbol = symbol_short!("revents");
+
+/// Topic schema version used by [`emit_soroscan_event`].
+pub const SOROSCAN_EVENT_VERSION: u32 = 1;
+
+/// Publish an event using the standard SoroScan topic layout:
+/// `("soroscan", event_type, SOROSCAN_EVENT_VERSION)`.
+///
+/// Intended for third-party contracts that want their events indexed by
+/// SoroScan. `event_type` must be a valid Soroban symbol (`[a-zA-Z0-9_]`,
+/// at most 32 characters).
+pub fn emit_soroscan_event(env: &Env, event_type: &str, payload: Val) {
+    let topics = (
+        Symbol::new(env, "soroscan"),
+        Symbol::new(env, event_type),
+        SOROSCAN_EVENT_VERSION,
+    );
+    env.events().publish(topics, payload);
+}
 
 /// Maximum number of recent events retained per contract (SC-30).
 /// Older entries are evicted (FIFO) once this bound is reached.
@@ -2026,5 +2044,36 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert_eq!(events.get(0).unwrap().event_type, symbol_short!("mint"));
         assert_eq!(events.get(1).unwrap().event_type, symbol_short!("swap"));
+    }
+
+    #[test]
+    fn test_emit_soroscan_event_helper_topics() {
+        use soroban_sdk::{IntoVal, TryFromVal};
+
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SoroScanCore);
+
+        env.as_contract(&contract_id, || {
+            emit_soroscan_event(&env, "transfer", 42u32.into_val(&env));
+        });
+
+        let events = env.events().all();
+        assert_eq!(events.len(), 1);
+        let (emitter, topics, data) = events.get(0).unwrap();
+        assert_eq!(emitter, contract_id);
+        assert_eq!(topics.len(), 3);
+        assert_eq!(
+            Symbol::try_from_val(&env, &topics.get(0).unwrap()).unwrap(),
+            Symbol::new(&env, "soroscan")
+        );
+        assert_eq!(
+            Symbol::try_from_val(&env, &topics.get(1).unwrap()).unwrap(),
+            Symbol::new(&env, "transfer")
+        );
+        assert_eq!(
+            u32::try_from_val(&env, &topics.get(2).unwrap()).unwrap(),
+            SOROSCAN_EVENT_VERSION
+        );
+        assert_eq!(u32::try_from_val(&env, &data).unwrap(), 42);
     }
 }

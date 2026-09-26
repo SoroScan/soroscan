@@ -39,6 +39,7 @@ from .services.timeline import build_timeline
 from ..graphql_extensions import (
     GraphQLRateLimitExtension,
     GraphQLResolverLoggingExtension,
+    MaxQueryDepthExtension,
     log_graphql_resolver,
     IsAuthenticated,
     IsStaff,
@@ -1270,6 +1271,7 @@ schema = strawberry.Schema(
     mutation=Mutation,
     subscription=Subscription,
     extensions=[
+        MaxQueryDepthExtension(max_depth=7),
         GraphQLRateLimitExtension,
         GraphQLResolverLoggingExtension,
         N1QueryDetectorExtension,

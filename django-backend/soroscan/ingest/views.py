@@ -14,13 +14,14 @@ from django.db.models import Count, Max, Min, Q, Avg, Sum
 from django.db.models.functions import Cast
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
+from django.utils.dateparse import parse_date, parse_datetime
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_control
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParameter
 from rest_framework import renderers, serializers, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
+from rest_framework.exceptions import ValidationError
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -66,6 +67,7 @@ from .serializers import (
     ContractSnapshotSerializer,
     ContractSourceSerializer,
     ContractVerificationSerializer,
+    DLQDeliveryLogSerializer,
     EventDeduplicationConfigSerializer,
     EventDeduplicationTestSerializer,
     EventSearchSerializer,
@@ -3814,3 +3816,60 @@ def dlq_replay_view(request):
         queued += 1
 
     return Response({"queued": queued, "skipped": skipped})
+
+
+class DLQDeliveryLogViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Paginated list of dead-lettered webhook delivery logs (Issue #1405).
+
+    ``GET /api/v1/webhooks/dlq/``
+
+    Query params:
+    - ``contract_id`` — filter by tracked contract ID
+    - ``start_date`` / ``end_date`` — ISO 8601 date or datetime bounds on ``timestamp``
+    - ``status`` — filter by HTTP status code returned by the subscriber
+
+    Non-staff users only see logs for webhooks on contracts they own.
+    """
+
+    serializer_class = DLQDeliveryLogSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = (
+            WebhookDeliveryLog.objects.filter(status=WebhookDeliveryLog.STATUS_DEAD_LETTER)
+            .select_related("subscription__contract", "event")
+            .order_by("-timestamp")
+        )
+        if not self.request.user.is_staff:
+            qs = qs.filter(subscription__contract__owner=self.request.user)
+
+        params = self.request.query_params
+
+        contract_id = params.get("contract_id")
+        if contract_id:
+            qs = qs.filter(subscription__contract__contract_id=contract_id)
+
+        for param, lookup in (("start_date", "gte"), ("end_date", "lte")):
+            value = params.get(param)
+            if not value:
+                continue
+            try:
+                parsed_dt = parse_datetime(value)
+                parsed_d = None if parsed_dt else parse_date(value)
+            except ValueError:
+                parsed_dt = parsed_d = None
+            if parsed_dt is not None:
+                qs = qs.filter(**{f"timestamp__{lookup}": parsed_dt})
+            elif parsed_d is not None:
+                qs = qs.filter(**{f"timestamp__date__{lookup}": parsed_d})
+            else:
+                raise ValidationError({param: "Invalid date; use ISO 8601."})
+
+        status_code = params.get("status")
+        if status_code:
+            if not status_code.isdigit():
+                raise ValidationError({"status": "Must be an integer HTTP status code."})
+            qs = qs.filter(status_code=int(status_code))
+
+        return qs
