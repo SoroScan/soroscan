@@ -14,6 +14,7 @@ from soroscan.health import health_view, readiness_view, worker_health_view
 from soroscan.meta_views import db_pool_stats_view
 from soroscan.pact_provider import provider_states
 from soroscan.ingest.views import (
+    DLQDeliveryLogViewSet,
     all_contracts_health_view,
     audit_trail_view,
     cache_stats_view,
@@ -64,6 +65,11 @@ urlpatterns = [
         "api/webhooks/deliveries/metrics/",
         webhook_delivery_metrics_view,
         name="webhook-delivery-metrics",
+    ),
+    path(
+        "api/v1/webhooks/dlq/",
+        DLQDeliveryLogViewSet.as_view({"get": "list"}),
+        name="webhook-dlq-list",
     ),
     path("api/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
