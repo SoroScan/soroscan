@@ -100,7 +100,7 @@ function SortableHead({
         onClick={() => onToggle(sortKey)}
         aria-label={`Sort by ${label}`}
         data-testid={`sort-${sortKey}`}
-        className="inline-flex items-center gap-1 cursor-pointer select-none uppercase tracking-wider hover:text-terminal-green"
+        className="inline-flex items-center gap-1 cursor-pointer select-none text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-terminal-green"
       >
         {label}
         <SortDirectionIndicator active={active} direction={direction} />

@@ -336,7 +336,7 @@ export function EventTable({
       <table className={`${styles.eventTable} soroscan-events-table`}>
         <thead>
           <tr>
-            <th className={toolbarStyles.checkboxCell}>
+            <th className={`${toolbarStyles.checkboxCell} text-xs font-semibold uppercase tracking-wider text-muted-foreground`}>
               <IndeterminateCheckbox
                 checked={allSelected}
                 indeterminate={someSelected && !allSelected}
@@ -347,13 +347,13 @@ export function EventTable({
                 id="select-all-events"
               />
             </th>
-            <th>Contract</th>
-            <th>Type</th>
-            <th>Ledger</th>
-            <th>Time</th>
-            <th>Transaction</th>
-            {showTags && <th>Tags</th>}
-            <th>Actions</th>
+            <th className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Contract</th>
+            <th className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Type</th>
+            <th className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Ledger</th>
+            <th className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Time</th>
+            <th className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Transaction</th>
+            {showTags && <th className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tags</th>}
+            <th className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Actions</th>
           </tr>
         </thead>
         <tbody>
