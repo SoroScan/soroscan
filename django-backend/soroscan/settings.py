@@ -408,6 +408,8 @@ CELERY_BEAT_SCHEDULE = {
         "task": "soroscan.ingest.tasks.warm_contract_name_cache",
         "schedule": 86400,
     },
+    "create-upcoming-event-partitions": {
+        "task": "soroscan.ingest.tasks.create_upcoming_event_partitions",
     "detach-expired-event-partitions": {
         "task": "soroscan.ingest.tasks.detach_expired_event_partitions",
         "schedule": 86400,
