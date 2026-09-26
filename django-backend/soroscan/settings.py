@@ -408,6 +408,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "soroscan.ingest.tasks.warm_contract_name_cache",
         "schedule": 86400,
     },
+    "detach-expired-event-partitions": {
+        "task": "soroscan.ingest.tasks.detach_expired_event_partitions",
+        "schedule": 86400,
+    },
 }
 
 ANALYTICS_ANOMALY_DROP_PCT = env.int("ANALYTICS_ANOMALY_DROP_PCT", default=50)
@@ -419,6 +423,7 @@ HEALTH_ABI_ERROR_THRESHOLD = env.int("HEALTH_ABI_ERROR_THRESHOLD", default=5)
 
 DEDUP_LOG_RETENTION_DAYS = env("DEDUP_LOG_RETENTION_DAYS", default=90, cast=int)
 EVENT_RETENTION_DAYS = env("EVENT_RETENTION_DAYS", default=30, cast=int)
+SOROSCAN_EVENT_RETENTION_DAYS = env.int("SOROSCAN_EVENT_RETENTION_DAYS", default=90)
 WEBHOOK_DELIVERY_RETENTION_DAYS = env.int("WEBHOOK_DELIVERY_RETENTION_DAYS", default=30)
 
 ALERT_DEDUP_WINDOW_SECONDS = env.int("ALERT_DEDUP_WINDOW_SECONDS", default=300)

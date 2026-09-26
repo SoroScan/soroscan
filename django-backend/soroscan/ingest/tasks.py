@@ -1733,6 +1733,82 @@ def cleanup_webhook_delivery_logs() -> int:
     return deleted_count
 
 
+_PARTITION_UPPER_BOUND_RE = re.compile(r"TO \('([^']+)'\)")
+
+
+@shared_task(name="soroscan.ingest.tasks.detach_expired_event_partitions")
+def detach_expired_event_partitions() -> list[str]:
+    """
+    Detach ``ContractEvent`` range partitions that lie entirely before the
+    retention cutoff (``SOROSCAN_EVENT_RETENTION_DAYS`` days, default 90).
+
+    Detached tables are kept (not dropped) so they can be archived. The
+    DEFAULT partition is never detached. No-op on non-PostgreSQL backends.
+    Returns the names of the detached partitions (Issue #1404).
+    """
+    from django.db import connection
+    from django.utils.dateparse import parse_datetime
+
+    from .models import ContractEvent
+
+    if connection.vendor != "postgresql":
+        return []
+
+    retention_days = int(getattr(settings, "SOROSCAN_EVENT_RETENTION_DAYS", 90))
+    cutoff = timezone.now() - timedelta(days=retention_days)
+    parent_table = ContractEvent._meta.db_table
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT child.relname, pg_get_expr(child.relpartbound, child.oid)
+            FROM pg_inherits
+            JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
+            JOIN pg_class child ON pg_inherits.inhrelid = child.oid
+            WHERE parent.relname = %s
+            """,
+            [parent_table],
+        )
+        partitions = cursor.fetchall()
+
+    detached = []
+    for name, bound in partitions:
+        match = _PARTITION_UPPER_BOUND_RE.search(bound or "")
+        if not match:
+            continue  # DEFAULT partition or MAXVALUE upper bound
+        upper = parse_datetime(match.group(1))
+        if upper is None:
+            continue
+        if timezone.is_naive(upper):
+            upper = timezone.make_aware(upper, dt_timezone.utc)
+        if upper > cutoff:
+            continue
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"ALTER TABLE {connection.ops.quote_name(parent_table)} "
+                    f"DETACH PARTITION {connection.ops.quote_name(name)}"
+                )
+        except Exception:
+            logger.exception("Failed to detach expired event partition %s", name)
+            continue
+        detached.append(name)
+        logger.info(
+            "Detached expired event partition %s (upper bound %s, cutoff %s)",
+            name,
+            upper.isoformat(),
+            cutoff.isoformat(),
+            extra={"partition": name, "retention_days": retention_days},
+        )
+
+    logger.info(
+        "detach_expired_event_partitions: detached %d partition(s): %s",
+        len(detached),
+        ", ".join(detached) or "none",
+    )
+    return detached
+
+
 @shared_task(name="soroscan.ingest.tasks.warm_contract_name_cache")
 def warm_contract_name_cache() -> int:
     """
