@@ -1991,6 +1991,69 @@ mod tests {
         assert_eq!(events_b.get(0).unwrap().event_type, symbol_short!("b_ev"));
     }
 
+    // ── Topic length guard (Soroban max = 4 topics per event) ───────────────
+
+    /// Assert that every event emitted by any contract function has a topic
+    /// vector that does not exceed Soroban's hard limit of 4 topics.
+    ///
+    /// Covers: add_indexer, remove_indexer, record_event,
+    ///         record_structured_event, and record_events_batch (both the
+    ///         per-entry events and the batch-summary event).
+    #[test]
+    fn test_contract_event_topic_length_never_exceeds_four() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer) = setup_contract(&env);
+        let target = Address::generate(&env);
+        let payload_hash = BytesN::from_array(&env, &[0u8; 32]);
+
+        // add_indexer emits ("indexer", "add") — 2 topics
+        client.add_indexer(&admin, &indexer);
+
+        // record_event emits ("soroscan", event_type) — 2 topics
+        client.record_event(&indexer, &target, &symbol_short!("swap"), &payload_hash);
+
+        // record_structured_event emits ("soroscan", "sc38", event_type) — 3 topics
+        let correlation_id = BytesN::from_array(&env, &[1u8; 32]);
+        client.record_structured_event(
+            &indexer,
+            &target,
+            &symbol_short!("sc38ev"),
+            &payload_hash,
+            &1u32,
+            &correlation_id,
+        );
+
+        // record_events_batch emits one event per entry ("soroscan", event_type)
+        // plus a batch-summary event ("soroscan", "batch") — all 2 topics
+        let mut entries = Vec::new(&env);
+        entries.push_back(EventEntry {
+            contract_id: target.clone(),
+            event_type: symbol_short!("mint"),
+            payload_hash: BytesN::from_array(&env, &[2u8; 32]),
+        });
+        entries.push_back(EventEntry {
+            contract_id: target.clone(),
+            event_type: symbol_short!("burn"),
+            payload_hash: BytesN::from_array(&env, &[3u8; 32]),
+        });
+        client.record_events_batch(&indexer, &entries);
+
+        // remove_indexer emits ("indexer", "rem") — 2 topics
+        client.remove_indexer(&admin, &indexer);
+
+        // Every event emitted across all of the above calls must satisfy the
+        // Soroban maximum-topic-count constraint.
+        for (_, topics, _) in env.events().all() {
+            assert!(
+                topics.len() <= 4,
+                "event topic vector length {} exceeds Soroban's maximum of 4",
+                topics.len()
+            );
+        }
+    }
+
     #[test]
     fn test_recent_events_includes_batch_recorded_events() {
         let env = Env::default();
