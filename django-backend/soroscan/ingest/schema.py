@@ -33,6 +33,7 @@ from .models import (
     Notification,
     TrackedContract,
     WebhookDeliveryLog,
+    WebhookSubscription,
 )
 from .services.contract_state import decode_state_payload, get_state_at_ledger
 from .services.timeline import build_timeline
@@ -1085,6 +1086,66 @@ class Mutation:
             return True
         except ContractMetadata.DoesNotExist:
             return False
+
+    @strawberry.mutation
+    @permission_classes([IsStaff])
+    def replay_dead_letter_webhooks(
+        self,
+        info: Info,
+        delivery_ids: list[strawberry.ID],
+    ) -> int:
+        """Re-queue dead-lettered webhook deliveries. Returns the count re-queued.
+
+        Each id is a `WebhookDeliveryLog` id. Deliveries that are not in the
+        `dead_letter` state, or that no longer have an event to deliver, are
+        skipped. Staff-only: the mutation re-sends payloads to subscriber
+        endpoints.
+        """
+        from soroscan.ingest.tasks import dispatch_webhook
+
+        normalized_ids = []
+        for raw_id in delivery_ids:
+            try:
+                normalized_ids.append(int(str(raw_id)))
+            except (TypeError, ValueError):
+                raise Exception(f"Invalid delivery id: {raw_id}")
+
+        if not normalized_ids:
+            return 0
+
+        deliveries = (
+            WebhookDeliveryLog.objects.filter(
+                id__in=normalized_ids,
+                status=WebhookDeliveryLog.STATUS_DEAD_LETTER,
+            )
+            .select_related("subscription")
+            .order_by("id")
+        )
+
+        requeued = 0
+        for delivery in deliveries:
+            if delivery.event_id is None:
+                continue
+
+            subscription = delivery.subscription
+            if (
+                not subscription.is_active
+                or subscription.status != WebhookSubscription.STATUS_ACTIVE
+            ):
+                WebhookSubscription.objects.filter(pk=subscription.pk).update(
+                    is_active=True,
+                    status=WebhookSubscription.STATUS_ACTIVE,
+                    failure_count=0,
+                )
+                subscription.refresh_from_db()
+
+            WebhookDeliveryLog.objects.filter(pk=delivery.pk).update(
+                status=WebhookDeliveryLog.STATUS_PENDING
+            )
+            dispatch_webhook.delay(subscription.id, delivery.event_id, replay=True)
+            requeued += 1
+
+        return requeued
 
     @strawberry.mutation
     @permission_classes([IsAuthenticated])
