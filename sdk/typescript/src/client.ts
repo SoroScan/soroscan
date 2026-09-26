@@ -8,6 +8,8 @@ import type {
   GetEventsByContractsResponse,
   RecordStructuredEventParams,
   RecordStructuredEventResponse,
+  RecordTaggedEventParams,
+  RecordTaggedEventResponse,
   GetContractsParams,
   GetContractsResponse,
   GetContractParams,
@@ -188,6 +190,9 @@ export class SoroScanClient {
   /**
    * Create a fluent event query builder (SC-10).
    *
+   * @returns An `EventQueryBuilder` instance for constructing and executing
+   *   filtered event queries with a chainable API.
+   *
    * @example
    * const result = await client
    *   .events()
@@ -202,6 +207,9 @@ export class SoroScanClient {
 
   /**
    * Create a fluent contract query builder (SC-10).
+   *
+   * @returns A `ContractQueryBuilder` instance for constructing and executing
+   *   filtered contract queries with a chainable API.
    *
    * @example
    * const result = await client
@@ -220,6 +228,10 @@ export class SoroScanClient {
   /**
    * Retrieve a paginated list of contract events.
    *
+   * @param params - Optional filter and pagination options such as `contractId`,
+   *   `eventType`, `ledgerFrom`, `ledgerTo`, `first`, and `after`.
+   * @returns A `GetEventsResponse` containing matched events and pagination info.
+   *
    * @example
    * const result = await client.getEvents({ contractId: 'CCAAA...', first: 50 });
    * for (const event of result.items) { console.log(event.type, event.txHash); }
@@ -230,7 +242,12 @@ export class SoroScanClient {
     });
   }
 
-  /** Fetch events for several contracts with one indexed query. */
+  /** Fetch events for several contracts with one indexed query.
+   *
+   * @param params - Object containing an array of contract IDs and optional
+   *   pagination / filter options.
+   * @returns A response object containing matched events grouped by contract.
+   */
   async getEventsByContracts(
     params: GetEventsByContractsParams
   ): Promise<GetEventsByContractsResponse> {
@@ -242,6 +259,10 @@ export class SoroScanClient {
   /**
    * Submit an SC-38 structured event. The correlation ID makes retry handling
    * explicit: the contract rejects a repeated ID without publishing twice.
+   *
+   * @param params - Structured event parameters including `contractId`,
+   *   `eventType`, `payloadHash`, `schemaVersion`, and `correlationId`.
+   * @returns Submission result with `status`, `txHash`, and `transactionStatus`.
    */
   async recordStructuredEvent(
     params: RecordStructuredEventParams
@@ -274,6 +295,10 @@ export class SoroScanClient {
   /**
    * Retrieve a paginated list of deployed contracts.
    *
+   * @param params - Optional filter and pagination options such as `type`,
+   *   `verified`, `search`, `first`, and `after`.
+   * @returns A `GetContractsResponse` containing matched contracts and pagination info.
+   *
    * @example
    * const result = await client.getContracts({ type: 'token', verified: true });
    */
@@ -288,6 +313,9 @@ export class SoroScanClient {
   /**
    * Retrieve details for a single contract by its address.
    *
+   * @param params - Object containing the `contractId` (Stellar contract address).
+   * @returns A `Contract` object with metadata, type, verification status, and stats.
+   *
    * @example
    * const contract = await client.getContract({ contractId: 'CCAAA...' });
    */
@@ -301,6 +329,10 @@ export class SoroScanClient {
 
   /**
    * Get recent events for a specific contract (SC-16).
+   *
+   * @param contractId - The Stellar contract address to query.
+   * @param limit - Maximum number of events to return (default: 100).
+   * @returns An array of `ContractEvent` objects, ordered most-recent-first.
    *
    * @example
    * const events = await client.getContractEvents('CCAAA...', 20);
@@ -322,6 +354,10 @@ export class SoroScanClient {
   /**
    * Get health status for a tracked contract (SC-16).
    *
+   * @param contractId - The Stellar contract address to query.
+   * @returns A `ContractHealth` object with `status`, `lastChecked`, and
+   *   `consecutiveFailures` metrics.
+   *
    * @example
    * const health = await client.getContractHealth('CCAAA...');
    * console.log('Status:', health.status);
@@ -337,40 +373,16 @@ export class SoroScanClient {
   // ─── Transactions ──────────────────────────────────────────────────────────
 
   /**
-   * Submit an SC-38 structured event. The correlation ID makes retry handling
-   * explicit: the contract rejects a repeated ID without publishing twice.
-   */
-  async recordStructuredEvent(
-    params: RecordStructuredEventParams
-  ): Promise<RecordStructuredEventResponse> {
-    const response = await this.#request<{
-      status: "submitted" | "failed";
-      tx_hash?: string;
-      transaction_status: string;
-      error?: string;
-    }>("POST", "/api/record/structured/", {
-      body: {
-        contract_id: params.contractId,
-        event_type: params.eventType,
-        payload_hash: params.payloadHash,
-        schema_version: params.schemaVersion,
-        correlation_id: params.correlationId,
-      },
-    });
-    return {
-      status: response.status,
-      txHash: response.tx_hash,
-      transactionStatus: response.transaction_status,
-      error: response.error,
-    };
-  }
-
-  /**
    * Submit an SC-24 tagged event.
    *
    * Tags are short producer-defined classification strings (e.g. `["defi",
    * "token"]`) that allow off-chain indexers to filter events without decoding
    * the full payload. At most 4 tags may be supplied per event.
+   *
+   * @param params - Tagged event parameters including `contractId`, `eventType`,
+   *   `payloadHash`, and an optional `tags` array (max 4 items).
+   * @returns A `RecordTaggedEventResponse` with `status`, `txHash`,
+   *   `transactionStatus`, and the stored `tags`.
    *
    * @example
    * const result = await client.recordTaggedEvent({
@@ -409,6 +421,10 @@ export class SoroScanClient {
   /**
    * Retrieve a paginated list of transactions, optionally filtered by contract
    * or account.
+   *
+   * @param params - Optional filter and pagination options such as `contractId`,
+   *   `accountId`, `first`, and `after`.
+   * @returns A paginated response containing matching transactions.
    */
   async getTransactions(
     params: GetTransactionsParams = {}
@@ -420,6 +436,9 @@ export class SoroScanClient {
 
   /**
    * Retrieve a single transaction by hash.
+   *
+   * @param txHash - The hex-encoded transaction hash.
+   * @returns The matching `Transaction` object.
    */
   async getTransaction(
     txHash: string
@@ -431,6 +450,9 @@ export class SoroScanClient {
 
   /**
    * Retrieve a paginated list of ledgers.
+   *
+   * @param params - Optional pagination parameters such as `first` and `after`.
+   * @returns A paginated response containing ledger summaries.
    */
   async getLedgers(params: GetLedgersParams = {}): Promise<GetLedgersResponse> {
     return this.#request<GetLedgersResponse>("GET", "/v1/ledgers", {
@@ -440,6 +462,9 @@ export class SoroScanClient {
 
   /**
    * Retrieve a single ledger by sequence number.
+   *
+   * @param sequence - The ledger sequence number.
+   * @returns The matching `Ledger` object.
    */
   async getLedger(sequence: number): Promise<import("./types.js").Ledger> {
     return this.#request("GET", `/v1/ledgers/${sequence}`);
@@ -449,6 +474,9 @@ export class SoroScanClient {
 
   /**
    * Retrieve account details including balances and contract interaction count.
+   *
+   * @param params - Object containing the `accountId` (Stellar public key).
+   * @returns An `Account` object with balance and activity summary.
    */
   async getAccount(params: GetAccountParams): Promise<Account> {
     const { accountId } = params;
@@ -463,6 +491,11 @@ export class SoroScanClient {
   /**
    * Record multiple events in a single transaction (SC-29).
    * Maximum 25 events per batch.
+   *
+   * @param params - Object containing an `events` array of up to 25
+   *   `{ contractId, eventType, payloadHash }` entries.
+   * @returns A `RecordEventsBatchResponse` with `totalEvents` after the batch
+   *   is recorded.
    *
    * @example
    * const result = await client.recordEventsBatch({
@@ -483,20 +516,35 @@ export class SoroScanClient {
     );
   }
 
-  /** Check whether an address is an authorized indexer (SC-15). */
+  /**
+   * Check whether an address is an authorized indexer (SC-15).
+   *
+   * @param indexerAddress - The Stellar account address to check.
+   * @returns An `IsIndexerResponse` indicating whether the address is registered
+   *   and active as an indexer.
+   */
   async isIndexer(indexerAddress: string): Promise<IsIndexerResponse> {
     return this.#request<IsIndexerResponse>("GET", "/api/ingest/indexers/check/", {
       query: { indexer_address: indexerAddress },
     });
   }
 
-  /** Return the current SoroScan contract admin address (SC-15). */
+  /**
+   * Return the current SoroScan contract admin address (SC-15).
+   *
+   * @returns A `GetAdminResponse` containing the admin's Stellar account address.
+   */
   async getAdmin(): Promise<GetAdminResponse> {
     return this.#request<GetAdminResponse>("GET", "/api/ingest/contract/admin/");
   }
 
   /**
    * Authorize an indexer address on the SoroScan contract (SC-9).
+   *
+   * @param params - Object containing the `indexerAddress` (Stellar account
+   *   address) to register as an authorized indexer.
+   * @returns An `AddIndexerResponse` confirming the registration with the
+   *   submitted transaction hash and status.
    *
    * @example
    * const result = await client.addIndexer({
@@ -518,6 +566,10 @@ export class SoroScanClient {
   /**
    * Get event recording statistics for a specific indexer (SC-13).
    *
+   * @param indexer - The Stellar account address of the indexer to query.
+   * @returns An `IndexerStats` object containing `eventsRecorded` and other
+   *   activity counters for the specified indexer.
+   *
    * @example
    * const stats = await client.getIndexerStats('GABC...');
    * console.log('Events recorded:', stats.eventsRecorded);
@@ -525,12 +577,15 @@ export class SoroScanClient {
   async getIndexerStats(indexer: string): Promise<IndexerStats> {
     return this.#request<IndexerStats>("GET", `/v1/indexer-stats/${indexer}`);
   }
-  /*
+  /**
    * Get the contract's current pause/health status (SC-28).
    *
    * @example
    * const status = await client.getContractStatus();
    * console.log('Paused:', status.paused);
+   *
+   * @returns A `ContractStatus` object indicating whether event recording is
+   *   currently paused and other health metrics.
    */
   async getContractStatus(): Promise<ContractStatus> {
     return this.#request<ContractStatus>("GET", "/v1/contract-status");
@@ -538,6 +593,11 @@ export class SoroScanClient {
 
   /**
    * Create a new webhook subscription.
+   *
+   * @param params - Subscription options including `url`, `triggers` (event
+   *   types to listen for), and an optional `contractId` to scope notifications.
+   * @returns A `Webhook` object with the subscription ID, URL, triggers, and
+   *   the HMAC `secret` used to verify delivery payloads.
    *
    * @example
    * const webhook = await client.subscribeWebhook({
@@ -553,6 +613,8 @@ export class SoroScanClient {
 
   /**
    * List all webhook subscriptions for the authenticated API key.
+   *
+   * @returns A `WebhookListResponse` containing all registered webhook subscriptions.
    */
   async listWebhooks(): Promise<WebhookListResponse> {
     return this.#request<WebhookListResponse>("GET", "/v1/webhooks");
@@ -560,6 +622,9 @@ export class SoroScanClient {
 
   /**
    * Retrieve a single webhook by ID.
+   *
+   * @param webhookId - The unique webhook subscription identifier.
+   * @returns The matching `Webhook` object.
    */
   async getWebhook(webhookId: string): Promise<Webhook> {
     return this.#request<Webhook>(
@@ -570,6 +635,10 @@ export class SoroScanClient {
 
   /**
    * Update a webhook (URL, triggers, or status).
+   *
+   * @param webhookId - The unique webhook subscription identifier.
+   * @param params - Fields to update: `url`, `triggers`, and/or `active` status.
+   * @returns The updated `Webhook` object.
    */
   async updateWebhook(
     webhookId: string,
@@ -584,6 +653,9 @@ export class SoroScanClient {
 
   /**
    * Delete (unsubscribe) a webhook.
+   *
+   * @param webhookId - The unique webhook subscription identifier to remove.
+   * @returns `void` on success (HTTP 204 No Content).
    */
   async deleteWebhook(webhookId: string): Promise<void> {
     return this.#request<void>(
