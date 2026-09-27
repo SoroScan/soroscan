@@ -227,6 +227,31 @@ describe("getEvents()", () => {
     const result = await makeClient().getEvents();
     expect(result.totalCount).toBe(0);
   });
+
+  it("properly encodes special characters in query parameters", async () => {
+    mockFetch({ items: [], pageInfo: mockPageInfo, totalCount: 0 });
+    await makeClient().getEvents({ 
+      contractId: "CCAAA",
+      eventType: "transfer&receive"  // special chars: & and space-like
+    });
+
+    const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
+    expect(url).toContain("/v1/events");
+    // Verify & is encoded as %26
+    expect(url).toContain("eventType=transfer%26receive");
+  });
+
+  it("encodes query parameters with spaces and symbols", async () => {
+    mockFetch({ items: [], pageInfo: mockPageInfo, totalCount: 0 });
+    await makeClient().getEvents({
+      contractId: "CCAAA",
+      eventType: "transfer?filter=value"
+    });
+
+    const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
+    // Verify ? is encoded as %3F
+    expect(url).toContain("eventType=transfer%3Ffilter%3Dvalue");
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

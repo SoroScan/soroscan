@@ -46,7 +46,10 @@ function toQueryString(params: Record<string, unknown>): string {
     ([, v]) => v !== undefined && v !== null
   );
   if (entries.length === 0) return "";
-  return "?" + new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString();
+  const queryParts = entries.map(([key, value]) => 
+    `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`
+  );
+  return "?" + queryParts.join("&");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
