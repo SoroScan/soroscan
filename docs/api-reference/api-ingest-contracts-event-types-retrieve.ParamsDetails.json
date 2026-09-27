@@ -1,0 +1,1 @@
+{"parameters":[{"in":"path","name":"contract_id","schema":{"type":"string"},"required":true}]}

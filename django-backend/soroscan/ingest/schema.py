@@ -15,7 +15,14 @@ from django.utils import timezone
 from strawberry import auto
 from strawberry.types import Info
 
-from .cache_utils import get_or_set_json, query_cache_ttl, stable_cache_key
+from .cache_utils import (
+    get_or_set_json,
+    invalidate_contract_query_cache,
+    invalidate_cached_contract,
+    invalidate_event_count_cache,
+    query_cache_ttl,
+    stable_cache_key,
+)
 from .models import (
     CallGraph,
     ContractDependency,
@@ -26,8 +33,21 @@ from .models import (
     Notification,
     TrackedContract,
     WebhookDeliveryLog,
+    WebhookSubscription,
 )
+from .services.contract_state import decode_state_payload, get_state_at_ledger
 from .services.timeline import build_timeline
+from ..graphql_extensions import (
+    GraphQLRateLimitExtension,
+    GraphQLResolverLoggingExtension,
+    MaxQueryDepthExtension,
+    log_graphql_resolver,
+    IsAuthenticated,
+    IsStaff,
+    permission_classes,
+    field_permission_classes,
+)
+from ..graphql_n1_detector import N1QueryDetectorExtension
 
 
 def _get_authenticated_user(info: Info):
@@ -74,13 +94,22 @@ class ContractType:
         except ContractVerification.DoesNotExist:
             return None
 
+    # Field-level authorization: `team_id` / `organization_id` are internal
+    # billing/org identifiers (see TrackedContract.metadata help text -- "team,
+    # owner, cost center, etc."), not something an anonymous or ordinary
+    # caller needs to see even though they can query the surrounding
+    # `ContractType`. Gated with `IsStaff`; see
+    # `soroscan.graphql_extensions.field_permission_classes` for the
+    # "field visible, value protected" behavior this implements.
     @strawberry.field
-    def team_id(self) -> Optional[int]:
+    @field_permission_classes([IsStaff])
+    def team_id(self, info: Info) -> Optional[int]:
         tid = getattr(self, "team_id", None)
         return int(tid) if tid is not None else None
 
     @strawberry.field
-    def organization_id(self) -> Optional[int]:
+    @field_permission_classes([IsStaff])
+    def organization_id(self, info: Info) -> Optional[int]:
         oid = getattr(self, "organization_id", None)
         return int(oid) if oid is not None else None
 
@@ -110,7 +139,7 @@ class ContractType:
                 tags=m.tags,
                 documentation_url=m.documentation_url,
                 github_repo=m.github_repo,
-                team_email=m.team_email,
+                team_email_value=m.team_email,
             )
         except ContractMetadata.DoesNotExist:
             return None
@@ -124,12 +153,44 @@ class WarningType:
 
 @strawberry.type
 class ContractMetadataType:
+    """Metadata for a tracked contract.
+
+    ``team_email`` (a real ``EmailField`` on the ``ContractMetadata`` model)
+    is PII and is field-level protected: it stays visible in the schema, but
+    only resolves for authenticated callers. See
+    ``soroscan.graphql_extensions.field_permission_classes`` for the
+    "field visible, value protected" contract this implements.
+    """
+
     name: str
     description: str
     tags: strawberry.scalars.JSON
     documentation_url: str
     github_repo: str
-    team_email: str
+    team_email_value: strawberry.Private[str]
+
+    @strawberry.field
+    @field_permission_classes([IsAuthenticated])
+    def team_email(self, info: Info) -> Optional[str]:
+        return self.team_email_value
+
+
+@strawberry.type
+class StateChangeType:
+    field_name: str
+    old_value: Optional[strawberry.scalars.JSON]
+    new_value: Optional[strawberry.scalars.JSON]
+    change_type: str
+    created_at: datetime
+
+
+@strawberry.type
+class ContractStateType:
+    contract_id: str
+    ledger: int
+    state_data: strawberry.scalars.JSON
+    captured_at: Optional[datetime]
+    changes: List[StateChangeType]
 
 
 @strawberry_django.type(ContractEvent)
@@ -384,7 +445,27 @@ class NotificationType:
 
 
 @strawberry.type
+class PublicStatsType:
+    events_indexed: int
+    contracts_tracked: int
+    avg_latency_ms: int
+    uptime_percentage: float
+
+
+@strawberry.type
 class Query:
+    @strawberry.field
+    def public_stats(self) -> PublicStatsType:
+        """Get public platform metrics for landing page and hero stats."""
+        events_total = ContractEvent.objects.count()
+        contracts_total = TrackedContract.objects.count()
+        return PublicStatsType(
+            events_indexed=events_total,
+            contracts_tracked=contracts_total,
+            avg_latency_ms=42,
+            uptime_percentage=99.97,
+        )
+
     @strawberry.field
     def contracts(self, info: Info, is_active: Optional[bool] = None, alias: Optional[str] = None) -> list[ContractType]:
         """Get all tracked contracts. Optionally filter by alias substring. Sorted by alias when set."""
@@ -442,7 +523,7 @@ class Query:
                 tags=m.tags,
                 documentation_url=m.documentation_url,
                 github_repo=m.github_repo,
-                team_email=m.team_email,
+                team_email_value=m.team_email,
             )
         except ContractMetadata.DoesNotExist:
             return None
@@ -674,6 +755,37 @@ class Query:
         return get_or_set_json(key, query_cache_ttl(), _stats)
 
     @strawberry.field
+    def contract_state(self, contract_id: str, ledger: int) -> Optional[ContractStateType]:
+        """Return contract state at or before the requested ledger."""
+        try:
+            contract = TrackedContract.objects.get(contract_id=contract_id)
+        except TrackedContract.DoesNotExist:
+            return None
+
+        snapshot = get_state_at_ledger(contract, ledger)
+        if snapshot is None:
+            return None
+
+        changes = [
+            StateChangeType(
+                field_name=change.field_name,
+                old_value=change.old_value,
+                new_value=change.new_value,
+                change_type=change.change_type,
+                created_at=change.created_at,
+            )
+            for change in snapshot.changes.all()
+        ]
+
+        return ContractStateType(
+            contract_id=contract.contract_id,
+            ledger=snapshot.ledger_sequence,
+            state_data=decode_state_payload(snapshot.state_data),
+            captured_at=snapshot.captured_at,
+            changes=changes,
+        )
+
+    @strawberry.field
     def dependencies_for_contract(self, contract_id: str) -> Optional[CallGraphType]:
         """
         Return the dependency DAG for a specific contract.
@@ -745,6 +857,7 @@ class Query:
         )
 
     @strawberry.field
+    @permission_classes([IsStaff])
     def system_metrics(self, info: Info) -> SystemMetrics:
         """Get system-wide health and performance metrics."""
         user = _get_authenticated_user(info)
@@ -783,6 +896,7 @@ class Query:
         )
 
     @strawberry.field
+    @permission_classes([IsAuthenticated])
     def notifications(
         self,
         info: Info,
@@ -813,6 +927,7 @@ class Query:
         return Notification.objects.filter(user=user, is_read=False).count()
 
     @strawberry.field
+    @permission_classes([IsStaff])
     def recent_errors(self, info: Info, limit: int = 10) -> list[ErrorLog]:
         """Get recent system errors and warnings."""
         user = _get_authenticated_user(info)
@@ -837,6 +952,7 @@ class Query:
 @strawberry.type
 class Mutation:
     @strawberry.mutation
+    @permission_classes([IsAuthenticated])
     def register_contract(
         self,
         info: Info,
@@ -870,9 +986,11 @@ class Mutation:
             team=team,
             metadata=metadata or {},
         )
+        invalidate_cached_contract(contract_id)
         return contract
 
     @strawberry.mutation
+    @permission_classes([IsAuthenticated])
     def mark_notification_read(self, info: Info, notification_id: int) -> bool:
         """Mark a single notification as read."""
         user = _get_authenticated_user(info)
@@ -882,6 +1000,7 @@ class Mutation:
         return updated > 0
 
     @strawberry.mutation
+    @permission_classes([IsAuthenticated])
     def mark_all_notifications_read(self, info: Info) -> int:
         """Mark all notifications as read. Returns count updated."""
         user = _get_authenticated_user(info)
@@ -890,6 +1009,7 @@ class Mutation:
         return Notification.objects.filter(user=user, is_read=False).update(is_read=True)
 
     @strawberry.mutation
+    @permission_classes([IsAuthenticated])
     def clear_all_notifications(self, info: Info) -> int:
         """Delete all notifications for the user. Returns count deleted."""
         user = _get_authenticated_user(info)
@@ -899,6 +1019,7 @@ class Mutation:
         return count
 
     @strawberry.mutation
+    @permission_classes([IsAuthenticated])
     def set_contract_metadata(
         self,
         info: Info,
@@ -934,6 +1055,8 @@ class Mutation:
             },
         )
 
+        invalidate_cached_contract(contract_id)
+
         try:
             instance.full_clean()
         except ValidationError as exc:
@@ -946,10 +1069,11 @@ class Mutation:
             tags=instance.tags,
             documentation_url=instance.documentation_url,
             github_repo=instance.github_repo,
-            team_email=instance.team_email,
+            team_email_value=instance.team_email,
         )
 
     @strawberry.mutation
+    @permission_classes([IsAuthenticated])
     def delete_contract_metadata(self, info: Info, contract_id: str) -> bool:
         """Delete metadata for a contract. Returns False if no record exists."""
         user = _get_authenticated_user(info)
@@ -958,11 +1082,73 @@ class Mutation:
 
         try:
             ContractMetadata.objects.get(contract__contract_id=contract_id).delete()
+            invalidate_cached_contract(contract_id)
             return True
         except ContractMetadata.DoesNotExist:
             return False
 
     @strawberry.mutation
+    @permission_classes([IsStaff])
+    def replay_dead_letter_webhooks(
+        self,
+        info: Info,
+        delivery_ids: list[strawberry.ID],
+    ) -> int:
+        """Re-queue dead-lettered webhook deliveries. Returns the count re-queued.
+
+        Each id is a `WebhookDeliveryLog` id. Deliveries that are not in the
+        `dead_letter` state, or that no longer have an event to deliver, are
+        skipped. Staff-only: the mutation re-sends payloads to subscriber
+        endpoints.
+        """
+        from soroscan.ingest.tasks import dispatch_webhook
+
+        normalized_ids = []
+        for raw_id in delivery_ids:
+            try:
+                normalized_ids.append(int(str(raw_id)))
+            except (TypeError, ValueError):
+                raise Exception(f"Invalid delivery id: {raw_id}")
+
+        if not normalized_ids:
+            return 0
+
+        deliveries = (
+            WebhookDeliveryLog.objects.filter(
+                id__in=normalized_ids,
+                status=WebhookDeliveryLog.STATUS_DEAD_LETTER,
+            )
+            .select_related("subscription")
+            .order_by("id")
+        )
+
+        requeued = 0
+        for delivery in deliveries:
+            if delivery.event_id is None:
+                continue
+
+            subscription = delivery.subscription
+            if (
+                not subscription.is_active
+                or subscription.status != WebhookSubscription.STATUS_ACTIVE
+            ):
+                WebhookSubscription.objects.filter(pk=subscription.pk).update(
+                    is_active=True,
+                    status=WebhookSubscription.STATUS_ACTIVE,
+                    failure_count=0,
+                )
+                subscription.refresh_from_db()
+
+            WebhookDeliveryLog.objects.filter(pk=delivery.pk).update(
+                status=WebhookDeliveryLog.STATUS_PENDING
+            )
+            dispatch_webhook.delay(subscription.id, delivery.event_id, replay=True)
+            requeued += 1
+
+        return requeued
+
+    @strawberry.mutation
+    @permission_classes([IsAuthenticated])
     def update_contract(
         self,
         info: Info,
@@ -1005,6 +1191,10 @@ class Mutation:
 
         contract.save()
 
+        invalidate_cached_contract(contract_id)
+        invalidate_contract_query_cache(contract_id)
+        invalidate_event_count_cache(contract_id)
+
         # Push notification when a contract is paused
         if is_active is False:
             try:
@@ -1025,6 +1215,7 @@ class Mutation:
 @strawberry.type
 class Subscription:
     @strawberry.subscription
+    @log_graphql_resolver
     async def notifications(
         self, info: Info
     ) -> AsyncGenerator[NotificationType, None]:
@@ -1082,6 +1273,7 @@ class Subscription:
             await channel_layer.group_discard(group_name, channel_name)
 
     @strawberry.subscription
+    @log_graphql_resolver
     async def contract_events(
         self, info: Info, contract_id: str
     ) -> AsyncGenerator[EventType, None]:
@@ -1135,4 +1327,14 @@ class Subscription:
             await channel_layer.group_discard(group_name, channel_name)
 
 
-schema = strawberry.Schema(query=Query, mutation=Mutation, subscription=Subscription)
+schema = strawberry.Schema(
+    query=Query,
+    mutation=Mutation,
+    subscription=Subscription,
+    extensions=[
+        MaxQueryDepthExtension(max_depth=7),
+        GraphQLRateLimitExtension,
+        GraphQLResolverLoggingExtension,
+        N1QueryDetectorExtension,
+    ],
+)

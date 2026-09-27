@@ -8,9 +8,29 @@ from pathlib import Path
 
 import environ
 from django.core.exceptions import ImproperlyConfigured
+from soroscan.db_pool import calculate_pool_limits
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+def _load_software_version() -> str:
+    """
+    Resolve the platform version from VERSION.md, with a safe fallback.
+    """
+    version_file_candidates = [
+        BASE_DIR / "VERSION.md",
+        BASE_DIR.parent / "VERSION.md",
+    ]
+    for candidate in version_file_candidates:
+        try:
+            if candidate.exists():
+                content = candidate.read_text(encoding="utf-8").strip()
+                if content:
+                    return content
+        except OSError:
+            continue
+    return "1.0.0"
 
 # Environment variables
 env = environ.Env(
@@ -37,11 +57,26 @@ if not _running_tests:
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = env("SECRET_KEY", default="django-insecure-change-this-in-production")
 
+# Warn on startup if SECRET_KEY is weak or a known default
+_KNOWN_WEAK_KEYS = {
+    "django-insecure-change-this-in-production",
+    "secret",
+    "changeme",
+    "insecure",
+}
+if len(SECRET_KEY) < 50 or SECRET_KEY in _KNOWN_WEAK_KEYS:
+    import logging as _logging
+    _logging.getLogger("soroscan.security").warning(
+        "SECRET_KEY is too short or matches a known default. "
+        "Set a strong, unique SECRET_KEY before deploying to production."
+    )
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env("DEBUG")
 
 ALLOWED_HOSTS = env("ALLOWED_HOSTS")
 FRONTEND_BASE_URL = env("FRONTEND_BASE_URL", default="http://localhost:3000")
+SOFTWARE_VERSION = env("SOFTWARE_VERSION", default=_load_software_version())
 
 # Application definition
 INSTALLED_APPS = [
@@ -70,13 +105,28 @@ ENABLE_SILK = env.bool("ENABLE_SILK", default=False)
 MIDDLEWARE = [
     # PrometheusBeforeMiddleware must be first to capture all requests.
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
+    "soroscan.middleware.GracefulShutdownMiddleware",
+    "soroscan.monitoring.ErrorRateMetricsMiddleware",
+    "soroscan.middleware.RequestLatencyMiddleware",
+    "soroscan.middleware.RequestBodySizeMiddleware",
+    "soroscan.middleware.MaintenanceModeMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
+    "soroscan.cors_middleware.OrgCorsMiddleware",
     "soroscan.middleware.ReverseProxyFixedIPMiddleware",
+    "soroscan.middleware.ClientIPLoggingMiddleware",
+    "soroscan.middleware.CacheBustingMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "soroscan.middleware.TraceContextMiddleware",
     "soroscan.middleware.RequestIdMiddleware",
+    "soroscan.tier_rate_limit_middleware.TieredAPIKeyRateLimitMiddleware",
+    "soroscan.middleware.PlatformVersionMiddleware",
+    "soroscan.perf_logger.SlowQueryLoggerMiddleware",
     "soroscan.middleware.SlowQueryMiddleware",
+    "soroscan.middleware.ApiDeprecationMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "soroscan.middleware_zstd.ZstdMiddleware",
+    "soroscan.middleware_gzip.CustomGZipMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -119,6 +169,32 @@ DATABASES = {
         default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
     ),
 }
+DB_POOL_MIN_SIZE, DB_POOL_MAX_SIZE = calculate_pool_limits()
+DATABASES["default"]["CONN_MAX_AGE"] = env.int("DB_CONN_MAX_AGE", default=300)
+DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
+if DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql":
+    DATABASES["default"].setdefault("OPTIONS", {}).update(
+        {
+            "connect_timeout": env.int("DB_CONNECT_TIMEOUT", default=5),
+            "application_name": env(
+                "DB_APPLICATION_NAME", default="soroscan-backend"
+            ),
+        }
+    )
+    DATABASE_STATEMENT_TIMEOUT = env.int(
+        "DATABASE_STATEMENT_TIMEOUT", default=5000
+    )
+    current_options = DATABASES["default"]["OPTIONS"].get("options", "")
+    timeout_flag = f"-c statement_timeout={DATABASE_STATEMENT_TIMEOUT}"
+    DATABASES["default"]["OPTIONS"]["options"] = (
+        f"{current_options} {timeout_flag}".strip()
+        if current_options
+        else timeout_flag
+    )
+else:
+    DATABASE_STATEMENT_TIMEOUT = env.int(
+        "DATABASE_STATEMENT_TIMEOUT", default=5000
+    )
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -155,12 +231,18 @@ QUERY_CACHE_TTL_SECONDS = env.int("QUERY_CACHE_TTL_SECONDS", default=60)
 RATE_LIMIT_ANON = env("RATE_LIMIT_ANON", default="60/minute")
 RATE_LIMIT_USER = env("RATE_LIMIT_USER", default="300/minute")
 RATE_LIMIT_INGEST = env("RATE_LIMIT_INGEST", default="10/minute")
-RATE_LIMIT_GRAPHQL = env("RATE_LIMIT_GRAPHQL", default="100/minute")
+RATE_LIMIT_GRAPHQL = env("RATE_LIMIT_GRAPHQL", default="60/minute")
+ENDPOINT_RATE_LIMIT_SEARCH = env("ENDPOINT_RATE_LIMIT_SEARCH", default="30/minute")
+ENDPOINT_RATE_LIMIT_STATS = env("ENDPOINT_RATE_LIMIT_STATS", default="100/minute")
+ENDPOINT_RATE_LIMIT_DB_EXPLAIN = env("ENDPOINT_RATE_LIMIT_DB_EXPLAIN", default="10/minute")
+RATE_LIMIT_UNAUTHENTICATED_IP = env("RATE_LIMIT_UNAUTHENTICATED_IP", default="30/minute")
 
 # REST Framework
 REST_FRAMEWORK = {
+    "EXCEPTION_HANDLER": "soroscan.exceptions.custom_exception_handler",
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "soroscan.authentication.APIKeyAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticatedOrReadOnly",
@@ -174,6 +256,7 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_THROTTLE_CLASSES": [
+        "soroscan.throttles.DynamicEndpointThrottle",
         "soroscan.throttles.APIKeyThrottle",
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
@@ -183,14 +266,38 @@ REST_FRAMEWORK = {
         "user": RATE_LIMIT_USER,
         "ingest": RATE_LIMIT_INGEST,
         "graphql": RATE_LIMIT_GRAPHQL,
+        "events_search": ENDPOINT_RATE_LIMIT_SEARCH,
+        "contract_stats": ENDPOINT_RATE_LIMIT_STATS,
+        "webhook_replay": "10/hour",
+        "contract_bulk_import": "20/hour",
+        "dedup_test": "60/hour",
+        "db_explain": ENDPOINT_RATE_LIMIT_DB_EXPLAIN,
+        "unauthenticated_ip": RATE_LIMIT_UNAUTHENTICATED_IP,
     },
 }
 
 # Spectacular Settings
 SPECTACULAR_SETTINGS = {
     "TITLE": "SoroScan API",
-    "DESCRIPTION": "REST API documentation for SoroScan, a Stellar Soroban smart contract indexer.",
-    "VERSION": "1.0.0",
+    "DESCRIPTION": (
+        "REST API documentation for SoroScan — a developer-focused indexing service "
+        "for Soroban smart contract events on the Stellar blockchain. Provides endpoints "
+        "for querying indexed events, managing tracked contracts, configuring webhooks, "
+        "and monitoring ingest health."
+    ),
+    "VERSION": SOFTWARE_VERSION,
+    "SERVE_INCLUDE_SCHEMA": False,
+    "COMPONENT_SPLIT_REQUEST": True,
+    "CONTACT": {"name": "SoroScan", "url": "https://github.com/SoroScan/soroscan"},
+    "LICENSE": {"name": "MIT"},
+    "TAGS": [
+        {"name": "contracts", "description": "Tracked contract management"},
+        {"name": "events", "description": "Indexed contract event queries"},
+        {"name": "webhooks", "description": "Webhook subscription management"},
+        {"name": "ingest", "description": "Event ingestion and indexing"},
+        {"name": "analytics", "description": "Cost, rate-limit, and error analytics"},
+        {"name": "admin", "description": "Staff-only administrative endpoints"},
+    ],
 }
 
 # Simple JWT Settings
@@ -204,10 +311,19 @@ SIMPLE_JWT = {
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
-# CORS
-CORS_ALLOW_ALL_ORIGINS = DEBUG
-CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
-CORS_ALLOW_CREDENTIALS = True  # Required for Apollo Client with credentials: 'include'
+# CORS Configuration
+if "ALLOWED_ORIGINS" in os.environ:
+    raw_origins = os.environ["ALLOWED_ORIGINS"]
+    CORS_ALLOWED_ORIGINS = [
+        origin.strip() 
+        for origin in raw_origins.split(",") 
+        if origin.strip()
+    ]
+else:
+    CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
+
+CORS_ALLOW_ALL_ORIGINS = DEBUG and not CORS_ALLOWED_ORIGINS
+CORS_ALLOW_CREDENTIALS = True
 
 # Channels
 CHANNEL_LAYERS = {
@@ -226,6 +342,10 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
+CELERY_WORKER_SOFT_SHUTDOWN_TIMEOUT = 30
+SHUTDOWN_TIMEOUT_SECONDS = env.int("SHUTDOWN_TIMEOUT_SECONDS", default=30)
+CELERY_TASK_TIME_LIMIT = env.int("CELERY_TASK_TIME_LIMIT", default=600)
+CELERY_TASK_SOFT_TIME_LIMIT = env.int("CELERY_TASK_SOFT_TIME_LIMIT", default=540)
 CELERY_TASK_ROUTES = {
     "ingest.tasks.ingest_latest_events": {"queue": "high_priority"},
     "ingest.tasks.dispatch_webhook": {"queue": "default"},
@@ -238,43 +358,91 @@ CELERY_TASK_ROUTES = {
 CELERY_BEAT_SCHEDULE = {
     "cleanup-webhook-delivery-logs": {
         "task": "soroscan.ingest.tasks.cleanup_webhook_delivery_logs",
-        "schedule": 86400,  # daily
+        "schedule": 86400,
     },
     "cleanup-old-dedup-logs": {
         "task": "soroscan.ingest.tasks.cleanup_old_dedup_logs",
-        "schedule": 86400,  # daily
+        "schedule": 86400,
     },
     "cleanup-silk-data": {
         "task": "soroscan.ingest.tasks.cleanup_silk_data",
-        "schedule": 604800,  # weekly
+        "schedule": 604800,
     },
     "archive-old-events": {
         "task": "soroscan.ingest.tasks.archive_old_events",
-        "schedule": 86400,  # daily
+        "schedule": 86400,
     },
     "evaluate-remediation-rules": {
         "task": "soroscan.ingest.tasks.evaluate_remediation_rules",
-        "schedule": 300,  # every 5 minutes
+        "schedule": 300,
     },
     "aggregate-event-statistics": {
         "task": "ingest.tasks.aggregate_event_statistics",
-        "schedule": 3600,  # hourly
+        "schedule": 3600,
+    },
+    "aggregate-organization-costs": {
+        "task": "ingest.tasks.aggregate_organization_costs",
+        "schedule": 3600,
     },
     "reconcile-event-completeness": {
         "task": "ingest.tasks.reconcile_event_completeness",
-        "schedule": 300,  # every 5 minutes
+        "schedule": 300,
     },
     "recompute-call-graph": {
         "task": "ingest.tasks.recompute_call_graph",
-        "schedule": 3600,  # hourly
+        "schedule": 3600,
+    },
+    "warm-event-count-cache": {
+        "task": "ingest.tasks.warm_event_count_cache",
+        "schedule": 300,
+    },
+    "snapshot-contract-state": {
+        "task": "ingest.tasks.snapshot_contract_state",
+        "schedule": 600,
+    },
+    "auto-resume-paused-contracts": {
+        "task": "ingest.tasks.auto_resume_paused_contracts",
+        "schedule": 300,
+    },
+    "warm-contract-name-cache": {
+        "task": "soroscan.ingest.tasks.warm_contract_name_cache",
+        "schedule": 86400,
+    },
+    "create-upcoming-event-partitions": {
+        "task": "soroscan.ingest.tasks.create_upcoming_event_partitions",
+    "detach-expired-event-partitions": {
+        "task": "soroscan.ingest.tasks.detach_expired_event_partitions",
+        "schedule": 86400,
     },
 }
 
-# Data Retention Configuration
-# Number of days to retain deduplication logs before cleanup
-DEDUP_LOG_RETENTION_DAYS = env("DEDUP_LOG_RETENTION_DAYS", default=90, cast=int)
+ANALYTICS_ANOMALY_DROP_PCT = env.int("ANALYTICS_ANOMALY_DROP_PCT", default=50)
+ANALYTICS_ANOMALY_MIN_BASELINE = env.int("ANALYTICS_ANOMALY_MIN_BASELINE", default=10)
 
-# Stellar / Soroban Configuration
+HEALTH_DEGRADED_MINUTES = env.int("HEALTH_DEGRADED_MINUTES", default=30)
+HEALTH_FAILED_MINUTES = env.int("HEALTH_FAILED_MINUTES", default=120)
+HEALTH_ABI_ERROR_THRESHOLD = env.int("HEALTH_ABI_ERROR_THRESHOLD", default=5)
+
+DEDUP_LOG_RETENTION_DAYS = env("DEDUP_LOG_RETENTION_DAYS", default=90, cast=int)
+EVENT_RETENTION_DAYS = env("EVENT_RETENTION_DAYS", default=30, cast=int)
+SOROSCAN_EVENT_RETENTION_DAYS = env.int("SOROSCAN_EVENT_RETENTION_DAYS", default=90)
+WEBHOOK_DELIVERY_RETENTION_DAYS = env.int("WEBHOOK_DELIVERY_RETENTION_DAYS", default=30)
+
+ALERT_DEDUP_WINDOW_SECONDS = env.int("ALERT_DEDUP_WINDOW_SECONDS", default=300)
+
+WEBHOOK_ESCALATION_TIMEOUT_SECONDS = env.int("WEBHOOK_ESCALATION_TIMEOUT_SECONDS", default=10)
+WEBHOOK_ESCALATION_DEDUP_SECONDS = env.int("WEBHOOK_ESCALATION_DEDUP_SECONDS", default=300)
+WEBHOOK_ESCALATION_SLACK_TARGET = env("WEBHOOK_ESCALATION_SLACK_TARGET", default="")
+WEBHOOK_ESCALATION_SMS_TARGET = env("WEBHOOK_ESCALATION_SMS_TARGET", default="")
+WEBHOOK_ESCALATION_PAGERDUTY_TARGET = env("WEBHOOK_ESCALATION_PAGERDUTY_TARGET", default="")
+
+WEBHOOK_DEDUP_WINDOW_SECONDS = env.int("WEBHOOK_DEDUP_WINDOW_SECONDS", default=300)
+DOWNSTREAM_ALERT_DEDUP_SECONDS = env.int("DOWNSTREAM_ALERT_DEDUP_SECONDS", default=3600)
+
+COST_RPC_PER_CALL_USD = env("COST_RPC_PER_CALL_USD", default="0.00001")
+COST_STORAGE_PER_GB_USD = env("COST_STORAGE_PER_GB_USD", default="0.10")
+COST_COMPUTE_PER_UNIT_USD = env("COST_COMPUTE_PER_UNIT_USD", default="0.00002")
+
 SOROBAN_RPC_URL = env("SOROBAN_RPC_URL", default="https://soroban-testnet.stellar.org")
 STELLAR_NETWORK_PASSPHRASE = env(
     "STELLAR_NETWORK_PASSPHRASE",
@@ -282,32 +450,62 @@ STELLAR_NETWORK_PASSPHRASE = env(
 )
 SOROSCAN_CONTRACT_ID = env("SOROSCAN_CONTRACT_ID", default="")
 INDEXER_SECRET_KEY = env("INDEXER_SECRET_KEY", default="")
+ADMIN_SECRET_KEY = env("ADMIN_SECRET_KEY", default=INDEXER_SECRET_KEY)
 
-# ---------------------------------------------------------------------------
-# GraphQL Introspection (security: disable in production)
-# ---------------------------------------------------------------------------
-# Set GRAPHQL_INTROSPECTION_ENABLED=True to allow introspection queries.
-# Defaults to True in DEBUG mode, False otherwise.
-GRAPHQL_INTROSPECTION_ENABLED = env.bool(
-    "GRAPHQL_INTROSPECTION_ENABLED",
+SOROBAN_NETWORKS = [
+    {
+        "id": "testnet",
+        "name": "Testnet",
+        "rpc_url": env("TESTNET_RPC_URL", default="https://soroban-testnet.stellar.org"),
+        "network_passphrase": "Test SDF Network ; September 2015",
+    },
+    {
+        "id": "mainnet",
+        "name": "Mainnet",
+        "rpc_url": env("MAINNET_RPC_URL", default="https://mainnet.stellar.validationcloud.io/v1/public"),
+        "network_passphrase": "Public Global Stellar Network ; September 2015",
+    },
+    {
+        "id": "futurenet",
+        "name": "Futurenet",
+        "rpc_url": env("FUTURENET_RPC_URL", default="https://soroban-futurenet.stellar.org"),
+        "network_passphrase": "Test SDF Future Network ; October 2022",
+    },
+]
+
+GRAPHQL_INTROSPECTION_ENABLED = env.bool("GRAPHQL_INTROSPECTION_ENABLED", default=DEBUG)
+GRAPHQL_MAX_COMPLEXITY = env.int("GRAPHQL_MAX_COMPLEXITY", default=1000)
+
+# N+1 query detection (issue #1290) — enabled by default in DEBUG, disabled in production.
+GRAPHQL_N1_DETECTION_ENABLED = env.bool(
+    "GRAPHQL_N1_DETECTION_ENABLED",
     default=DEBUG,
 )
+# Number of DB queries a single resolver must exceed before a warning is emitted.
+# Lower values catch smaller N+1 patterns; raise to suppress known multi-query resolvers.
+GRAPHQL_N1_DETECTION_THRESHOLD = env.int(
+    "GRAPHQL_N1_DETECTION_THRESHOLD",
+    default=5,
+)
 
-# Prometheus
-# Expose the /metrics endpoint without authentication.
-# The URL is registered in urls.py via django_prometheus.urls.
-PROMETHEUS_EXPORT_MIGRATIONS = False  # avoid migration noise in metrics
+# Contract state snapshot capture (issue #798)
+CONTRACT_SNAPSHOT_INTERVAL = env.int("CONTRACT_SNAPSHOT_INTERVAL", default=1000)
+CONTRACT_SNAPSHOT_MAX_BYTES = env.int("CONTRACT_SNAPSHOT_MAX_BYTES", default=1_048_576)
+
+WEBHOOK_ED25519_SIGNING_SEED = env("WEBHOOK_ED25519_SIGNING_SEED", default="")
+
+PROMETHEUS_EXPORT_MIGRATIONS = False
 LOG_FORMAT = env("LOG_FORMAT", default="")
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
         "default": {
-            "format": "%(asctime)s %(name)s %(levelname)s %(message)s",
+            "format": "%(asctime)s %(name)s %(levelname)s [req:%(request_id)s] %(message)s",
         },
         "json": {
             "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
-            "format": "%(asctime)s %(name)s %(levelname)s %(message)s",
+            "format": "%(asctime)s %(name)s %(levelname)s %(request_id)s %(message)s",
         },
     },
     "handlers": {
@@ -328,17 +526,13 @@ LOGGING = {
     },
 }
 
-# ---------------------------------------------------------------------------
-# Slow-query logging (Issue: perf monitoring)
-# ---------------------------------------------------------------------------
 LOGGING_SLOW_QUERIES_THRESHOLD_MS = env.int("SLOW_QUERY_THRESHOLD_MS", default=100)
+DATABASE_SLOW_QUERY_THRESHOLD = env.float("DATABASE_SLOW_QUERY_THRESHOLD", default=1.0)
 
-# Ensure log directories exist before configuring handlers
 _LOG_DIR = BASE_DIR / "logs"
 _LOG_DIR.mkdir(parents=True, exist_ok=True)
 (BASE_DIR / "logs" / "profiler").mkdir(parents=True, exist_ok=True)
 
-# Extend LOGGING to capture slow queries in a separate rotating file
 LOGGING.setdefault("loggers", {})
 LOGGING["handlers"]["slow_queries"] = {
     "level": "WARNING",
@@ -353,19 +547,53 @@ LOGGING["loggers"]["soroscan.slow_queries"] = {
     "level": "WARNING",
     "propagate": False,
 }
+LOGGING["loggers"]["soroscan.migrate"] = {
+    "handlers": ["console"],
+    "level": "INFO",
+    "propagate": False,
+}
+LOGGING["loggers"]["django.performance.database"] = {
+    "handlers": ["console"],
+    "level": "WARNING",
+    "propagate": False,
+}
+LOGGING["loggers"]["soroscan.graphql.n1_detection"] = {
+    "handlers": ["console"],
+    "level": "WARNING",
+    "propagate": False,
+}
+LOGGING["loggers"]["soroscan.graphql"] = {
+    "handlers": ["console"],
+    "level": env("GRAPHQL_RESOLVER_LOG_LEVEL", default="INFO"),
+    "propagate": False,
+}
 
-# ---------------------------------------------------------------------------
-# Django Silk profiler (Issue: perf monitoring) — enabled via ENABLE_SILK=true
-# ---------------------------------------------------------------------------
+LOGGING["handlers"]["security_audit"] = {
+    "level": "INFO",
+    "class": "logging.handlers.TimedRotatingFileHandler",
+    "filename": str(BASE_DIR / "logs" / "security_audit.log"),
+    "when": "midnight",
+    "backupCount": 30,
+    "formatter": "default",
+}
+LOGGING["loggers"]["soroscan.security_audit"] = {
+    "handlers": ["security_audit", "console"],
+    "level": "INFO",
+    "propagate": False,
+}
+
+LOGGING["loggers"]["soroscan.ip_access"] = {
+    "handlers": ["console"],
+    "level": "INFO",
+    "propagate": False,
+}
+
 SILK_PROFILER_LOG_DIR = env("SILK_PROFILER_LOG_DIR", default=str(BASE_DIR / "logs" / "profiler"))
-SILK_META_MAX_RESPONSE_SIZE = 4096  # bytes, keep overhead minimal
-SILK_MAX_RECORDED_REQUESTS = 1000   # ring-buffer per process
+SILK_META_MAX_RESPONSE_SIZE = 4096
+SILK_MAX_RECORDED_REQUESTS = 1000
 SILK_AUTHENTICATION_REQUIRED = not DEBUG
 SILK_AUTHORISATION_REQUIRED = not DEBUG
 
-# ---------------------------------------------------------------------------
-# Email backend (Issue: event-driven alerts)
-# ---------------------------------------------------------------------------
 EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.smtp.EmailBackend")
 EMAIL_HOST = env("EMAIL_HOST", default="smtp.gmail.com")
 EMAIL_PORT = env.int("EMAIL_PORT", default=587)
@@ -374,15 +602,11 @@ EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@soroscan.io")
 
-# Alert settings
 SLACK_ALERT_TIMEOUT_SECONDS = env.int("SLACK_ALERT_TIMEOUT_SECONDS", default=10)
 
-# ---------------------------------------------------------------------------
-# Event Streaming Configuration (Issue: Downstream Integration)
-# ---------------------------------------------------------------------------
 EVENT_STREAMING = {
     "enabled": env.bool("EVENT_STREAMING_ENABLED", default=False),
-    "backend": env("EVENT_STREAMING_BACKEND", default="kafka"),  # 'kafka', 'pubsub', or 'sqs'
+    "backend": env("EVENT_STREAMING_BACKEND", default="kafka"),
     "kafka": {
         "bootstrap_servers": env.list("KAFKA_BOOTSTRAP_SERVERS", default=["localhost:9092"]),
         "topic": env("KAFKA_TOPIC", default="soroscan.events"),
@@ -397,16 +621,11 @@ EVENT_STREAMING = {
     },
 }
 
-# ---------------------------------------------------------------------------
-# S3 / Archive storage configuration
-# ---------------------------------------------------------------------------
 AWS_ACCESS_KEY_ID = env("AWS_ACCESS_KEY_ID", default="")
 AWS_SECRET_ACCESS_KEY = env("AWS_SECRET_ACCESS_KEY", default="")
 AWS_S3_REGION_NAME = env("AWS_S3_REGION_NAME", default="us-east-1")
-# Set AWS_S3_ENDPOINT_URL for S3-compatible stores (MinIO, Localstack, etc.)
 AWS_S3_ENDPOINT_URL = env("AWS_S3_ENDPOINT_URL", default="")
 
-# Sentry (optional): init only when SENTRY_DSN is set. Celery task failures reported via CeleryIntegration.
 SENTRY_DSN = env("SENTRY_DSN", default="")
 if SENTRY_DSN:
     import sentry_sdk
@@ -420,3 +639,19 @@ if SENTRY_DSN:
         send_default_pii=False,
         environment=env("SENTRY_ENVIRONMENT", default="production"),
     )
+
+MAX_REQUEST_BODY_SIZE = env.int("MAX_REQUEST_BODY_SIZE", default=10485760)
+
+DEPRECATED_ENDPOINTS = {
+    "/api/audit-trail/": {
+        "sunset": "2026-12-31",
+        "replacement": "/graphql/"
+    }
+}
+
+if 'test' in sys.argv:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        }
+    }

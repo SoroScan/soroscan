@@ -1,0 +1,1 @@
+{"responses":{"200":{"content":{"application/json":{"schema":{"type":"object","properties":{"window_hours":{"type":"integer"},"generated_at":{"type":"string","format":"date-time"},"api_keys":{}},"required":["api_keys","generated_at","window_hours"],"title":"RateLimitAnalyticsResponse"}}},"description":""}}}

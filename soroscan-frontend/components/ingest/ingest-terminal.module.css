@@ -319,14 +319,15 @@
   width: 100%;
   border-collapse: collapse;
   min-width: 680px;
+  table-layout: fixed;
 }
 
 .eventTable th,
 .eventTable td {
-  padding: 0.6rem;
+  padding: 10px 12px;
   border-bottom: 1px solid rgba(123, 168, 181, 0.25);
   text-align: left;
-  vertical-align: top;
+  vertical-align: middle;
   font-size: 0.8rem;
 }
 
@@ -335,6 +336,7 @@
   text-transform: uppercase;
   letter-spacing: 0.04rem;
   background: rgba(0, 212, 255, 0.08);
+  height: 40px;
 }
 
 .eventTable code {
@@ -369,6 +371,8 @@
 
 .exportModal {
   width: min(760px, calc(100vw - 1rem));
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
   border: 1px solid #123148;
   background: linear-gradient(180deg, rgba(12, 21, 35, 0.98), rgba(6, 11, 18, 0.98));
   box-shadow: 0 0 0 1px rgba(0, 255, 156, 0.08), 0 16px 38px rgba(0, 0, 0, 0.5);
@@ -434,6 +438,51 @@
   background: rgba(0, 212, 255, 0.05);
   padding: 0.65rem;
   margin-top: 0.8rem;
+}
+
+.previewSection {
+  margin-top: 1rem;
+  border: 1px solid rgba(0, 212, 255, 0.18);
+  border-radius: 6px;
+  background: rgba(0, 10, 20, 0.86);
+  padding: 0.85rem;
+}
+
+.previewHeader {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.8rem;
+}
+
+.previewTableWrap {
+  overflow-x: auto;
+  border: 1px solid rgba(0, 212, 255, 0.18);
+  border-radius: 6px;
+}
+
+.previewTable {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 640px;
+}
+
+.previewTable th,
+.previewTable td {
+  text-align: left;
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid rgba(0, 212, 255, 0.1);
+  font-size: 0.82rem;
+}
+
+.previewTable th {
+  color: #c5f8ff;
+  font-weight: 600;
+}
+
+.previewTable tbody tr:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .progressTrack {
@@ -547,9 +596,72 @@
     text-align: center;
   }
 
+  .fieldInput,
+  .fieldRow select {
+    min-height: 44px;
+    padding: 0.65rem 0.75rem;
+  }
+
   /* Pagination stacks */
   .paginationRow {
     flex-wrap: wrap;
     justify-content: center;
   }
+}
+
+/* ── Loading skeleton styles (issue #595) ── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(123, 168, 181, 0.1) 0%,
+    rgba(0, 212, 255, 0.15) 50%,
+    rgba(123, 168, 181, 0.1) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s ease-in-out infinite;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Fade out skeleton when transitioning to content */
+.eventTable tbody tr {
+  height: 48px;
+  animation: fade-in 0.3s ease-in;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Dashboard IA (#910): vertical filter sidebar */
+.filterSidebar {
+  display: block;
+  grid-template-columns: 1fr;
+}
+
+.filterSidebarCard {
+  padding: 1rem;
+}
+
+.filterSidebar .controlGrid {
+  grid-template-columns: 1fr;
+}
+
+.filterSidebar .row {
+  flex-direction: column;
+  align-items: stretch;
 }

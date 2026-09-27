@@ -29,6 +29,8 @@ pnpm add @soroscan/sdk
 
 ## Quick Start
 
+> See [QUICKSTART.md](QUICKSTART.md) for a step-by-step walkthrough.
+
 ```ts
 import { SoroScanClient } from "@soroscan/sdk";
 
@@ -49,6 +51,17 @@ for (const event of events.items) {
 }
 ```
 
+### Promise-based usage
+
+Every method returns a native `Promise`, so `async`/`await` and `.then()`/`.catch()` chaining both work:
+
+```ts
+client
+  .getEvents({ contractId: "CCAAA...", first: 50 })
+  .then((events) => events.items.forEach((e) => console.log(e.type, e.ledger)))
+  .catch((err) => console.error("Failed to fetch events:", err));
+```
+
 ---
 
 ## API Reference
@@ -59,7 +72,7 @@ for (const event of events.items) {
 |---|---|---|---|
 | `baseUrl` | `string` | ✅ | API base URL, e.g. `https://api.soroscan.io` |
 | `apiKey` | `string` | — | API key sent as `Authorization: Bearer <key>` |
-| `timeoutMs` | `number` | — | Request timeout in ms (default: `30_000`) |
+| `timeoutMs` | `number` | — | Request timeout in ms (default: `10_000`) |
 
 ---
 
@@ -92,6 +105,23 @@ const result = await client.getEvents({
 | `endLedger` | `number` | Maximum ledger sequence |
 | `first` / `last` | `number` | Page size (max 200) |
 | `after` / `before` | `string` | Cursor for pagination |
+
+#### `client.getEventsByContracts(params)` (SC-23)
+
+Fetch a single, ledger-ordered page of events across up to ten Soroban contracts.
+
+```ts
+const events = await client.getEventsByContracts({
+  contractIds: ["CCAAA...", "CCBBB..."],
+  eventType: "transfer",
+  startLedger: 1_000_000,
+  pageSize: 100,
+});
+
+for (const event of events.results) {
+  console.log(event.contractId, event.type, event.ledger);
+}
+```
 
 ---
 
@@ -276,6 +306,36 @@ do {
   after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
 } while (after);
 ```
+
+### Paginator helper
+
+The `Paginator` class wraps any list method and exposes `hasNextPage()`, `nextPage()`,
+`previousPage()`, and `goToPage(n)` with automatic cursor/offset handling:
+Use the stateful `Paginator` class to auto-manage cursors:
+
+```ts
+import { Paginator, SoroScanClient } from "@soroscan/sdk";
+
+const client = new SoroScanClient({ baseUrl: "https://api.soroscan.io" });
+const paginator = new Paginator(
+  (params) => client.getEvents(params),
+  { contractId: "CCAAA...", first: 20 }
+);
+
+const page1 = await paginator.nextPage();
+if (paginator.hasNextPage()) {
+  await paginator.nextPage();
+}
+await paginator.goToPage(3);
+await paginator.previousPage();
+```
+
+  const page2 = await paginator.nextPage();
+}
+const page5 = await paginator.goToPage(5);
+```
+
+See also [`docs/react-hooks.md`](./docs/react-hooks.md) for Apollo-integrated React hooks.
 
 ---
 

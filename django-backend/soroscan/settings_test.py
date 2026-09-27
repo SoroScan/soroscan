@@ -1,6 +1,7 @@
 """
 Test settings for SoroScan project.
 """
+from datetime import timedelta
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -10,10 +11,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = "django-insecure-test-key-for-testing-only"
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
 ALLOWED_HOSTS = ["*"]
 FRONTEND_BASE_URL = "http://localhost:3000"
+SOFTWARE_VERSION = "1.0.0-test"
 
 # Application definition
 INSTALLED_APPS = [
@@ -34,20 +36,27 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    "django_prometheus.middleware.PrometheusBeforeMiddleware",  # must be first
+    "django_prometheus.middleware.PrometheusBeforeMiddleware",
+    "soroscan.middleware.GracefulShutdownMiddleware",
+    "soroscan.middleware.RequestBodySizeMiddleware",
+    "soroscan.middleware.MaintenanceModeMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
+    "soroscan.cors_middleware.OrgCorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "soroscan.middleware.RequestIdMiddleware",
+    "soroscan.middleware.PlatformVersionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "soroscan.middleware_gzip.CustomGZipMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "django_prometheus.middleware.PrometheusAfterMiddleware",   # must be last
+    "soroscan.middleware.ApiDeprecationMiddleware",
+    "django_prometheus.middleware.PrometheusAfterMiddleware",
 ]
 
-ROOT_URLCONF = "soroscan.urls"  # use main urls.py which has the /metrics route
+ROOT_URLCONF = "soroscan.urls_test"  # safe mirror — excludes strawberry/GDAL import
 
 TEMPLATES = [
     {
@@ -83,6 +92,9 @@ DATABASES = {
     }
 }
 
+# PostgreSQL statement timeout in milliseconds (issue #1007).
+DATABASE_STATEMENT_TIMEOUT = 5000
+
 # Password validation
 AUTH_PASSWORD_VALIDATORS = []
 
@@ -107,9 +119,14 @@ CACHES = {
     }
 }
 QUERY_CACHE_TTL_SECONDS = 60
+PACT_PROVIDER_STATES_ENABLED = True
 
 # REST Framework
 REST_FRAMEWORK = {
+    "EXCEPTION_HANDLER": "soroscan.exceptions.custom_exception_handler",
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 50,
     "DEFAULT_FILTER_BACKENDS": [
@@ -118,18 +135,36 @@ REST_FRAMEWORK = {
         "rest_framework.filters.OrderingFilter",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.IsAuthenticated",
+        "rest_framework.permissions.IsAuthenticatedOrReadOnly",
     ],
     "DEFAULT_THROTTLE_RATES": {
         "anon": "1000/hour",
         "user": "10000/hour",
         "ingest": "100/hour",
         "graphql": "500/hour",
+        "webhook_replay": "1000/hour",
+        "contract_bulk_import": "1000/hour",
+        "dedup_test": "1000/hour",
+        "events_search": "1000/hour",
+        "contract_stats": "1000/hour",
+        "db_explain": "1000/hour",
+        "unauthenticated_ip": "30/minute",
     },
+}
+
+
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ALGORITHM": "HS256",
+    "SIGNING_KEY": SECRET_KEY,
+    "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
 # CORS
 CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOWED_ORIGINS = []
 
 # Celery - Test settings (synchronous execution)
 CELERY_TASK_ALWAYS_EAGER = True
@@ -139,7 +174,13 @@ CELERY_RESULT_BACKEND = "cache+memory://"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
+SHUTDOWN_TIMEOUT_SECONDS = 30
+CELERY_WORKER_SOFT_SHUTDOWN_TIMEOUT = 30
 CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_TIME_LIMIT = 600
+CELERY_TASK_SOFT_TIME_LIMIT = 540
+CELERY_BEAT_SCHEDULE = {}  # Disabled in tests — tasks run eagerly
+REDIS_URL = "redis://localhost:6379/0"
 
 # Stellar / Soroban Configuration
 SOROBAN_RPC_URL = "https://soroban-testnet.stellar.org"
@@ -167,6 +208,13 @@ EVENT_STREAMING = {
 
 # GraphQL Introspection — enabled in tests/dev
 GRAPHQL_INTROSPECTION_ENABLED = True
+GRAPHQL_MAX_COMPLEXITY = 1000
+GRAPHQL_N1_DETECTION_ENABLED = False
+
+# Fixed test seed for deterministic webhook signature tests.
+WEBHOOK_ED25519_SIGNING_SEED = (
+    "0000000000000000000000000000000000000000000000000000000000000001"
+)
 
 # Logging
 LOGGING = {
@@ -181,4 +229,36 @@ LOGGING = {
         "handlers": ["console"],
         "level": "WARNING",
     },
+    "loggers": {
+        "soroscan.migrate": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": True,
+        },
+    },
 }
+
+MAX_REQUEST_BODY_SIZE = 10485760
+DEPRECATED_ENDPOINTS = {}
+
+# Issue #765 — webhook delivery log retention
+WEBHOOK_DELIVERY_RETENTION_DAYS = 30
+WEBHOOK_ESCALATION_TIMEOUT_SECONDS = 10
+WEBHOOK_ESCALATION_DEDUP_SECONDS = 300
+WEBHOOK_ESCALATION_SLACK_TARGET = ""
+
+# Issue #778 — cache TTL for contract name warmer
+CACHE_TTL_SECONDS = 300
+
+# Issue #798 — contract state snapshot settings
+CONTRACT_SNAPSHOT_INTERVAL = 1000
+CONTRACT_SNAPSHOT_MAX_BYTES = 1_048_576
+
+# Misc defaults needed by code under test
+DEDUP_LOG_RETENTION_DAYS = 90
+EVENT_RETENTION_DAYS = 30
+ALERT_DEDUP_WINDOW_SECONDS = 300
+WEBHOOK_MAX_RETRIES = 5
+INDEXER_SECRET_KEY = ""
+SENTRY_DSN = ""
+LOG_FORMAT = ""
