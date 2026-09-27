@@ -359,7 +359,18 @@ class SorobanClient:
         self._cache_max_size = 1000
 
     def _address_to_sc_val(self, address: str) -> SCVal:
-        """Convert a Stellar address string to SCVal."""
+        """Convert a Stellar address string to an ``SCV_ADDRESS`` SCVal.
+
+        Args:
+            address: A Stellar account address (starts with ``G``) or contract
+                address (starts with ``C``).
+
+        Returns:
+            An ``SCVal`` of type ``SCV_ADDRESS`` wrapping the decoded address.
+
+        Raises:
+            ValueError: If *address* does not start with ``G`` or ``C``.
+        """
         if address.startswith("G"):
             # Account address
             keypair = Keypair.from_public_key(address)
@@ -380,20 +391,42 @@ class SorobanClient:
         return SCVal(type=SCValType.SCV_ADDRESS, address=sc_address)
 
     def _symbol_to_sc_val(self, symbol: str) -> SCVal:
-        """Convert a string to SCVal symbol."""
+        """Convert a plain string to an ``SCV_SYMBOL`` SCVal.
+
+        Args:
+            symbol: The symbol string to encode (UTF-8).
+
+        Returns:
+            An ``SCVal`` of type ``SCV_SYMBOL``.
+        """
         return SCVal(
             type=SCValType.SCV_SYMBOL,
             sym=SCSymbol(symbol.encode("utf-8")),
         )
 
     def _bytes_to_sc_val(self, data: bytes) -> SCVal:
-        """Convert bytes to SCVal."""
+        """Convert a raw bytes value to an ``SCV_BYTES`` SCVal.
+
+        Args:
+            data: Raw bytes to wrap.
+
+        Returns:
+            An ``SCVal`` of type ``SCV_BYTES``.
+        """
         return SCVal(
             type=SCValType.SCV_BYTES,
             bytes=SCBytes(data),
         )
 
     def _get_admin_keypair(self) -> Optional[Keypair]:
+        """Return the admin ``Keypair`` derived from settings.
+
+        Prefers ``ADMIN_SECRET_KEY``; falls back to the instance's
+        ``secret_key``.  Returns ``None`` when neither is configured.
+
+        Returns:
+            A ``Keypair`` object, or ``None`` if no secret key is available.
+        """
         admin_secret = getattr(settings, "ADMIN_SECRET_KEY", "") or self.secret_key
         if not admin_secret:
             return None
@@ -405,7 +438,25 @@ class SorobanClient:
         parameters: list[SCVal],
         signer: Keypair,
     ) -> TransactionResult:
-        """Simulate, prepare, and submit a Soroban contract write transaction."""
+        """Simulate, prepare, sign, and submit a Soroban contract write transaction.
+
+        The method performs the full round-trip:
+        1. Load the source account sequence number from RPC.
+        2. Build a ``InvokeContractFunction`` transaction.
+        3. Simulate the transaction to obtain resource fees.
+        4. Prepare the transaction with the simulation footprint.
+        5. Sign and submit to the network.
+
+        Args:
+            function_name: Name of the Soroban contract function to invoke.
+            parameters: Ordered list of ``SCVal`` arguments for the function.
+            signer: The ``Keypair`` that will sign the transaction.
+
+        Returns:
+            A :class:`TransactionResult` with ``success=True`` when the
+            network accepted the transaction (status ``PENDING``), or
+            ``success=False`` with an ``error`` description on any failure.
+        """
         try:
             account = self.server.load_account(signer.public_key)
             tx_builder = TransactionBuilder(
@@ -520,10 +571,20 @@ class SorobanClient:
             return False, str(exc)
 
     def add_indexer(self, indexer_address: str) -> TransactionResult:
-        """
-        Submit an add_indexer transaction to the SoroScan contract (SC-9).
+        """Submit an ``add_indexer`` transaction to the SoroScan contract (SC-9).
 
-        The configured admin keypair must sign the transaction.
+        The configured admin keypair signs the transaction.  The contract
+        grants the provided address indexer privileges, allowing it to call
+        ``record_event`` on behalf of the platform.
+
+        Args:
+            indexer_address: Stellar address (``G...``) of the indexer to
+                authorise.
+
+        Returns:
+            A :class:`TransactionResult` describing the outcome.  ``success``
+            is ``False`` when no admin keypair is configured or when the RPC
+            call fails.
         """
         admin_keypair = self._get_admin_keypair()
         if not admin_keypair:
@@ -544,14 +605,35 @@ class SorobanClient:
         )
 
     def is_indexer(self, indexer_address: str) -> tuple[bool, Any]:
-        """Query whether an address is an authorized indexer (SC-15)."""
+        """Query whether an address holds indexer privileges on the contract (SC-15).
+
+        Executes a read-only simulation of the ``is_indexer`` contract function.
+        The result is cached in Redis for 60 seconds.
+
+        Args:
+            indexer_address: Stellar address (``G...``) to check.
+
+        Returns:
+            A ``(success, value)`` tuple.  When *success* is ``True``, *value*
+            is a ``bool`` indicating authorisation.  When *success* is
+            ``False``, *value* is an error description string.
+        """
         return self._simulate_contract_read(
             function_name="is_indexer",
             parameters=[self._address_to_sc_val(indexer_address)],
         )
 
     def get_admin(self) -> tuple[bool, Any]:
-        """Query the current contract admin address (SC-15)."""
+        """Query the current admin address stored on the contract (SC-15).
+
+        Executes a read-only simulation of the ``get_admin`` contract function.
+        The result is cached in Redis for 60 seconds.
+
+        Returns:
+            A ``(success, value)`` tuple.  When *success* is ``True``, *value*
+            is the admin's Stellar address string.  When *success* is
+            ``False``, *value* is an error description string.
+        """
         return self._simulate_contract_read(
             function_name="get_admin",
             parameters=[],
@@ -662,7 +744,32 @@ class SorobanClient:
         schema_version: int,
         correlation_id_hex: str,
     ) -> TransactionResult:
-        """Submit the SC-38 versioned and correlation-safe event invocation."""
+        """Submit a versioned, correlation-safe event record (SC-38).
+
+        Extends :meth:`record_event` with a ``schema_version`` field and a
+        ``correlation_id`` that lets consumers deduplicate or trace related
+        events across the ledger.
+
+        Args:
+            target_contract_id: Stellar contract address (``C...``) of the
+                contract that emitted the original event.
+            event_type: The type/category of the event (e.g. ``"transfer"``).
+            payload_hash_hex: Hex-encoded SHA-256 hash (32 bytes) of the event
+                payload.
+            schema_version: Integer schema version used when encoding the
+                payload, stored as ``SCV_U32`` on-chain.
+            correlation_id_hex: Hex-encoded 32-byte identifier used to
+                correlate this event with related ones.
+
+        Returns:
+            A :class:`TransactionResult` with ``success=True`` when the
+            network accepted the transaction (status ``PENDING``), or
+            ``success=False`` with an ``error`` description on any failure.
+
+        Raises:
+            ValueError: If either *payload_hash_hex* or *correlation_id_hex*
+                does not decode to exactly 32 bytes.
+        """
         if not self.keypair:
             return TransactionResult(False, "", "error", error="No keypair configured")
 
@@ -747,11 +854,24 @@ class SorobanClient:
         start_ledger: int,
         end_ledger: int,
     ) -> list[Any]:
-        """
-        Fetch contract events in an inclusive ledger range.
+        """Fetch raw contract events within an inclusive ledger range.
 
-        The caller is responsible for pagination strategy; this method fetches the
-        requested range and returns raw SDK event objects.
+        Issues a ``getEvents`` RPC call filtered to *contract_id*.  When the
+        SDK variant in use does not support the ``end_ledger`` parameter, the
+        call is retried without it and results are filtered client-side.
+
+        The caller is responsible for pagination when the range spans many
+        ledgers; this method fetches at most 200 events per call.
+
+        Args:
+            contract_id: Stellar contract address (``C...``) to filter by.
+            start_ledger: First ledger sequence to include (inclusive).
+            end_ledger: Last ledger sequence to include (inclusive).
+
+        Returns:
+            A list of raw SDK event objects whose ``ledger`` attribute falls
+            within ``[start_ledger, end_ledger]``.  Returns an empty list when
+            *start_ledger* > *end_ledger* or the RPC returns no results.
         """
         if start_ledger > end_ledger:
             return []
@@ -791,7 +911,15 @@ class SorobanClient:
         ]
 
     def _get_from_cache(self, tx_hash: str) -> Optional[InvocationData]:
-        """Check cache for unexpired entry."""
+        """Return a cached :class:`InvocationData` entry, or ``None`` if absent or expired.
+
+        Args:
+            tx_hash: Transaction hash used as the cache key.
+
+        Returns:
+            The cached :class:`InvocationData` when a non-expired entry exists,
+            otherwise ``None``.
+        """
         if tx_hash in self._invocation_cache:
             data, timestamp = self._invocation_cache[tx_hash]
             if time.time() - timestamp < self._cache_ttl:
@@ -800,8 +928,16 @@ class SorobanClient:
                 del self._invocation_cache[tx_hash]
         return None
 
-    def _add_to_cache(self, tx_hash: str, data: InvocationData):
-        """Add entry to cache with LRU eviction."""
+    def _add_to_cache(self, tx_hash: str, data: InvocationData) -> None:
+        """Store an :class:`InvocationData` entry with LRU eviction.
+
+        When the cache has reached ``_cache_max_size`` entries the oldest
+        entry (by insertion timestamp) is evicted before the new one is added.
+
+        Args:
+            tx_hash: Transaction hash used as the cache key.
+            data: Parsed invocation data to cache.
+        """
         if len(self._invocation_cache) >= self._cache_max_size:
             # Evict oldest entry
             oldest_key = min(
@@ -952,12 +1088,28 @@ class SorobanClient:
         contract_id: str,
         ledger: Optional[int] = None,
     ) -> dict[str, Any]:
-        """
-        Fetch contract persistent storage entries from Soroban RPC.
+        """Fetch persistent storage entries for a contract from Soroban RPC.
 
-        Returns a JSON-serializable dict keyed by entry identifiers. When the
-        RPC method is unavailable or fails, returns a minimal payload so callers
-        can still persist a snapshot marker.
+        Calls ``getLedgerEntries`` on the configured ``SorobanServer``.  When
+        the RPC method is unavailable or fails the method returns a minimal
+        marker payload so callers can still persist a snapshot record.
+
+        Args:
+            contract_id: Stellar contract address (``C...``) whose state to
+                retrieve.
+            ledger: Optional ledger sequence to scope the snapshot.  When
+                ``None`` the RPC returns the latest known state and the actual
+                ledger number is included in the response payload.
+
+        Returns:
+            A JSON-serialisable ``dict`` with keys:
+
+            - ``contract_id`` (*str*): echoes the input.
+            - ``ledger`` (*int | None*): ledger sequence of the snapshot, or
+              ``None`` if unavailable.
+            - ``entries`` (*dict*): mapping of entry identifiers to their
+              decoded values.  Empty when the RPC call fails or returns no
+              entries.
         """
         payload: dict[str, Any] = {
             "contract_id": contract_id,
@@ -1002,6 +1154,19 @@ class SorobanClient:
 
     @staticmethod
     def _serialize_ledger_entry_value(value: Any) -> Any:
+        """Serialize a raw ledger entry value to a JSON-safe Python type.
+
+        Tries, in order: pass-through for already-serialisable types, the
+        object's ``to_dict()`` method, its ``xdr`` attribute, and finally
+        ``str(value)`` as a last resort.
+
+        Args:
+            value: Raw ledger entry value returned by the RPC SDK.
+
+        Returns:
+            A JSON-serialisable representation: ``None``, a primitive, a
+            ``dict``, a ``list``, or a plain string.
+        """
         if value is None:
             return None
         if isinstance(value, (str, int, float, bool, list, dict)):
@@ -1110,7 +1275,15 @@ class SorobanClient:
 # ---------------------------------------------------------------------------
 
 def _get_attr_or_key(obj: Any, name: str) -> Any:
-    """Try attribute access then dict-key access; return None if neither works."""
+    """Try attribute access then dict-key access; return ``None`` if neither works.
+
+    Args:
+        obj: The object or mapping to inspect.
+        name: Attribute or key name to look up.
+
+    Returns:
+        The resolved value, or ``None`` when *name* is not present on *obj*.
+    """
     val = getattr(obj, name, None)
     if val is None and isinstance(obj, dict):
         val = obj.get(name)
@@ -1123,7 +1296,19 @@ def _set_int(
     source: Any,
     attr_names: tuple[str, ...],
 ) -> None:
-    """Write the first non-None int found in *source* under any of *attr_names* to *result[key]*."""
+    """Write the first non-``None`` integer found in *source* to ``result[key]``.
+
+    Iterates over *attr_names* and calls :func:`_get_attr_or_key` for each.
+    The first value that can be cast to ``int`` is stored and the function
+    returns immediately.  No-ops when none of the names resolve to a usable
+    integer.
+
+    Args:
+        result: The output dict to update in place.
+        key: The key in *result* to set.
+        source: Object or mapping to search for the value.
+        attr_names: Ordered tuple of attribute/key names to try on *source*.
+    """
     for name in attr_names:
         val = _get_attr_or_key(source, name)
         if val is not None:

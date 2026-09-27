@@ -80,6 +80,18 @@ from .rate_limit import check_ingest_rate
 from .stellar_client import SorobanClient
 from .metrics import webhook_payload_bytes
 from .streaming import get_producer
+from .constants import (
+    CACHE_KEY_WEBHOOK_DEDUP,
+    CACHE_KEY_WEBHOOK_ESCALATION,
+    CACHE_KEY_DEPENDENCY_CHANGE,
+    CACHE_KEY_ALERT_DEDUP,
+    CACHE_KEY_BUDGET_ALERT,
+    NOTIFICATION_TYPE_WEBHOOK_FAILURE,
+    NOTIFICATION_TYPE_ALERT,
+    NOTIFICATION_TYPE_CONTRACT_HEALTH,
+    NOTIFICATION_TITLE_WEBHOOK_SUSPENDED,
+    NOTIFICATION_TITLE_DEPENDENCY_CHANGE,
+)
 
 logger = logging.getLogger(__name__)
 BATCH_LEDGER_SIZE = 200
@@ -882,7 +894,7 @@ def dispatch_webhook(self, subscription_id: int, event_id: int, replay: bool = F
                 sort_keys=True,
             )
             dedup_hash = hashlib.sha256(dedup_material.encode("utf-8")).hexdigest()
-            dedup_key = f"soroscan:webhooks:dedup:{subscription_id}:{dedup_hash}"
+            dedup_key = f"{CACHE_KEY_WEBHOOK_DEDUP}:{subscription_id}:{dedup_hash}"
             if not cache.add(dedup_key, "1", timeout=dedup_window):
                 logger.info(
                     "Deduplicated webhook delivery for subscription=%s event=%s",
@@ -1530,7 +1542,7 @@ def _escalation_dedup_key(
     threshold: int,
 ) -> str:
     return (
-        f"soroscan:webhook_escalation:{webhook_id}:{event_id or 'none'}:"
+        f"{CACHE_KEY_WEBHOOK_ESCALATION}:{webhook_id}:{event_id or 'none'}:"
         f"{channel}:{threshold}"
     )
 
@@ -1690,8 +1702,8 @@ def _on_delivery_failure(
             owner = webhook.contract.owner
             create_and_push(
                 user=owner,
-                notification_type="webhook_failure",
-                title="Webhook Suspended",
+                notification_type=NOTIFICATION_TYPE_WEBHOOK_FAILURE,
+                title=NOTIFICATION_TITLE_WEBHOOK_SUSPENDED,
                 message=(
                     f"Webhook to {webhook.target_url} for contract "
                     f"'{webhook.contract.name}' has been suspended after "
@@ -2284,13 +2296,13 @@ def alert_downstream_contract_change(contract_id: str, change_type: str = "modif
     notified = 0
     dedup_ttl = int(getattr(settings, "DOWNSTREAM_ALERT_DEDUP_SECONDS", 3600))
     for dep in dependents:
-        cache_key = f"soroscan:dependency_change:{dep.caller_id}:{dep.callee_id}:{change_type}"
+        cache_key = f"{CACHE_KEY_DEPENDENCY_CHANGE}:{dep.caller_id}:{dep.callee_id}:{change_type}"
         if not cache.add(cache_key, "1", timeout=dedup_ttl):
             continue
         create_and_push(
             user=dep.caller.owner,
-            notification_type="alert",
-            title="Dependency Change Detected",
+            notification_type=NOTIFICATION_TYPE_ALERT,
+            title=NOTIFICATION_TITLE_DEPENDENCY_CHANGE,
             message=(
                 f"Dependency contract '{changed_contract.name}' ({changed_contract.contract_id}) "
                 f"was {change_type}. This may impact '{dep.caller.name}'."
@@ -3273,7 +3285,7 @@ def send_alert(self, rule_id: int, event_id: int) -> str:
         sort_keys=True,
     )
     dedup_hash = hashlib.sha256(dedup_material.encode("utf-8")).hexdigest()
-    dedup_key = f"soroscan:alerts:dedup:{rule.id}:{dedup_hash}"
+    dedup_key = f"{CACHE_KEY_ALERT_DEDUP}:{rule.id}:{dedup_hash}"
     if not cache.add(dedup_key, "1", timeout=dedup_window):
         _get_metrics().alert_deduplicated_total.labels(scope="alert_rule").inc()
         logger.info(
@@ -3505,12 +3517,12 @@ def _emit_budget_alerts(
     for threshold, level in thresholds:
         if utilization < _decimal(threshold):
             continue
-        dedup_key = f"soroscan:budget_alert:{org.id}:{month_tag}:{threshold}"
+        dedup_key = f"{CACHE_KEY_BUDGET_ALERT}:{org.id}:{month_tag}:{threshold}"
         if not cache.add(dedup_key, "1", timeout=3600):
             continue
         create_and_push(
             user=org.owner,
-            notification_type="alert",
+            notification_type=NOTIFICATION_TYPE_ALERT,
             title=f"Budget {level.title()} Threshold Reached",
             message=(
                 f"Projected monthly cost is ${snapshot.projected_monthly_cost_usd} "
@@ -3952,7 +3964,7 @@ def send_health_alert(contract_id: str, status: str, message: str) -> str:
             title=f"Contract Health Alert: {status.upper()}",
             message=f"Contract '{contract.name or contract.contract_id}' status changed to {status}: {message}",
             link=f"/contracts/{contract.contract_id}",
-            notification_type="contract_health",
+            notification_type=NOTIFICATION_TYPE_CONTRACT_HEALTH,
         )
     return "sent"
 
