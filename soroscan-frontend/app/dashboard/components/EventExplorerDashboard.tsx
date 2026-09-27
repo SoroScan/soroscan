@@ -467,6 +467,7 @@ export function EventExplorerDashboard() {
                     borderColor: "rgba(0, 255, 156, 0.6)",
                   }}
                   onClick={() => setNewEventsCount(0)}
+                  aria-label={`Dismiss ${newEventsCount} new event notification${newEventsCount !== 1 ? "s" : ""}`}
                 >
                   {newEventsCount} new event{newEventsCount !== 1 ? "s" : ""}
                 </button>
@@ -485,6 +486,8 @@ export function EventExplorerDashboard() {
                     setNewEventsCount(0);
                   }
                 }}
+                aria-label={isPaused ? "Resume live event updates" : "Pause live event updates"}
+                aria-pressed={isPaused}
               >
                 {isPaused ? "▶ Resume" : "⏸ Pause"}
               </button>

@@ -26,6 +26,7 @@ from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.pagination import PageNumberPagination
 
 import requests as http_requests
@@ -92,7 +93,27 @@ logger = logging.getLogger(__name__)
 class StandardResultsSetPagination(PageNumberPagination):
     page_size = 50
     page_size_query_param = "page_size"
-    max_page_size = 1000
+    max_page_size = 100
+
+    def get_page_size(self, request):
+        page_size_param = request.query_params.get(self.page_size_query_param)
+        if page_size_param is not None:
+            try:
+                page_size = int(page_size_param)
+            except (ValueError, TypeError):
+                raise DRFValidationError(
+                    {"page_size": "page_size must be a valid integer."}
+                )
+            if page_size <= 0:
+                raise DRFValidationError(
+                    {"page_size": "page_size must be greater than 0."}
+                )
+            if page_size > self.max_page_size:
+                raise DRFValidationError(
+                    {"page_size": f"page_size must be <= {self.max_page_size}."}
+                )
+            return page_size
+        return self.page_size
 
 
 class AdminActionSerializer(serializers.ModelSerializer):
@@ -679,7 +700,7 @@ class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
         - payload_field     — dot-notation field path, e.g. decodedPayload.to
         - payload_op        — operator: eq|neq|gte|lte|gt|lt|contains|startswith|in
         - payload_value     — value for field comparison
-        - page / page_size  — pagination (max 1000 per page)
+        - page / page_size  — pagination (max 100 per page)
         """
         qs = ContractEvent.objects.select_related("contract").all()
 
@@ -741,12 +762,37 @@ class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
                 qs = qs.filter(**{f"{orm_path}{suffix}": payload_value})
 
         # --- pagination -------------------------------------------------------
+        # Validate page / page_size strictly: invalid values return 400.
+        # Maximum page size enforced at 100 (issue #1433).
         try:
-            page = max(1, int(request.GET.get("page", 1)))
-            page_size = min(max(1, int(request.GET.get("page_size", 50))), 1000)
+            page = int(request.GET.get("page", 1))
         except (ValueError, TypeError):
-            page = 1
-            page_size = 50
+            return Response(
+                {"detail": "page must be a valid integer greater than 0."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if page <= 0:
+            return Response(
+                {"detail": "page must be greater than 0."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            page_size = int(request.GET.get("page_size", 50))
+        except (ValueError, TypeError):
+            return Response(
+                {"detail": "page_size must be a valid integer greater than 0."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if page_size <= 0:
+            return Response(
+                {"detail": "page_size must be greater than 0."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if page_size > 100:
+            return Response(
+                {"detail": "page_size must be <= 100."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         qs = qs.order_by("-timestamp")
         cache_key = stable_cache_key(

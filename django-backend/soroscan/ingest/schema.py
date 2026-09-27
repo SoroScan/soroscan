@@ -75,7 +75,6 @@ class ContractType:
     contract_id: auto
     name: auto
     alias: auto
-    description: auto
     is_active: auto
     last_event_at: auto
     deprecation_status: auto
@@ -84,6 +83,11 @@ class ContractType:
     event_filter_list: strawberry.scalars.JSON
     metadata: strawberry.scalars.JSON
     created_at: auto
+
+    @strawberry.field
+    def description(self) -> str:
+        """Return empty string fallback when description is None (issue #1438)."""
+        return self.description or ""
 
     @strawberry.field
     def verification_status(self) -> Optional[str]:

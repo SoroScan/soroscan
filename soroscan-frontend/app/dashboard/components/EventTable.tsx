@@ -108,6 +108,7 @@ export function EventTable({
                 padding: 0,
               }}
               title={`Remove ${tag}`}
+              aria-label={`Remove tag ${tag} from event ${event.id}`}
             >
               x
             </button>
@@ -121,6 +122,7 @@ export function EventTable({
           list={`event-tag-suggestions-${event.id}`}
           value={tagInputs[event.id] ?? ""}
           placeholder="add tag"
+          aria-label={`Add tag to event ${event.id}`}
           onClick={(clickEvent) => clickEvent.stopPropagation()}
           onChange={(changeEvent) => {
             const value = changeEvent.target.value;
@@ -155,6 +157,7 @@ export function EventTable({
             setTagInputs((prev) => ({ ...prev, [event.id]: "" }));
           }}
           title="Add tag"
+          aria-label={`Add tag to event ${event.id}`}
         >
           +
         </button>
@@ -418,6 +421,7 @@ export function EventTable({
                         );
                       }}
                       title="Copy contract ID"
+                      aria-label={`Copy contract ID ${event.contractId}`}
                     >
                       {copiedId === `contract-${event.id}` ? "✓" : "📋"}
                     </button>
@@ -448,6 +452,7 @@ export function EventTable({
                     onClick={(clickEvent) => {
                       clickEvent.stopPropagation();
                     }}
+                    aria-label={`View ledger ${event.ledger} for event ${event.id}`}
                   >
                     {event.ledger}
                   </button>
@@ -477,6 +482,7 @@ export function EventTable({
                         void copyToClipboard(event.txHash, `tx-${event.id}`);
                       }}
                       title="Copy transaction hash"
+                      aria-label={`Copy transaction hash ${event.txHash}`}
                     >
                       {copiedId === `tx-${event.id}` ? "✓" : "📋"}
                     </button>
@@ -497,6 +503,7 @@ export function EventTable({
                       clickEvent.stopPropagation();
                       onEventClick(event);
                     }}
+                    aria-label={`View details for event ${event.id}`}
                   >
                     View
                   </button>
