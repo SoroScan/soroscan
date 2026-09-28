@@ -203,3 +203,65 @@ async def test_async_concurrent_requests(
         assert contracts[0].name == "Contract 1"
         assert contracts[1].name == "Contract 2"
         assert contracts[2].name == "Contract 3"
+
+
+@pytest.mark.asyncio
+async def test_async_client_module_issue_1220_uses_httpx_async_client(
+    base_url: str,
+) -> None:
+    import httpx
+    from soroscan.async_client import AsyncSoroscanClient
+
+    client = AsyncSoroscanClient(base_url=base_url)
+    assert isinstance(client._client, httpx.AsyncClient)
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_async_client_module_issue_1220_list_events(
+    base_url: str,
+    sample_event_data: dict,
+    sample_paginated_response: dict,
+    httpx_mock: HTTPXMock,
+) -> None:
+    from soroscan.async_client import AsyncSoroscanClient
+
+    response_data = sample_paginated_response.copy()
+    response_data["results"] = [sample_event_data]
+    httpx_mock.add_response(
+        url=f"{base_url}/api/events/?page=1&page_size=50&ordering=-timestamp",
+        json=response_data,
+    )
+
+    async with AsyncSoroscanClient(base_url=base_url) as client:
+        result = await client.list_events()
+
+    assert result.count == 100
+    assert len(result.results) == 1
+    assert isinstance(result.results[0], ContractEvent)
+
+
+@pytest.mark.asyncio
+async def test_async_client_module_issue_1220_subscribe(
+    base_url: str,
+    sample_webhook_data: dict,
+    httpx_mock: HTTPXMock,
+) -> None:
+    from soroscan.async_client import AsyncSoroscanClient
+
+    httpx_mock.add_response(
+        url=f"{base_url}/api/webhooks/",
+        status_code=201,
+        json=sample_webhook_data,
+    )
+
+    async with AsyncSoroscanClient(base_url=base_url) as client:
+        subscription = await client.subscribe(
+            contract_id=1,
+            target_url="https://example.com/webhook",
+            event_type="transfer",
+        )
+
+    assert subscription.id == 1
+    assert subscription.contract == 1
+    assert subscription.event_type == "transfer"

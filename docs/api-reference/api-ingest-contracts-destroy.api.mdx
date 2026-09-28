@@ -1,0 +1,78 @@
+---
+id: api-ingest-contracts-destroy
+title: "api_ingest_contracts_destroy"
+description: "ViewSet for managing tracked contracts."
+sidebar_label: "api_ingest_contracts_destroy"
+hide_title: true
+hide_table_of_contents: true
+api: eJztVMFu2zAM/RWBpw1Qk27YybcCTYsOxVY06XZog4KxmFirLakSnTYw/O8D7dRt02w77LLDTraIR+qJfI8N+EAR2Xp3ZiADDPbWuhUlvs2944g5p1tDiaPfgAZDKY82CBwy+GbpYUqslj6qCh2urFspybkjo4b00Y27cRNngreOU3bjDtTpZKbGA2CsDtS5TaywLN+mC/7i63Q34ZJWNjFFhcrRwwDfU72xppWMU+IBpgwx2rIvfrUXfhUMMr0qfDw5n8wm+8DHVNIOeB8LWpPr6QuZ/tR170+JifE5b3iERG1imyfQEDBiRUwxQXbdgJUBBeQCNDisCDKwBjSkvKAKIWuAN6GLOqYVRWh3p3ukamfva1JbhFpjKSdDju1y0826sOnNxEagIdJ9bSMZyDjW1M41MK6EmAgM5hoS5XW0vOm4/njgo5oLyK7nAo2UgneJkrD8ePhJPq+pffHqCaQW3mygbTVUxIUXDZtuGF1LpCiMMdhxL+rdvsIzk6k0pr9z4DM0qWAOT82T84IwUgS9/TnxsUKGDD5/n3VcrFv6Lt1yKfipj36ao1NHF2egYU0x9S/5MDocHb4x1uVkOhOoMj6vK3LcGbRTylMlrVBNmcoS+9gCnUoVxhfysM7QI8WRjDb4xBU64bRVAwar+qY8e039wukNCIQc/zf9v2X6rTyZHnkcSrROZl3HUkbWq793nChSRg0ahktAQ9atBPFj4RMLuGkWmOgqlm0r4fuaonh0rmGN0eJC1HzdgLFJ/g1kSywT/UYu7y63q+C9+puFsveh2yA6EWxXDDIADXe06dddO3+5F/pJggZ8be4dM3cP3Fu6aXrEzN+Ra9vhJpazXNa2PwG4Z4l4
+sidebar_class_name: "delete api-method"
+info_path: api-reference/soroscan-api
+custom_edit_url: null
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"api_ingest_contracts_destroy"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"delete"}
+  path={"/api/ingest/contracts/{id}/"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+ViewSet for managing tracked contracts.
+
+Endpoints:
+- GET /contracts/ - List all tracked contracts
+- POST /contracts/ - Register a new contract
+- GET /contracts/\{id\}/ - Get contract details
+- PUT /contracts/\{id\}/ - Update contract
+- DELETE /contracts/\{id\}/ - Delete contract
+- GET /contracts/\{id\}/events/ - Get events for contract
+- GET /contracts/\{id\}/stats/ - Get contract statistics
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./api-ingest-contracts-destroy.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./api-ingest-contracts-destroy.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./api-ingest-contracts-destroy.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

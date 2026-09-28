@@ -1,0 +1,77 @@
+---
+id: api-ingest-webhooks-retrieve
+title: "api_ingest_webhooks_retrieve"
+description: "ViewSet for managing webhook subscriptions."
+sidebar_label: "api_ingest_webhooks_retrieve"
+hide_title: true
+hide_table_of_contents: true
+api: eJztV21v2zYQ/isHfmoHxXnZGgwGNiBovHZDuhR1ug2IA/UsnWU2FKmSpySeof8+HGm5fttrv+6TJerh3XPHu4fnpXINeWTt7I+lGipsdK5tRYHzR5rOnbsPuSf2mh5IZaqkUHjdCFwN1S+aHsfEMHMearRYaVvBahuEdrrGhsHETuzIlo3TlsNwYo/g1egGjnsfx3AEVzowoDG9hSCot9fjHdhLT8gECJYee+i+vaUuO0G/Il4zKolRm2T2/SHw+6YU0xtGL0dXo5vRAeglGdqG7jCNQKbAgh6TLQFBXvstKlMNeqyJyQc1vF0qLSltkOcqUxZrUkOlS5WpUMypRjVcKl40cdUyVeRVt3seF9Ba/aklWCHgAY28lWRZzxZyOjzX4eARDVSmPH1qtadSDdm31N1lirESclIW6i5TgYrWa15Evh8f+aLluRre3nXZUtCeQuNsoCBkz05O5KdwlsmyPGLTGF3EWjv+GITxcj84N/1IBe+V2pi8RqN/Jx+r7dcUwXgjAKhdSWYwsS+dnemq9RSA+ooDduCpIP1AQA9kGRpcGIdlgMc5WaiRizkFcEXReklF46UvWKdYdHkg/RIvltfWLFb5ymKwHgs+iN4O6OUKKsxqZzW7eKC9hXzLZWCvbXXIYwwmT7B9+LbLUQxcMDDThsnDs6lBew/fxbaLpsJzlakan67IVnK2pycnnZSBr4jz1ptDXmbO18hqqFqv95y+f3clIcbuSJkvkRHYbfs5i350yLFg/bAZzNQ5Q2glOUFXFrn1lKOpnNc8r2NdGXM9iyVJtq2lXMMcz16cS+/M8VQK968T8xV8SDs+SK++vjg6e3E+sWn1tF87hWeGKiwWkiHWbMTguGd00RMaCQVphm0Xr99cvIQ1a2gDlbGQfzsaO+/GBdqjtS2YE5bko2b+W2pdprC4z5OFPMnI39XF65ubt9D37so58BwZ6jYwTAkaTyHWjgMs7q17NFRWlDqq4cH2UZ5/s00iitA/qM6nhgqmctNDLU5XhKKZHVenZ99GETT6gfwiDwbzQIWzZTjYgTU+6Voq5Ovzk5NM1dqm19M9tbm6gFTzoC2sTMbzCm1RUAiz1kDvdpdwGMgpUCjQRK3LG2d0sRBG216ufUmeSvgMhQQFowNnQINqALfLiSrmaC2ZiRrCRAWDxf1EZTBZtWVaHgwGaRFnTD6foTYigfLxrLsbwCXNsDVJCcdiAo6+h/Gbsfy8xYr8ZcuLJIZUN7yIQSSZyCV8nUgvlW2NwalUv0jQbuau4wMa+Gl8/TOsN8Ll+CoVvQixa3klw5HO5p0U3Rbxii9z5L+UG7msj1jXdEgYDQbO2euqonij/Sc72U60kpKU2LxwrT2s8ztUus179fbzFbGt9VtB73rJ0iCwE9KWLN991qQDd6Pqur1hQclSTTx3MvdVxHEika5Sx9jo4zQF7gw06vMMMJabO12P60lgnY05c9OPLlHECX1MTnr4oU/9T7/eRB7azlzc3uvqShTh4u2PKlMP5ENifTo4GZzsace70fhGoFC6opUeTN0kDdtbygBhzGQMprUpWgg1eob+GEDbkp7IxxJsXOAaU8GnWQwbDSkn6wEV/mwy3hh7/h+Sv2xIXhUU0xMfNwZ1HARWg0gq1zSdSg3J4ahM9eZVpoaxcaQ75i6wYJfLKQZ6703XyfKnlryMs3eZekCvU6vfLlWpgzyXajhDE3ZlbvN8n71bdfdz+NL5+2Csq0W0C2mEdJcqlal7WqR/CN1dl6l0SUbq6cNFUVDDG1v2pm8ZUtb9/2p0ozKF212807XR+kE6y2VC3Lh7sl23ZsfyLgS77g9FZfuJ
+sidebar_class_name: "get api-method"
+info_path: api-reference/soroscan-api
+custom_edit_url: null
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"api_ingest_webhooks_retrieve"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"get"}
+  path={"/api/ingest/webhooks/{id}/"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+ViewSet for managing webhook subscriptions.
+
+Endpoints:
+- GET /webhooks/ - List all webhooks
+- POST /webhooks/ - Create a new webhook
+- GET /webhooks/\{id\}/ - Get webhook details
+- PUT /webhooks/\{id\}/ - Update webhook
+- DELETE /webhooks/\{id\}/ - Delete webhook
+- POST /webhooks/\{id\}/test/ - Send a test webhook
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./api-ingest-webhooks-retrieve.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./api-ingest-webhooks-retrieve.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./api-ingest-webhooks-retrieve.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

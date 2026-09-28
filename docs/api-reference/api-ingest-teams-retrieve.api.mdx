@@ -1,0 +1,73 @@
+---
+id: api-ingest-teams-retrieve
+title: "api_ingest_teams_retrieve"
+description: "Teams: multi-tenant organization of contracts and members."
+sidebar_label: "api_ingest_teams_retrieve"
+hide_title: true
+hide_table_of_contents: true
+api: eJzlVNuO2zYQ/RVi0IddhL4kT63e9mETpCiQIHZRoI5rjMWxzI1EKuRos44gIB+RL8yXFENqHXsv/YE+iaQ4wzPnnJkefEsB2Xr31kAB2NqNdRVF3jBhEzeBOFi6JdBgKJbBtnIXCljK70I1Xc12wuTQsfKhQme/pnTK71TpHQcsOSp0RjXUbCnE6Uf30U3Um+ulmqU3ZurHt+8qLRXvSZVdCORYdZGC2lLtXRUVewl6/25xHlUGQiaFKVxdpK2XqNI3FBWaxrrLh5G9NcNsRJPToDEK84MXKUZ5Vx8uQUOLARtiChGKVQ9WSm+R96DBYUNQgDWgIZZ7ahCKHvjQymnkYF0Fg4ZAnzsbyEDBoaNhrYGxkmxCNqw1RCq7YPmQHrj5wlcd76FYreVqoNh6FylK6lfzuXyEVXIsS2zb2paJ79lNFF36x1D89oZKflJAdfGsfpdTtai7StmosGM/wRht5cgo70bWp0JPEP+wzQCtOXnWOqaKAkgRaN65+jAycM/cQ640NHj3B7lKyn/56tdBQ6y76qmL5xlFJWYKUtU/qwlOvl5N/p5PftusX/wiCmS4ZoP8VK6dD438AYNME7YNPYZ8JuPqNKHO+qeKRryisOWaRo5hkPBz7kGOGuK9l6ariJPTpG6YYWtnuQVP7Qo/fbIQgTPhR7ccy9ozt/d+lP2WMCQR8uL1fbG//7VMIKzb+RQ+Il744BclOnX1/i1ouKUQM+SX0/l0/shEH64XS7mqjC+7hhzn3t/5oO4zaYVqwVTXmM+26FRsMPBxPCjrDN1RmIpYrY/cYHLy2GDYWpUJGYfEczPppDX+L+NpVJ3pjmdtjdYJhV2ohYxsqDxmRGhhUELkEdBQJOOKW/c+slzs+y1G+jPUwyDHnzsKMpTWGm4xWNyKQVY9GBtlbaDYYR3pP0S4+DA2zaV6Dut4iO4gbsO6kx1o+ESHPFuH9aBhT2gopNfzj6uypJZPQh5NQpmexw57c70EDXjeKg9aI2V/Ek7f5xtL/4ncMBzRsewF4DD8C+ragJE=
+sidebar_class_name: "get api-method"
+info_path: api-reference/soroscan-api
+custom_edit_url: null
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"api_ingest_teams_retrieve"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"get"}
+  path={"/api/ingest/teams/{id}/"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+Teams: multi-tenant organization of contracts and members.
+
+- GET /teams/ — teams the current user belongs to
+- POST /teams/ — create a team (creator becomes admin)
+- POST /teams/\{id\}/members/ — add a user (admin only)
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./api-ingest-teams-retrieve.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./api-ingest-teams-retrieve.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./api-ingest-teams-retrieve.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

@@ -1,0 +1,1 @@
+{"parameters":[{"in":"query","name":"batch_id","schema":{"type":"integer"},"required":true}]}

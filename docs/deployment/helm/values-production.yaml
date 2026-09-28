@@ -1,0 +1,38 @@
+replicaCount: 3
+image:
+  repository: your-registry/soroscan-backend
+  tag: v1.0.0
+  pullPolicy: IfNotPresent
+resources:
+  requests:
+    cpu: 500m
+    memory: 1024Mi
+  limits:
+    cpu: 1000m
+    memory: 2048Mi
+service:
+  type: ClusterIP
+ingress:
+  enabled: true
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+  hosts:
+    - host: api.example.com
+      paths:
+        - /
+env:
+  DATABASE_URL: "postgres://user:pass@postgres.svc.cluster.local:5432/soroscan"
+  REDIS_URL: "redis://redis.svc.cluster.local:6379/0"
+secrets:
+  django_secret_key: "REPLACE_ME"
+celery:
+  worker:
+    replicaCount: 3
+    resources:
+      requests:
+        cpu: 300m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1024Mi

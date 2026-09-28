@@ -52,6 +52,17 @@ query GetContractWithEvents($id: String!) {
 }
 ```
 
+### Query Complexity Limits
+
+Queries are scored for estimated cost and rejected before execution if they
+exceed the configured limit — see the
+[GraphQL Query Complexity guide](api-reference/graphql-query-complexity.md)
+for how scoring works and how to stay under it.
+
+### Evolving the Schema
+
+Adding fields, deprecating fields, renaming types, and versioning strategy for the GraphQL schema are covered in the [GraphQL Schema Migration Guide](api-reference/graphql-schema-migration.md).
+
 ---
 
 ## Status Codes
@@ -73,5 +84,17 @@ query GetContractWithEvents($id: String!) {
 By default, the API is limited to:
 - **60 requests per minute** for public endpoints.
 - **500 requests per minute** for authenticated users.
+
+All throttled endpoints return standard rate-limit headers:
+
+```http
+RateLimit-Limit: 500
+RateLimit-Remaining: 432
+RateLimit-Reset: 1714508459
+```
+
+- `RateLimit-Limit`: Total requests allowed in the active window.
+- `RateLimit-Remaining`: Requests left in the active window.
+- `RateLimit-Reset`: Unix timestamp when the current window resets.
 
 If you need higher limits, please contact us at support@soroscan.io.
