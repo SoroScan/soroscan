@@ -3,10 +3,11 @@
 import time
 from types import SimpleNamespace
 
+from django.http import HttpResponse
 from django.test import RequestFactory, TestCase
 from prometheus_client import REGISTRY
 
-from soroscan.middleware import RequestLatencyMiddleware
+from soroscan.middleware import RequestLatencyMiddleware, ResponseTimeMiddleware
 
 
 class RequestLatencyMiddlewareTests(TestCase):
@@ -42,3 +43,16 @@ class RequestLatencyMiddlewareTests(TestCase):
         )
         self.assertIsNotNone(value)
         self.assertGreaterEqual(value, 1.0)
+
+    def test_adds_response_time_header(self):
+        def get_response(request):
+            time.sleep(0.001)
+            return HttpResponse(status=200)
+
+        middleware = ResponseTimeMiddleware(get_response)
+        request = RequestFactory().get("/api/v1/events/")
+
+        response = middleware(request)
+
+        self.assertIn("X-Response-Time", response)
+        self.assertGreaterEqual(float(response["X-Response-Time"]), 0)

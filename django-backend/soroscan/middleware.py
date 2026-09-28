@@ -75,6 +75,22 @@ class RequestIdMiddleware(MiddlewareMixin):
         return response
 
 
+class ResponseTimeMiddleware(MiddlewareMixin):
+    """Add request processing time to the response headers."""
+
+    def process_request(self, request):
+        request._response_time_start = time.perf_counter()
+
+    def process_response(self, request, response):
+        start = getattr(request, "_response_time_start", None)
+
+        if start is not None:
+            duration_ms = (time.perf_counter() - start) * 1000
+            response["X-Response-Time"] = f"{duration_ms:.2f}"
+
+        return response
+
+
 class PlatformVersionMiddleware(MiddlewareMixin):
     """Attach platform version metadata to every response."""
 
