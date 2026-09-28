@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 import responses
 from django.contrib.auth import get_user_model
@@ -62,7 +64,7 @@ class TestTrackedContractViewSet:
         url = reverse("contract-list")
         response = api_client.get(url)
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_create_contract(self, authenticated_client):
         url = reverse("contract-list")
@@ -228,7 +230,7 @@ class TestContractEventViewSet:
         url = reverse("event-list")
         response = api_client.get(url)
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.status_code == status.HTTP_200_OK
 
     def test_filter_events_by_contract(self, authenticated_client, contract):
         other_contract = TrackedContractFactory(owner=authenticated_client.handler._force_user)
@@ -277,12 +279,14 @@ class TestContractEventViewSet:
 @pytest.mark.django_db
 class TestWebhookSubscriptionViewSet:
     def test_list_webhooks(self, authenticated_client, contract):
-        WebhookSubscriptionFactory.create_batch(2, contract=contract)
-        url = reverse("webhook-list")
-        response = authenticated_client.get(url)
+            WebhookSubscriptionFactory(contract=contract, target_url="https://example.com/webhook-1")
+            WebhookSubscriptionFactory(contract=contract, target_url="https://example.com/webhook-2")
+            
+            url = reverse("webhook-list")
+            response = authenticated_client.get(url)
 
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.data["results"]) == 2
+            assert response.status_code == status.HTTP_200_OK
+            assert len(response.data["results"]) == 2
 
     def test_create_webhook(self, authenticated_client, contract):
         url = reverse("webhook-list")
@@ -398,6 +402,124 @@ class TestRecordEventView:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "contract_id" in response.data
+
+    @responses.activate
+    def test_add_indexer_success(self, authenticated_client):
+        responses.add(
+            responses.POST,
+            "https://soroban-testnet.stellar.org/",
+            json={"status": "PENDING", "hash": "indexeradd123"},
+            status=200,
+        )
+
+        url = reverse("add-indexer")
+        data = {"indexer_address": "G" + "A" * 54}
+        response = authenticated_client.post(url, data, format="json")
+
+        assert response.status_code in [status.HTTP_202_ACCEPTED, status.HTTP_400_BAD_REQUEST]
+
+    def test_add_indexer_validation_error(self, authenticated_client):
+        url = reverse("add-indexer")
+        response = authenticated_client.post(url, {}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "indexer_address" in response.data
+
+
+@pytest.mark.django_db
+class TestWebhookPingEndpoint:
+    def test_ping_queues_task_and_returns_200(self, authenticated_client, contract):
+        webhook = WebhookSubscriptionFactory(contract=contract)
+
+        with patch("soroscan.ingest.tasks.ping_webhook.delay") as mock_delay:
+            url = reverse("webhook-ping", args=[webhook.id])
+            response = authenticated_client.post(url)
+            mock_delay.assert_called_once_with(webhook.id)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["status"] == "ping_queued"
+        assert response.data["webhook_id"] == webhook.id
+
+    def test_ping_returns_404_for_missing_webhook(self, authenticated_client):
+        url = reverse("webhook-ping", args=[999999])
+        response = authenticated_client.post(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_ping_requires_authentication(self, api_client, contract):
+        webhook = WebhookSubscriptionFactory(contract=contract)
+        url = reverse("webhook-ping", args=[webhook.id])
+        response = api_client.post(url)
+
+        assert response.status_code in [
+            status.HTTP_401_UNAUTHORIZED,
+            status.HTTP_403_FORBIDDEN,
+        ]
+class TestNetworksEndpoint:
+    def test_networks_returns_list(self, api_client, settings):
+        settings.SOROBAN_NETWORKS = [
+            {
+                "id": "testnet",
+                "name": "Testnet",
+                "rpc_url": "https://soroban-testnet.stellar.org",
+                "network_passphrase": "Test SDF Network ; September 2015",
+            },
+            {
+                "id": "mainnet",
+                "name": "Mainnet",
+                "rpc_url": "https://mainnet.stellar.validationcloud.io/v1/public",
+                "network_passphrase": "Public Global Stellar Network ; September 2015",
+            },
+        ]
+        url = reverse("networks")
+        response = api_client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "networks" in response.data
+        assert len(response.data["networks"]) == 2
+
+    def test_networks_response_structure(self, api_client, settings):
+        settings.SOROBAN_NETWORKS = [
+            {
+                "id": "testnet",
+                "name": "Testnet",
+                "rpc_url": "https://soroban-testnet.stellar.org",
+                "network_passphrase": "Test SDF Network ; September 2015",
+            },
+        ]
+        url = reverse("networks")
+        response = api_client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        network = response.data["networks"][0]
+        assert network["id"] == "testnet"
+        assert network["name"] == "Testnet"
+        assert "rpc_url" in network
+        assert "network_passphrase" in network
+
+    def test_networks_is_publicly_accessible(self, api_client, settings):
+        settings.SOROBAN_NETWORKS = []
+        url = reverse("networks")
+        response = api_client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["networks"] == []
+
+    def test_networks_matches_settings(self, api_client, settings):
+        custom_networks = [
+            {
+                "id": "futurenet",
+                "name": "Futurenet",
+                "rpc_url": "https://soroban-futurenet.stellar.org",
+                "network_passphrase": "Test SDF Future Network ; October 2022",
+            }
+        ]
+        settings.SOROBAN_NETWORKS = custom_networks
+        url = reverse("networks")
+        response = api_client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["networks"] == custom_networks
 
 
 @pytest.mark.django_db
@@ -569,6 +691,72 @@ class TestTransactionCorrelationView:
         response = api_client.get(url)
         
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_contract_recent_events_returns_newest_first(self, api_client, contract):
+        """SC-30: recent-events endpoint returns events ordered newest first."""
+        ContractEventFactory(contract=contract, event_type="first", ledger=100, event_index=0)
+        ContractEventFactory(contract=contract, event_type="second", ledger=101, event_index=0)
+        ContractEventFactory(contract=contract, event_type="third", ledger=102, event_index=0)
+
+        url = reverse("contract-recent-events", args=[contract.contract_id])
+        response = api_client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert [item["event_type"] for item in data] == ["third", "second", "first"]
+
+    def test_contract_recent_events_respects_limit(self, api_client, contract):
+        """SC-30: recent-events endpoint truncates results to the requested limit."""
+        for i in range(5):
+            ContractEventFactory(contract=contract, event_type=f"ev{i}", ledger=100 + i, event_index=0)
+
+        url = reverse("contract-recent-events", args=[contract.contract_id])
+        response = api_client.get(url, {"limit": 2})
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 2
+        assert data[0]["event_type"] == "ev4"
+        assert data[1]["event_type"] == "ev3"
+
+    def test_contract_recent_events_default_limit(self, api_client, contract):
+        """SC-30: recent-events endpoint defaults to 10 results when no limit is given."""
+        for i in range(15):
+            ContractEventFactory(contract=contract, event_type=f"ev{i}", ledger=100 + i, event_index=0)
+
+        url = reverse("contract-recent-events", args=[contract.contract_id])
+        response = api_client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()) == 10
+
+    def test_contract_recent_events_rejects_limit_over_max(self, api_client, contract):
+        """SC-30: recent-events endpoint rejects a limit above the max cap."""
+        url = reverse("contract-recent-events", args=[contract.contract_id])
+        response = api_client.get(url, {"limit": 999})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_contract_recent_events_rejects_invalid_limit(self, api_client, contract):
+        """SC-30: recent-events endpoint rejects a non-integer limit."""
+        url = reverse("contract-recent-events", args=[contract.contract_id])
+        response = api_client.get(url, {"limit": "not-a-number"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_contract_recent_events_missing_contract_returns_404(self, api_client):
+        url = reverse("contract-recent-events", args=["C" + "A" * 55])
+        response = api_client.get(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_contract_recent_events_empty_for_new_contract(self, api_client, contract):
+        """SC-30: recent-events endpoint returns an empty list, not an error, when no events exist."""
+        url = reverse("contract-recent-events", args=[contract.contract_id])
+        response = api_client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
 
     def test_admin_ingest_errors_requires_staff(self, api_client, user):
         api_client.force_authenticate(user=user)

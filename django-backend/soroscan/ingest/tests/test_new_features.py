@@ -129,6 +129,69 @@ class EvaluateConditionTests(TestCase):
         c = {"op": "eq", "field": "missing_field", "value": "None"}
         self.assertTrue(evaluate_condition(c, {}))
 
+    def test_eq_numeric_type_mismatch(self):
+        """int/float/Decimal representations of the same number must compare equal."""
+        from decimal import Decimal
+
+        c = {"op": "eq", "field": "amount", "value": 1000}
+        self.assertTrue(evaluate_condition(c, {"amount": 1000.0}))
+        self.assertTrue(evaluate_condition(c, {"amount": Decimal("1000.00")}))
+        self.assertFalse(evaluate_condition(c, {"amount": 999}))
+
+    def test_neq_numeric_type_mismatch(self):
+        c = {"op": "neq", "field": "amount", "value": 1000}
+        self.assertFalse(evaluate_condition(c, {"amount": 1000.0}))
+        self.assertTrue(evaluate_condition(c, {"amount": 1001}))
+
+    def test_in_numeric_type_mismatch(self):
+        c = {"op": "in", "field": "amount", "value": [1000, 2000]}
+        self.assertTrue(evaluate_condition(c, {"amount": 1000.0}))
+        self.assertFalse(evaluate_condition(c, {"amount": 3000}))
+
+    def test_eq_boolean_not_coerced_to_number(self):
+        """bool is an int subclass, but True must not equal the string "1"."""
+        c = {"op": "eq", "field": "flag", "value": "1"}
+        self.assertFalse(evaluate_condition(c, {"flag": True}))
+
+    def test_evaluate_condition_performance(self):
+        """Constraint: condition evaluation must be <1ms per event (Issue #834)."""
+        import time
+
+        condition = {
+            "op": "and",
+            "conditions": [
+                {"op": "gte", "field": "decodedPayload.amount", "value": 1000},
+                {"op": "eq", "field": "event_type", "value": "transfer"},
+                {
+                    "op": "or",
+                    "conditions": [
+                        {
+                            "op": "in",
+                            "field": "decodedPayload.asset",
+                            "value": ["XLM", "USDC"],
+                        },
+                        {
+                            "op": "regex",
+                            "field": "decodedPayload.to",
+                            "value": "^G[A-Z0-9]+$",
+                        },
+                    ],
+                },
+            ],
+        }
+        event = {
+            "event_type": "transfer",
+            "decodedPayload": {"amount": 5000, "asset": "XLM", "to": "GABCDEF1234"},
+        }
+
+        iterations = 1000
+        start = time.perf_counter()
+        for _ in range(iterations):
+            evaluate_condition(condition, event)
+        elapsed_per_call = (time.perf_counter() - start) / iterations
+
+        self.assertLess(elapsed_per_call, 0.001)
+
     def test_contains_none_field(self):
         c = {"op": "contains", "field": "missing", "value": "abc"}
         self.assertFalse(evaluate_condition(c, {}))
@@ -310,9 +373,9 @@ class APIKeyThrottleTests(TestCase):
         view.kwargs = {}
         throttle.allow_request(request, view)
         headers = getattr(request, "_api_key_throttle_headers", {})
-        self.assertIn("X-RateLimit-Limit", headers)
-        self.assertIn("X-RateLimit-Remaining", headers)
-        self.assertIn("X-RateLimit-Reset", headers)
+        self.assertIn("RateLimit-Limit", headers)
+        self.assertIn("RateLimit-Remaining", headers)
+        self.assertIn("RateLimit-Reset", headers)
 
     def test_key_from_query_param(self):
         from soroscan.throttles import APIKeyThrottle
@@ -363,12 +426,41 @@ class SlowQueryMiddlewareTests(TestCase):
         mw = SlowQueryMiddleware(get_response)
         request = RequestFactory().get("/")
         request._api_key_throttle_headers = {
-            "X-RateLimit-Limit": "50",
-            "X-RateLimit-Remaining": "49",
-            "X-RateLimit-Reset": "3600",
+            "RateLimit-Limit": "50",
+            "RateLimit-Remaining": "49",
+            "RateLimit-Reset": "3600",
         }
         response = mw(request)
-        self.assertEqual(response.get("X-RateLimit-Limit"), "50")
+        self.assertEqual(response.get("RateLimit-Limit"), "50")
+
+    @patch("soroscan.middleware.slow_query_logger")
+    def test_logs_slow_query_with_params(self, mock_logger):
+        from soroscan.middleware import SlowQueryMiddleware
+        from django.db import connection
+
+        # Override the threshold to ensure the query is always considered "slow"
+        mw = SlowQueryMiddleware(lambda r: MagicMock())
+        mw.threshold_ms = 0
+        
+        request = RequestFactory().get("/")
+        
+        # We need to simulate a DB query through the middleware.
+        # Since the middleware sets up a connection.execute_wrapper during the request,
+        # we can just call it with a fake execute function.
+        def get_response(req):
+            # Inside the wrapper, doing an actual query
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1 FROM sqlite_master WHERE name = %s", ["test"])
+            return {}
+            
+        mw = SlowQueryMiddleware(get_response)
+        mw.threshold_ms = -1 # Always trigger slow query log
+        mw(request)
+        
+        mock_logger.warning.assert_called()
+        # Verify that the params are in the extra dict or the log message
+        args, kwargs = mock_logger.warning.call_args
+        self.assertIn("['test']", kwargs.get("extra", {}).get("params", ""))
 
 
 # ---------------------------------------------------------------------------
@@ -426,6 +518,7 @@ class EventSearchTests(TestCase):
             contract=self.contract,
             event_type="transfer",
             payload={"from": "alice", "to": "bob", "amount": 100},
+            decoded_payload={"from": "alice", "to": "bob", "amount": 100},
             ledger=1000,
             tx_hash="tx1",
             timestamp="2024-01-01T00:00:00Z",
@@ -434,6 +527,7 @@ class EventSearchTests(TestCase):
             contract=self.contract,
             event_type="swap",
             payload={"from": "charlie", "to": "dave", "amount": 50},
+            decoded_payload={"from": "charlie", "to": "dave", "amount": 50},
             ledger=1001,
             tx_hash="tx2",
             timestamp="2024-01-02T00:00:00Z",
@@ -485,6 +579,7 @@ class EventSearchTests(TestCase):
 
 class SendAlertTests(TestCase):
     def setUp(self):
+        cache.clear()
         self.user = User.objects.create_user(username="alertuser", password="pass")
         self.contract = TrackedContract.objects.create(
             contract_id="B" * 56,
@@ -569,6 +664,9 @@ class SendAlertTests(TestCase):
 
         result = send_alert(self.rule.id, 9999)
         self.assertEqual(result, "skipped:event_gone")
+
+    def tearDown(self):
+        cache.clear()
 
 
 class EvaluateAlertRulesTests(TestCase):

@@ -62,6 +62,24 @@ soroscan/
 
 ---
 
+## 🏗️ Architecture Decision Records (ADRs)
+
+We document major architectural choices in ADRs to keep track of context, decisions, and consequences. You can read them here:
+
+- [ADR-0001: Event Ingestion Architecture](docs/adrs/0001-event-ingestion-architecture.md)
+- [ADR-0002: GraphQL vs REST Tradeoffs](docs/adrs/0002-graphql-vs-rest.md)
+- [ADR-0003: Database Schema Rationale](docs/adrs/0003-database-schema-rationale.md)
+- [ADR-0004: Webhook Delivery System](docs/adrs/0004-webhook-delivery-system.md)
+- [ADR-0005: Multi-Tenancy Design](docs/adrs/0005-multi-tenancy-design.md)
+
+---
+
+## Environment Configuration
+
+See [ENVIRONMENT.md](docs/ENVIRONMENT.md) for the complete list of required and optional environment variables, their types and defaults, and development, testing, and production examples.
+
+---
+
 ## 🚀 Quick Start
 
 Get SoroScan running locally in under 5 minutes with Docker Compose.
@@ -93,6 +111,25 @@ docker-compose up --build
 That's it! The stack auto-runs migrations on startup and supports live code reloading.
 
 **Port Conflicts?** Edit `django-backend/.env` and uncomment the port override variables.
+
+### Local Webhook Simulator
+
+Test a webhook receiver without the Django backend, Celery, Redis, or PostgreSQL. The simulator in `tools/webhook-simulator/` sends the same JSON envelope and HMAC headers as production deliveries.
+
+```bash
+cd tools/webhook-simulator
+pip install -e .
+webhook-simulator --url http://127.0.0.1:8080/webhook --sample --secret test-secret
+```
+
+Docker:
+
+```bash
+docker compose -f tools/webhook-simulator/docker-compose.yml run --rm webhook-simulator \
+  --url http://host.docker.internal:8080/webhook --sample --secret test-secret
+```
+
+See [tools/webhook-simulator/README.md](tools/webhook-simulator/README.md) and the [webhooks cookbook](docs/cookbook/webhooks.md).
 
 ### Manual Setup (Advanced)
 
@@ -239,6 +276,16 @@ Edit `k8s/ingress.yaml`:
 # Apply all manifests
 kubectl apply -f k8s/
 
+## Deployment Docs
+
+For complete production deployment and operations guidance, see the `docs/deployment` section:
+
+- Local Docker Compose: [docs/deployment/docker-compose](docs/deployment/docker-compose)
+- Kubernetes (Helm + Terraform): [docs/deployment/kubernetes](docs/deployment/kubernetes)
+- AWS EKS example: [docs/deployment/aws](docs/deployment/aws)
+- Monitoring, backups, runbooks and troubleshooting: [docs/deployment/monitoring](docs/deployment/monitoring)
+
+
 # Verify deployment
 kubectl get pods -n soroscan
 kubectl get svc -n soroscan
@@ -329,3 +376,12 @@ kubectl scale deployment/soroscan-worker --replicas=3 -n soroscan
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
+
+---
+
+## 📚 Additional Documentation
+
+- [CELERY.md](docs/cookbook/CELERY.md) — Celery worker queues, concurrency settings, and deployment examples
+- [Architecture Overview](docs/architecture/README.md) — end-to-end system design, data flows, component interaction, and deployment architecture
+- [Architecture Decision Records](docs/architecture/adr.md) — rationale for core technology and design choices
+- [DATABASE_TUNING.md](docs/database/DATABASE_TUNING.md) — Recommended configuration settings for high-volume write workloads and indexing optimizations.
