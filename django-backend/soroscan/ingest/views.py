@@ -117,6 +117,48 @@ class StandardResultsSetPagination(PageNumberPagination):
         return self.page_size
 
 
+# Shared ceiling for the ``limit`` query parameter. Every endpoint that takes a
+# ``limit`` now enforces the same bound, and out-of-range values are rejected
+# rather than clamped, so a caller gets back either the number of rows it asked
+# for or a 400 saying why it could not have them.
+MAX_LIMIT = 200
+
+
+def _parse_limit(request, default, max_limit=MAX_LIMIT):
+    """Read and bounds-check a ``limit`` query parameter.
+
+    Returns ``default`` when the parameter is absent, and raises
+    ``DRFValidationError`` (HTTP 400) when it is not an integer or falls
+    outside ``1..max_limit``.
+
+    A bare ``int()`` on the raw value is not enough, because both of the
+    failure modes below turn a bad query string into a 500 rather than a 400:
+
+    * a non-numeric or float value raises ``ValueError`` out of ``int()``, and
+    * a negative value survives ``int()`` but is rejected downstream by Django,
+      which raises ``ValueError: Negative indexing is not supported.`` when the
+      queryset is sliced as ``qs[:-n]``.
+
+    The other two endpoints read ``limit`` by clamping it into range and
+    substituting the default on error, so ``?limit=abc`` answered 200 with the
+    default row count and ``?limit=999`` answered 200 having quietly returned
+    fewer rows than asked for. Rejecting out-of-range input makes the response
+    match the request instead of hiding the mistake.
+    """
+    raw = request.query_params.get("limit")
+    if raw is None:
+        return default
+    try:
+        limit = int(raw)
+    except (TypeError, ValueError):
+        raise DRFValidationError({"limit": "limit must be a valid integer."})
+    if limit < 1:
+        raise DRFValidationError({"limit": "limit must be greater than 0."})
+    if limit > max_limit:
+        raise DRFValidationError({"limit": f"limit must be <= {max_limit}."})
+    return limit
+
+
 class AdminActionSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="user.username", read_only=True)
 
@@ -2130,7 +2172,9 @@ def restore_archived_events(request):
                 "user": serializers.CharField(required=False),
                 "since": serializers.DateTimeField(required=False),
                 "until": serializers.DateTimeField(required=False),
-                "limit": serializers.IntegerField(required=False),
+                "limit": serializers.IntegerField(
+                    required=False, min_value=1, max_value=MAX_LIMIT
+                ),
             },
         )
     ],
@@ -2162,10 +2206,7 @@ def audit_trail_view(request):
     if until:
         qs = qs.filter(timestamp__lte=until)
 
-    try:
-        limit = max(1, min(int(request.query_params.get("limit", 100)), 1000))
-    except (TypeError, ValueError):
-        limit = 100
+    limit = _parse_limit(request, 100)
 
     serializer = AdminActionSerializer(qs[:limit], many=True)
     return Response(serializer.data)
@@ -3379,7 +3420,15 @@ class AnalyticsViewSet(viewsets.ViewSet):
     @extend_schema(
         parameters=[
             OpenApiParameter("range", str, default="7d"),
-            OpenApiParameter("limit", int, default=10),
+            OpenApiParameter(
+                "limit",
+                int,
+                default=10,
+                description=(
+                    f"Maximum rows to return. Must be between 1 and {MAX_LIMIT}; "
+                    "anything else is a 400."
+                ),
+            ),
         ],
         responses=inline_serializer(
             name="TopContractsResponse",
@@ -3395,7 +3444,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
         from .models import EventAggregation  # noqa: PLC0415
 
         range_days = _parse_range(request.query_params.get("range", "7d"))
-        limit = min(int(request.query_params.get("limit", 10)), 100)
+        limit = _parse_limit(request, 10)
         since = timezone.now() - timedelta(days=range_days)
 
         rows = (
@@ -3800,10 +3849,7 @@ def dlq_list_view(request):
     if subscription_id:
         qs = qs.filter(subscription_id=subscription_id)
 
-    try:
-        limit = max(1, min(int(request.query_params.get("limit", 50)), 500))
-    except (TypeError, ValueError):
-        limit = 50
+    limit = _parse_limit(request, 50)
 
     data = [
         {
