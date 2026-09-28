@@ -18,7 +18,12 @@ from django.utils.dateparse import parse_date, parse_datetime
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_control
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParameter
+from drf_spectacular.utils import (
+    extend_schema,
+    extend_schema_view,
+    inline_serializer,
+    OpenApiParameter,
+)
 from rest_framework import renderers, serializers, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
 from rest_framework.exceptions import ValidationError
@@ -63,6 +68,7 @@ from .cache_utils import get_cached_contract
 from .serializers import (
     APIKeySerializer,
     BulkMetadataImportSerializer,
+    ContractDeploymentSerializer,
     ContractEventSerializer,
     ContractInvocationSerializer,
     ContractSnapshotSerializer,
@@ -138,6 +144,15 @@ def _frontend_base_url() -> str:
     return getattr(settings, "FRONTEND_BASE_URL", "http://localhost:3000").rstrip("/")
 
 
+@extend_schema(tags=["Contracts"])
+@extend_schema_view(
+    list=extend_schema(summary="List tracked contracts"),
+    create=extend_schema(summary="Register a tracked contract"),
+    retrieve=extend_schema(summary="Retrieve a tracked contract"),
+    update=extend_schema(summary="Update a tracked contract"),
+    partial_update=extend_schema(summary="Partially update a tracked contract"),
+    destroy=extend_schema(summary="Delete a tracked contract"),
+)
 class TrackedContractViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing tracked contracts.
@@ -244,7 +259,10 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
             return qs
         return qs.filter(owner=self.request.user)
 
-    @extend_schema(responses=ContractEventSerializer(many=True))
+    @extend_schema(
+        summary="List events for a tracked contract",
+        responses=ContractEventSerializer(many=True),
+    )
     @action(detail=True, methods=["get"])
     def events(self, request, pk=None):
         """Get all events for a specific contract."""
@@ -254,6 +272,7 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     @extend_schema(
+        summary="Pause contract event indexing",
         request=inline_serializer(
             name="ContractPauseRequest",
             fields={
@@ -279,7 +298,10 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         contract.refresh_from_db()
         return Response(TrackedContractSerializer(contract).data)
 
-    @extend_schema(responses=TrackedContractSerializer)
+    @extend_schema(
+        summary="Resume contract event indexing",
+        responses=TrackedContractSerializer,
+    )
     @action(detail=True, methods=["post"])
     def resume(self, request, pk=None):
         """Resume indexing for a previously paused contract."""
@@ -289,6 +311,7 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         return Response(TrackedContractSerializer(contract).data)
 
     @extend_schema(
+        summary="Get tracked contract statistics",
         responses=inline_serializer(
             name="ContractStats",
             fields={
@@ -324,6 +347,7 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         stats = get_or_set_json(cache_key, query_cache_ttl(), _build)
         return Response(stats)
 
+    @extend_schema(summary="Get contract indexing completeness")
     @action(detail=True, methods=["get"])
     def completeness(self, request, pk=None):
         contract = self.get_object()
@@ -338,7 +362,10 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
 
         return Response(_calculate_completeness(contract))
 
-    @extend_schema(responses=ContractSnapshotSerializer(many=True))
+    @extend_schema(
+        summary="List contract state snapshots",
+        responses=ContractSnapshotSerializer(many=True),
+    )
     @action(detail=True, methods=["get"], url_path="snapshots")
     def snapshots(self, request, pk=None):
         """List contract state snapshots, optionally filtered by ledger range."""
@@ -355,6 +382,7 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         serializer = ContractSnapshotSerializer(qs.order_by("-ledger_sequence"), many=True)
         return Response(serializer.data)
 
+    @extend_schema(summary="Get indexing completeness for tracked contracts")
     @action(detail=False, methods=["get"])
     def completeness_dashboard(self, request):
         from .tasks import _calculate_completeness
@@ -373,6 +401,7 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         rows.sort(key=lambda item: item.get("completeness_percentage", 100.0))
         return Response({"contracts": rows})
 
+    @extend_schema(summary="Upload source code for a contract")
     @action(detail=True, methods=["post"])
     def upload_source(self, request, pk=None):
         """
@@ -391,6 +420,7 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
             return Response(serializer.data, status=201)
         return Response(serializer.errors, status=400)
 
+    @extend_schema(summary="Verify uploaded contract source")
     @action(detail=True, methods=["post"])
     def verify_source(self, request, pk=None):
         """
@@ -434,6 +464,7 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     @extend_schema(
+        summary="Get or update contract deduplication configuration",
         responses=EventDeduplicationConfigSerializer,
         request=EventDeduplicationConfigSerializer,
     )
@@ -472,6 +503,7 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         )
 
     @extend_schema(
+        summary="Test contract event deduplication",
         request=EventDeduplicationTestSerializer,
         responses={
             200: inline_serializer(
@@ -527,6 +559,7 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         )
 
     @extend_schema(
+        summary="Bulk import contract metadata",
         request=BulkMetadataImportSerializer,
         responses={
             200: inline_serializer(
@@ -590,6 +623,11 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         return Response(report)
 
 
+@extend_schema(tags=["Contracts"])
+@extend_schema_view(
+    list=extend_schema(summary="List indexed contract events"),
+    retrieve=extend_schema(summary="Retrieve a contract event"),
+)
 class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
     """
     ViewSet for querying indexed events.
@@ -632,6 +670,7 @@ class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
         return qs
 
     @extend_schema(
+        summary="List events for multiple contracts",
         request=EventsByContractsRequestSerializer,
         responses=ContractEventSerializer(many=True),
     )
@@ -667,6 +706,7 @@ class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
     @extend_schema(
+        summary="Search contract events",
         parameters=[
             inline_serializer(
                 name="EventSearchParams",
@@ -817,6 +857,11 @@ class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(payload)
 
 
+@extend_schema(tags=["Contracts"])
+@extend_schema_view(
+    list=extend_schema(summary="List contract invocations"),
+    retrieve=extend_schema(summary="Retrieve a contract invocation"),
+)
 class ContractInvocationViewSet(viewsets.ReadOnlyModelViewSet):
     """
     ViewSet for querying contract invocations.
@@ -1609,6 +1654,8 @@ def networks_view(request):
 
 
 @extend_schema(
+    tags=["Contracts"],
+    summary="Get contract indexing status",
     responses=inline_serializer(
         name="ContractStatusResponse",
         fields={
@@ -1651,6 +1698,8 @@ def contract_status(request):
 
 
 @extend_schema(
+    tags=["Contracts"],
+    summary="Assess contract vulnerability impact",
     responses=inline_serializer(
         name="VulnerabilityImpactResponse",
         fields={
@@ -1836,6 +1885,8 @@ def contract_event_explorer_view(request, contract_id: str):
 
 
 @extend_schema(
+    tags=["Contracts"],
+    summary="List event types for a contract",
     responses=inline_serializer(
         name="ContractEventTypesResponse",
         fields={
@@ -1878,6 +1929,8 @@ MAX_RECENT_EVENTS_LIMIT = 20
 
 
 @extend_schema(
+    tags=["Contracts"],
+    summary="List recent events for a contract",
     parameters=[
         inline_serializer(
             name="ContractRecentEventsParams",
@@ -2640,16 +2693,6 @@ def webhook_delivery_metrics_view(request):
 # Issue #284: Contract deployment timeline
 # ---------------------------------------------------------------------------
 
-class ContractDeploymentSerializer(serializers.ModelSerializer):
-    class Meta:
-        from .models import ContractDeployment
-        model = ContractDeployment
-        fields = [
-            "id", "bytecode_hash", "ledger_deployed", "deployer_address",
-            "is_upgrade", "tx_hash", "notes", "detected_at",
-        ]
-
-
 class ContractABIVersionSerializer(serializers.ModelSerializer):
     class Meta:
         from .models import ContractABIVersion
@@ -2661,6 +2704,8 @@ class ContractABIVersionSerializer(serializers.ModelSerializer):
 
 
 @extend_schema(
+    tags=["Contracts"],
+    summary="Get contract deployment and ABI version history",
     responses=inline_serializer(
         name="DeploymentTimelineResponse",
         fields={
@@ -2710,6 +2755,8 @@ def deployment_timeline_view(request, contract_id):
 # ---------------------------------------------------------------------------
 
 @extend_schema(
+    tags=["Contracts"],
+    summary="Get SoroScan contract identity",
     responses=inline_serializer(
         name="ContractIdentityResponse",
         fields={
@@ -2802,6 +2849,10 @@ def schema_versions_view(request):
     )
 
 
+@extend_schema(
+    tags=["Contracts"],
+    summary="Retrieve metadata for multiple contracts",
+)
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 @throttle_classes([UserRateThrottle])
@@ -3013,6 +3064,8 @@ def cache_stats_view(request):
 # ---------------------------------------------------------------------------
 
 @extend_schema(
+    tags=["Contracts"],
+    summary="Get indexing health for a contract",
     parameters=[
         OpenApiParameter(
             name="contract_id",
@@ -3093,6 +3146,8 @@ def contract_health_view(request, contract_id: str):
 
 
 @extend_schema(
+    tags=["Contracts"],
+    summary="Get indexing health for all contracts",
     responses=inline_serializer(
         name="AllContractHealthResponse",
         fields={
