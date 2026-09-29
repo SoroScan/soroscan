@@ -65,6 +65,30 @@ celery -A soroscan worker -l info
 celery -A soroscan beat -l info
 ```
 
+### Periodic Tasks
+
+Celery Beat uses interval schedules configured in seconds (not cron expressions).
+
+| Task Name | Schedule | Purpose |
+| --- | --- | --- |
+| `cleanup-webhook-delivery-logs` | Daily | Removes expired webhook delivery logs. |
+| `cleanup-old-dedup-logs` | Daily | Removes expired event deduplication records. |
+| `cleanup-silk-data` | Weekly | Removes old Silk profiling data. |
+| `archive-old-events` | Daily | Archives old event records. |
+| `evaluate-remediation-rules` | Every 5 minutes | Evaluates configured remediation rules. |
+| `aggregate-event-statistics` | Hourly | Aggregates event statistics. |
+| `aggregate-organization-costs` | Hourly | Aggregates organization usage costs. |
+| `reconcile-event-completeness` | Every 5 minutes | Reconciles event completeness and detects gaps. |
+| `recompute-call-graph` | Hourly | Recomputes the contract call graph. |
+| `warm-event-count-cache` | Every 5 minutes | Refreshes the event-count cache. |
+| `snapshot-contract-state` | Every 10 minutes | Saves contract state snapshots. |
+| `auto-resume-paused-contracts` | Every 5 minutes | Resumes contracts whose pause conditions have cleared. |
+| `warm-contract-name-cache` | Daily | Refreshes cached contract names. |
+| `create-upcoming-event-partitions` | Not configured | Creates upcoming event table partitions; no interval is defined. |
+| `detach-expired-event-partitions` | Daily | Detaches event partitions older than the retention cutoff. |
+
+The current Beat schedule does not declare dedicated periodic health-check or telemetry tasks.
+
 ## CDC Streaming
 
 SoroScan can publish indexed events to Kafka, Pub/Sub, or SQS for downstream warehouses.
