@@ -2231,6 +2231,24 @@ class ContractVerification(models.Model):
     def __str__(self):
         return f"Verification for {self.contract.contract_id[:8]}... ({self.status})"
 
+    def mark_verified(self, bytecode_hash: str) -> None:
+        """Record a successful verification and persist the updated fields."""
+        from django.utils import timezone
+
+        self.bytecode_hash = bytecode_hash
+        self.status = self.Status.VERIFIED
+        self.verified_at = timezone.now()
+        self.error_message = ""
+        self.save(
+            update_fields=["bytecode_hash", "status", "verified_at", "error_message"]
+        )
+
+    def mark_failed(self, reason: str) -> None:
+        """Record a failed verification without touching verified_at."""
+        self.status = self.Status.FAILED
+        self.error_message = reason
+        self.save(update_fields=["status", "error_message"])
+
 
 # ---------------------------------------------------------------------------
 # Issue #280: GDPR Data Governance Framework
