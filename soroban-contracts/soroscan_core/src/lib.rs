@@ -15,6 +15,7 @@ const CONTRACT_EVENT_TYPES_KEY: Symbol = symbol_short!("etypes");
 const CONTRACT_RECENT_EVENTS_KEY: Symbol = symbol_short!("revents");
 
 /// Topic schema version used by [`emit_soroscan_event`].
+/// Topic schema version used by [`emit_soroscan_event`].
 pub const SOROSCAN_EVENT_VERSION: u32 = 1;
 
 /// Publish an event using the standard SoroScan topic layout:
