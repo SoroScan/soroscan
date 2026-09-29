@@ -108,6 +108,7 @@ MIDDLEWARE = [
     "soroscan.middleware.GracefulShutdownMiddleware",
     "soroscan.monitoring.ErrorRateMetricsMiddleware",
     "soroscan.middleware.RequestLatencyMiddleware",
+    "soroscan.middleware.ResponseTimeMiddleware",
     "soroscan.middleware.RequestBodySizeMiddleware",
     "soroscan.middleware.MaintenanceModeMiddleware",
     "django.middleware.security.SecurityMiddleware",
@@ -222,6 +223,10 @@ CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": env("REDIS_URL", default="redis://localhost:6379/1"),
+        "OPTIONS": {
+            "socket_timeout": 3.0,
+            "socket_connect_timeout": 3.0,
+        },
     }
 }
 # TTL for REST/GraphQL search, stats, and timeline responses (seconds)

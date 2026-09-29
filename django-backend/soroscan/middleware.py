@@ -288,3 +288,25 @@ class RequestLatencyMiddleware(MiddlewareMixin):
             status = getattr(response, "status_code", 0)
             REQUEST_LATENCY_SECONDS.labels(request.method, endpoint, status).observe(duration)
         return response
+
+
+class ResponseTimeMiddleware(MiddlewareMixin):
+    """
+    Middleware that adds X-Response-Time header to REST API responses.
+    
+    The header contains the request processing time in milliseconds with 
+    3 decimal places precision (e.g., "12.345").
+    
+    Issue #1507 - Add request execution timer header X-Response-Time to REST API.
+    """
+
+    def process_request(self, request):
+        request._response_time_start = time.perf_counter()
+
+    def process_response(self, request, response):
+        start = getattr(request, "_response_time_start", None)
+        if start is not None:
+            duration_ms = (time.perf_counter() - start) * 1000
+            # Format with 3 decimal places for microsecond precision
+            response["X-Response-Time"] = f"{duration_ms:.3f}"
+        return response
