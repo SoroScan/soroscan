@@ -6,7 +6,7 @@ import secrets
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator, MaxValueValidator, RegexValidator
+from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
 from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
@@ -18,7 +18,6 @@ User = get_user_model()
 
 class Organization(models.Model):
     """Top-level tenant boundary for contracts, teams, and members."""
-
 
     class Tier(models.TextChoices):
         FREE = "free", "Free"
@@ -2025,12 +2024,12 @@ class IngestError(models.Model):
     """
     Tracks ingestion errors for admin visibility.
     """
-    
+
     class ErrorType(models.TextChoices):
         DECODE_ERROR = "decode_error", "Decode Error"
         VALIDATION_ERROR = "validation_error", "Validation Error"
         RPC_ERROR = "rpc_error", "RPC Error"
-    
+
     error_type = models.CharField(
         max_length=32,
         choices=ErrorType.choices,
@@ -2057,19 +2056,19 @@ class IngestError(models.Model):
         help_text="Transaction hash if available",
     )
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
-    
+
     class Meta:
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["error_type", "contract_id", "created_at"]),
             models.Index(fields=["created_at"]),
         ]
-    
+
     def save(self, *args, **kwargs):
         if not self.sample_error:
             self.sample_error = self.error_message[:500]
         super().save(*args, **kwargs)
-    
+
     def __str__(self):
         return f"{self.error_type}: {self.contract_id} at {self.created_at}"
 
@@ -2107,12 +2106,13 @@ class ContractMetadata(models.Model):
 
     def clean(self):
         from django.core.exceptions import ValidationError
+
         errors = {}
-        
+
         # Validate name is not empty or just whitespace
         if not self.name or not self.name.strip():
             errors["name"] = "Name cannot be empty or just whitespace."
-        
+
         # Validate tags is a list of strings
         if not isinstance(self.tags, list):
             errors["tags"] = "Tags must be a list of strings."
@@ -2127,11 +2127,11 @@ class ContractMetadata(models.Model):
                 if not tag.strip():
                     errors["tags"] = f"Tag at index {i} cannot be empty or just whitespace."
                     break
-        
+
         # Validate description length (optional, but reasonable limit)
         if len(self.description) > 10000:
             errors["description"] = "Description is too long (max 10000 characters)."
-        
+
         if errors:
             raise ValidationError(errors)
 
