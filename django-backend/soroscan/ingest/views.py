@@ -694,14 +694,14 @@ class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
         Full-text and field-level search on contract event payloads.
 
         Query params:
-        - q                 — free-text substring match against JSON payload text
-        - contract_id       — filter by contract
-        - event_type        — filter by event type
-        - payload_contains  — JSON containment sub-string (fast with GIN index)
-        - payload_field     — dot-notation field path, e.g. decodedPayload.to
-        - payload_op        — operator: eq|neq|gte|lte|gt|lt|contains|startswith|in
-        - payload_value     — value for field comparison
-        - page / page_size  — pagination (max 100 per page)
+        - q                 â€” free-text substring match against JSON payload text
+        - contract_id       â€” filter by contract
+        - event_type        â€” filter by event type
+        - payload_contains  â€” JSON containment sub-string (fast with GIN index)
+        - payload_field     â€” dot-notation field path, e.g. decodedPayload.to
+        - payload_op        â€” operator: eq|neq|gte|lte|gt|lt|contains|startswith|in
+        - payload_value     â€” value for field comparison
+        - page / page_size  â€” pagination (max 100 per page)
         """
         qs = ContractEvent.objects.select_related("contract").all()
 
@@ -738,9 +738,9 @@ class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
         payload_value = request.GET.get("payload_value")
 
         if payload_field and payload_value is not None:
-            # Build ORM lookup key from dot-notation → Django JSONField traversal
-            # e.g. "decodedPayload.to" → payload__decodedPayload__to
-            orm_path = "payload__" + payload_field.replace(".", "__")
+            # Build ORM lookup key from dot-notation â†’ Django JSONField traversal
+            # e.g. "decodedPayload.to" â†’ payload__decodedPayload__to
+            orm_path = f"payload__{payload_field.replace('.', '__')}"
 
             op_map = {
                 "eq": "",
@@ -921,7 +921,7 @@ class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
 
         The request is sent synchronously with a proper HMAC-SHA256 signature
         so the subscriber can verify authenticity.  A 200 response from this
-        endpoint does NOT mean the delivery succeeded — check the response body
+        endpoint does NOT mean the delivery succeeded â€” check the response body
         for the actual outcome.
         """
         webhook = self.get_object()
@@ -1049,9 +1049,9 @@ class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
         Return paginated delivery log history for a webhook subscription.
 
         Query params:
-        - ``status``  — filter by delivery status (pending/success/failed/dead_letter)
-        - ``since``   — ISO datetime lower bound for ``timestamp``
-        - ``until``   — ISO datetime upper bound for ``timestamp``
+        - ``status``  â€” filter by delivery status (pending/success/failed/dead_letter)
+        - ``since``   â€” ISO datetime lower bound for ``timestamp``
+        - ``until``   â€” ISO datetime upper bound for ``timestamp``
 
         Issue #765.
         """
@@ -1161,9 +1161,9 @@ class TeamViewSet(viewsets.ModelViewSet):
     """
     Teams: multi-tenant organization of contracts and members.
 
-    - GET /teams/ — teams the current user belongs to
-    - POST /teams/ — create a team (creator becomes admin)
-    - POST /teams/{id}/members/ — add a user (admin only)
+    - GET /teams/ â€” teams the current user belongs to
+    - POST /teams/ â€” create a team (creator becomes admin)
+    - POST /teams/{id}/members/ â€” add a user (admin only)
     """
 
     serializer_class = TeamSerializer
@@ -1743,8 +1743,8 @@ def organization_cors_view(request, pk: int):
     """
     Retrieve or update the per-organization CORS allowed origins.
 
-    - **GET** — returns ``{id, name, cors_origins}`` for the organization.
-    - **PATCH** — replaces ``cors_origins`` with the supplied list.
+    - **GET** â€” returns ``{id, name, cors_origins}`` for the organization.
+    - **PATCH** â€” replaces ``cors_origins`` with the supplied list.
 
     Permission rules:
     - Staff users can access any organization.
@@ -2274,7 +2274,7 @@ def rate_limit_analytics_view(request):
 
 
 # ---------------------------------------------------------------------------
-# Issue #280: GDPR — deletion requests & compliance export
+# Issue #280: GDPR â€” deletion requests & compliance export
 # ---------------------------------------------------------------------------
 
 class DataDeletionRequestSerializer(serializers.ModelSerializer):
@@ -2311,8 +2311,8 @@ class DataDeletionRequestSerializer(serializers.ModelSerializer):
 @permission_classes([IsAuthenticated])
 def deletion_requests_view(request):
     """
-    GET  /api/deletion-requests/   — list all requests (staff) or own requests
-    POST /api/deletion-requests/   — submit a new GDPR deletion request
+    GET  /api/deletion-requests/   â€” list all requests (staff) or own requests
+    POST /api/deletion-requests/   â€” submit a new GDPR deletion request
     """
     from .models import DataDeletionRequest, TrackedContract
 
@@ -2325,7 +2325,7 @@ def deletion_requests_view(request):
         serializer = DataDeletionRequestSerializer(qs, many=True)
         return Response(serializer.data)
 
-    # POST — create a new deletion request
+    # POST â€” create a new deletion request
     subject = request.data.get("subject_identifier", "").strip()
     if not subject:
         return Response({"error": "subject_identifier is required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -2889,7 +2889,7 @@ def db_explain_view(request):
     (configurable via ENDPOINT_RATE_LIMIT_DB_EXPLAIN) to prevent abuse
     of expensive EXPLAIN ANALYZE queries.
     """
-    # Dedicated throttle scope check (issue #1291) — also enforce the
+    # Dedicated throttle scope check (issue #1291) â€” also enforce the
     # db_explain limit even when USER rate is higher.  We manually
     # delegate to DBExplainThrottle so function-views respect the
     # separate bucket.
@@ -2934,7 +2934,7 @@ def db_explain_view(request):
         )
     # Also handle the case where the user supplied "SELECT 1; DROP"
     # without_trailing already catches interior ;, but if they did "SELECT 1; "
-    # the rstrip approach would hide it — so also check count vs allowed trailing
+    # the rstrip approach would hide it â€” so also check count vs allowed trailing
     if stripped.count(";") > 1 or (stripped.endswith(";") and ";" in stripped[:-1]):
         return Response(
             {"error": "Multiple statements not allowed; provide a single SELECT/WITH/EXPLAIN."},
@@ -3017,7 +3017,7 @@ def cache_stats_view(request):
         OpenApiParameter(
             name="contract_id",
             location=OpenApiParameter.PATH,
-            description="Stellar contract address (C…, 56 chars)",
+            description="Stellar contract address (Câ€¦, 56 chars)",
             required=True,
             type=str,
         )
@@ -3056,7 +3056,7 @@ def contract_health_view(request, contract_id: str):
     try:
         health = ContractHealthCheck.objects.get(contract=contract)
     except ContractHealthCheck.DoesNotExist:
-        # No health record yet — infer from last_event_at on the contract itself
+        # No health record yet â€” infer from last_event_at on the contract itself
         last_event_time = contract.last_event_at
         if last_event_time:
             minutes_since = int(
@@ -3108,7 +3108,7 @@ def contract_health_view(request, contract_id: str):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def all_contracts_health_view(request):
-    """GET /api/analytics/contracts/health/ — overview for admin dashboard."""
+    """GET /api/analytics/contracts/health/ â€” overview for admin dashboard."""
     if not request.user.is_staff:
         return Response(
             {"detail": "Staff access required."},
@@ -3152,13 +3152,13 @@ def all_contracts_health_view(request):
 
 
 # ---------------------------------------------------------------------------
-# Analytics endpoint — event volume, trends, anomalies, export
+# Analytics endpoint â€” event volume, trends, anomalies, export
 # ---------------------------------------------------------------------------
 
 # Maximum range allowed for analytics queries (1 year)
 _ANALYTICS_MAX_RANGE_DAYS = 365
 
-# Map of API granularity → (truncation unit, roll-up key function)
+# Map of API granularity â†’ (truncation unit, roll-up key function)
 _GRANULARITY_TRUNC: dict[str, str] = {
     "hourly": "hour",
     "daily": "day",
@@ -3192,19 +3192,19 @@ class AnalyticsViewSet(viewsets.ViewSet):
     """
     ViewSet for pre-computed event analytics.
 
-    GET /api/ingest/analytics/                     — platform-wide summary widget data
-    GET /api/ingest/analytics/event_volume/        — time-series event counts
-    GET /api/ingest/analytics/top_contracts/       — most active contracts
-    GET /api/ingest/analytics/event_type_breakdown/ — event type distribution
-    GET /api/ingest/analytics/anomalies/           — buckets flagged as anomalies
-    GET /api/ingest/analytics/export/              — CSV / JSON export
+    GET /api/ingest/analytics/                     â€” platform-wide summary widget data
+    GET /api/ingest/analytics/event_volume/        â€” time-series event counts
+    GET /api/ingest/analytics/top_contracts/       â€” most active contracts
+    GET /api/ingest/analytics/event_type_breakdown/ â€” event type distribution
+    GET /api/ingest/analytics/anomalies/           â€” buckets flagged as anomalies
+    GET /api/ingest/analytics/export/              â€” CSV / JSON export
 
     All read-only, authentication required.
     """
 
     permission_classes = [IsAuthenticated]
 
-    # ── Platform summary (dashboard widgets) ─────────────────────────────────
+    # â”€â”€ Platform summary (dashboard widgets) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     @extend_schema(
         responses=inline_serializer(
@@ -3272,7 +3272,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
 
         return Response(get_or_set_json(cache_key, query_cache_ttl(), _build))
 
-    # ── Time-series: event volume ─────────────────────────────────────────────
+    # â”€â”€ Time-series: event volume â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     @extend_schema(
         parameters=[
@@ -3349,7 +3349,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
             .order_by("bucket")
         )
 
-        # Enrich with contract_id strings (avoid N+1 by pre-fetching id→contract_id map)
+        # Enrich with contract_id strings (avoid N+1 by pre-fetching idâ†’contract_id map)
         contract_pks = {r["contract_id"] for r in rows}
         pk_to_cid = dict(
             TrackedContract.objects.filter(pk__in=contract_pks).values_list("id", "contract_id")
@@ -3374,7 +3374,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
             }
         )
 
-    # ── Top contracts ─────────────────────────────────────────────────────────
+    # â”€â”€ Top contracts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     @extend_schema(
         parameters=[
@@ -3421,7 +3421,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
 
         return Response({"range_days": range_days, "contracts": contracts})
 
-    # ── Event type breakdown ──────────────────────────────────────────────────
+    # â”€â”€ Event type breakdown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     @extend_schema(
         parameters=[
@@ -3477,7 +3477,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
 
         return Response({"range_days": range_days, "breakdown": breakdown})
 
-    # ── Anomalies ─────────────────────────────────────────────────────────────
+    # â”€â”€ Anomalies â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     @extend_schema(
         parameters=[OpenApiParameter("range", str, default="7d")],
@@ -3519,7 +3519,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
 
         return Response({"range_days": range_days, "anomalies": anomaly_data})
 
-    # ── CSV / JSON export ─────────────────────────────────────────────────────
+    # â”€â”€ CSV / JSON export â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     @extend_schema(
         parameters=[
@@ -3643,7 +3643,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
         "``soroscan_celery_*`` metrics already exported via ``/metrics``."
     ),
 )
-# Dead Letter Queue — query + replay (issue #1311)
+# Dead Letter Queue â€” query + replay (issue #1311)
 # ---------------------------------------------------------------------------
 
 
@@ -3675,11 +3675,11 @@ def celery_status_view(request):
 
     Response schema
     ---------------
-    ``queues``        — dict of queue_name → pending message count
-    ``workers``       — dict of worker_name → "online" | "offline"
-    ``workers_online`` — count of online workers
-    ``active_tasks``  — dict of task_name → currently executing count
-    ``metrics``       — task outcome counters and failure rate
+    ``queues``        â€” dict of queue_name â†’ pending message count
+    ``workers``       â€” dict of worker_name â†’ "online" | "offline"
+    ``workers_online`` â€” count of online workers
+    ``active_tasks``  â€” dict of task_name â†’ currently executing count
+    ``metrics``       â€” task outcome counters and failure rate
     """
     from urllib.parse import urlparse
 
@@ -3871,9 +3871,9 @@ class DLQDeliveryLogViewSet(viewsets.ReadOnlyModelViewSet):
     ``GET /api/v1/webhooks/dlq/``
 
     Query params:
-    - ``contract_id`` — filter by tracked contract ID
-    - ``start_date`` / ``end_date`` — ISO 8601 date or datetime bounds on ``timestamp``
-    - ``status`` — filter by HTTP status code returned by the subscriber
+    - ``contract_id`` â€” filter by tracked contract ID
+    - ``start_date`` / ``end_date`` â€” ISO 8601 date or datetime bounds on ``timestamp``
+    - ``status`` â€” filter by HTTP status code returned by the subscriber
 
     Non-staff users only see logs for webhooks on contracts they own.
     """
