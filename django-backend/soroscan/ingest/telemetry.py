@@ -14,8 +14,9 @@ import zlib
 from typing import Any, Iterator, Mapping, Optional
 
 from opentelemetry import propagate, trace
+from prometheus_client import Gauge
 
-from .metrics import event_payload_compression_ratio
+from .metrics import _get_or_create, event_payload_compression_ratio
 
 tracer = trace.get_tracer("soroscan.ingest")
 
@@ -90,6 +91,41 @@ def payload_compression_ratio(payload: dict[str, Any]) -> float | None:
     ratio = len(compressed_payload) / len(raw_payload)
     event_payload_compression_ratio.observe(ratio)
     return ratio
+
+
+# Issue #1576 — process RSS memory gauge.
+#
+# A Gauge rather than a Counter/Histogram because RSS goes down as well as up
+# (GC, freed buffers), and a gauge reads the current value at scrape time.
+# Registered through the same duplicate-safe helper the other metrics use, so
+# reimporting this module (tests, autoreload) does not raise.
+process_resident_memory_bytes = _get_or_create(
+    Gauge,
+    "soroscan_process_resident_memory_bytes",
+    "Resident set size of the SoroScan process in bytes",
+)
+
+
+def update_process_memory_metric() -> float | None:
+    """Refresh the RSS gauge and return the sampled value in bytes.
+
+    Returns ``None`` when ``psutil`` is not installed or the platform refuses
+    the lookup — the metric is observability, and a scrape must never take the
+    application down. Called from the telemetry scrape path so the gauge always
+    reflects the process that is being scraped.
+    """
+    try:
+        import psutil  # noqa: PLC0415 — optional dependency, imported lazily
+    except Exception:  # pragma: no cover - optional dependency
+        return None
+
+    try:
+        rss = psutil.Process(os.getpid()).memory_info().rss
+    except Exception:  # pragma: no cover - platform-specific failures
+        return None
+
+    process_resident_memory_bytes.set(rss)
+    return float(rss)
 
 
 def inject_trace_headers(headers: dict[str, str]) -> None:
