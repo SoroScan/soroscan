@@ -7,8 +7,16 @@ export interface SoroScanClientConfig {
   baseUrl: string;
   /** Optional API key sent as Bearer token */
   apiKey?: string;
-  /** Request timeout in milliseconds (default: 30_000) */
+  /** Request timeout in milliseconds (default: 10_000) */
   timeoutMs?: number;
+  /** Maximum retry attempts after the initial request (default: 3) */
+  maxRetries?: number;
+  /** Initial full-jitter backoff ceiling in milliseconds (default: 250) */
+  initialDelayMs?: number;
+  /** Maximum full-jitter backoff ceiling in milliseconds (default: 10_000) */
+  maxDelayMs?: number;
+  /** User-Agent header sent with every request (default: "SoroScan-TS-SDK/1.4.0") */
+  userAgent?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -72,7 +80,7 @@ export interface ContractEventTopic {
   value: string;
 }
 
-export interface ContractEvent {
+export interface ContractEvent<T = unknown> {
   id: string;
   ledger: number;
   ledgerClosedAt: ISODateString;
@@ -80,7 +88,7 @@ export interface ContractEvent {
   contractId: ContractId;
   type: EventType;
   topics: ContractEventTopic[];
-  value: unknown;
+  value: T;
   inSuccessfulContractCall: boolean;
   pagingToken: string;
 }
@@ -454,6 +462,9 @@ export interface AddIndexerResponse {
   txHash: string | null;
   transactionStatus: string | null;
   error: string | null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SC-30: Recent contract events
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -519,6 +530,9 @@ export interface IndexerStats {
   indexer: string;
   /** Total events recorded by this indexer */
   eventsRecorded: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SC-28: Contract pause status
 // ─────────────────────────────────────────────────────────────────────────────
 

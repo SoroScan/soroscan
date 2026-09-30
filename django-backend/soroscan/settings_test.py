@@ -47,7 +47,7 @@ MIDDLEWARE = [
     "soroscan.middleware.RequestIdMiddleware",
     "soroscan.middleware.PlatformVersionMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "django.middleware.gzip.GZipMiddleware",
+    "soroscan.middleware_gzip.CustomGZipMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -142,6 +142,12 @@ REST_FRAMEWORK = {
         "user": "10000/hour",
         "ingest": "100/hour",
         "graphql": "500/hour",
+        "webhook_replay": "1000/hour",
+        "contract_bulk_import": "1000/hour",
+        "dedup_test": "1000/hour",
+        "events_search": "1000/hour",
+        "contract_stats": "1000/hour",
+        "db_explain": "1000/hour",
         "unauthenticated_ip": "30/minute",
     },
 }
@@ -174,6 +180,7 @@ CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_TIME_LIMIT = 600
 CELERY_TASK_SOFT_TIME_LIMIT = 540
 CELERY_BEAT_SCHEDULE = {}  # Disabled in tests — tasks run eagerly
+REDIS_URL = "redis://localhost:6379/0"
 
 # Stellar / Soroban Configuration
 SOROBAN_RPC_URL = "https://soroban-testnet.stellar.org"
@@ -254,4 +261,4 @@ ALERT_DEDUP_WINDOW_SECONDS = 300
 WEBHOOK_MAX_RETRIES = 5
 INDEXER_SECRET_KEY = ""
 SENTRY_DSN = ""
-LOG_FORMAT = ""
+LOG_FORMAT = ""

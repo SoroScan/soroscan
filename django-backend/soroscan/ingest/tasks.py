@@ -32,6 +32,7 @@ from django.utils import timezone
 
 from soroscan.circuit_breaker import execute_with_circuit_breaker
 from soroscan.webhook_signing import build_x_signature_header
+from soroscan.log_context import log_context_var
 
 from .cache_utils import (
     invalidate_event_count_cache,
@@ -44,6 +45,7 @@ from .cache_utils import (
     _SENTINEL,
 )
 from .telemetry import inject_trace_headers, payload_compression_ratio, tracer
+from .reorg import check_and_handle_reorg, is_event_deliverable
 from .models import (
     BlacklistedContract,
     ContractABI,
@@ -64,12 +66,32 @@ from .models import (
     OrganizationBudget,
     OrganizationCostSnapshot,
     WebhookDeadLetter,
+    ContractHealthCheck,
+    ContractDeployment,
+    ContractVerification,
+    WebhookDeliveryLog,
+    IngestError,
+    DataRetentionPolicy,
+    DataDeletionRequest,
+    PIIField,
 )
 from stellar_sdk import SorobanServer
 from .rate_limit import check_ingest_rate
 from .stellar_client import SorobanClient
 from .metrics import webhook_payload_bytes
 from .streaming import get_producer
+from .constants import (
+    CACHE_KEY_WEBHOOK_DEDUP,
+    CACHE_KEY_WEBHOOK_ESCALATION,
+    CACHE_KEY_DEPENDENCY_CHANGE,
+    CACHE_KEY_ALERT_DEDUP,
+    CACHE_KEY_BUDGET_ALERT,
+    NOTIFICATION_TYPE_WEBHOOK_FAILURE,
+    NOTIFICATION_TYPE_ALERT,
+    NOTIFICATION_TYPE_CONTRACT_HEALTH,
+    NOTIFICATION_TITLE_WEBHOOK_SUSPENDED,
+    NOTIFICATION_TITLE_DEPENDENCY_CHANGE,
+)
 
 logger = logging.getLogger(__name__)
 BATCH_LEDGER_SIZE = 200
@@ -83,9 +105,12 @@ _task_profilers: dict[str, tuple] = {}
 
 @task_prerun.connect
 def _start_task_profiling(task_id: str, task, **kwargs) -> None:
-    profiler = cProfile.Profile()
-    profiler.enable()
-    _task_profilers[task_id] = (profiler, time.monotonic())
+    try:
+        profiler = cProfile.Profile()
+        profiler.enable()
+        _task_profilers[task_id] = (profiler, time.monotonic())
+    except ValueError:
+        pass
 
 
 @task_postrun.connect
@@ -845,6 +870,14 @@ def dispatch_webhook(self, subscription_id: int, event_id: int, replay: bool = F
             )
             return False
 
+        if not is_event_deliverable(event):
+            logger.info(
+                "Skipping webhook dispatch for orphaned event %s",
+                event_id,
+                extra={"event_id": event_id, "webhook_id": subscription_id},
+            )
+            return False
+
         # Deduplicate identical webhook deliveries to prevent floods.
         # Replay skips dedup so operators can retest the same historical event.
         if not replay:
@@ -861,7 +894,7 @@ def dispatch_webhook(self, subscription_id: int, event_id: int, replay: bool = F
                 sort_keys=True,
             )
             dedup_hash = hashlib.sha256(dedup_material.encode("utf-8")).hexdigest()
-            dedup_key = f"soroscan:webhooks:dedup:{subscription_id}:{dedup_hash}"
+            dedup_key = f"{CACHE_KEY_WEBHOOK_DEDUP}:{subscription_id}:{dedup_hash}"
             if not cache.add(dedup_key, "1", timeout=dedup_window):
                 logger.info(
                     "Deduplicated webhook delivery for subscription=%s event=%s",
@@ -908,9 +941,18 @@ def dispatch_webhook(self, subscription_id: int, event_id: int, replay: bool = F
 
         headers = {
             "Content-Type": "application/json",
-            "X-SoroScan-Signature": _build_webhook_signature_header(webhook, payload_bytes),
             "X-SoroScan-Timestamp": timezone.now().isoformat(),
         }
+        ctx = log_context_var.get()
+        traceparent = ctx.get("traceparent")
+        if traceparent:
+            headers["traceparent"] = traceparent
+        with tracer.start_as_current_span(
+            "webhook.sign", attributes={"webhook_id": subscription_id}
+        ):
+            headers["X-SoroScan-Signature"] = _build_webhook_signature_header(
+                webhook, payload_bytes
+            )
         if replay:
             headers["X-SoroScan-Replay"] = "true"
             original_ts = event_data.get("timestamp")
@@ -935,12 +977,20 @@ def dispatch_webhook(self, subscription_id: int, event_id: int, replay: bool = F
             timeout_value = 10
 
         try:
-            response = requests.post(
-                webhook.target_url,
-                data=payload_bytes,
-                headers=headers,
-                timeout=timeout_value,
-            )
+            with tracer.start_as_current_span(
+                "webhook.http_post",
+                attributes={
+                    "webhook_id": subscription_id,
+                    "target_url": webhook.target_url,
+                    "attempt": attempt_number,
+                },
+            ):
+                response = requests.post(
+                    webhook.target_url,
+                    data=payload_bytes,
+                    headers=headers,
+                    timeout=timeout_value,
+                )
             status_code = response.status_code
             elapsed_s = time.monotonic() - _start
             latency_ms = int(elapsed_s * 1000)
@@ -1492,7 +1542,7 @@ def _escalation_dedup_key(
     threshold: int,
 ) -> str:
     return (
-        f"soroscan:webhook_escalation:{webhook_id}:{event_id or 'none'}:"
+        f"{CACHE_KEY_WEBHOOK_ESCALATION}:{webhook_id}:{event_id or 'none'}:"
         f"{channel}:{threshold}"
     )
 
@@ -1652,8 +1702,8 @@ def _on_delivery_failure(
             owner = webhook.contract.owner
             create_and_push(
                 user=owner,
-                notification_type="webhook_failure",
-                title="Webhook Suspended",
+                notification_type=NOTIFICATION_TYPE_WEBHOOK_FAILURE,
+                title=NOTIFICATION_TITLE_WEBHOOK_SUSPENDED,
                 message=(
                     f"Webhook to {webhook.target_url} for contract "
                     f"'{webhook.contract.name}' has been suspended after "
@@ -1692,6 +1742,82 @@ def cleanup_webhook_delivery_logs() -> int:
         task_name="cleanup_webhook_delivery_logs"
     ).observe(time.monotonic() - _start)
     return deleted_count
+
+
+_PARTITION_UPPER_BOUND_RE = re.compile(r"TO \('([^']+)'\)")
+
+
+@shared_task(name="soroscan.ingest.tasks.detach_expired_event_partitions")
+def detach_expired_event_partitions() -> list[str]:
+    """
+    Detach ``ContractEvent`` range partitions that lie entirely before the
+    retention cutoff (``SOROSCAN_EVENT_RETENTION_DAYS`` days, default 90).
+
+    Detached tables are kept (not dropped) so they can be archived. The
+    DEFAULT partition is never detached. No-op on non-PostgreSQL backends.
+    Returns the names of the detached partitions (Issue #1404).
+    """
+    from django.db import connection
+    from django.utils.dateparse import parse_datetime
+
+    from .models import ContractEvent
+
+    if connection.vendor != "postgresql":
+        return []
+
+    retention_days = int(getattr(settings, "SOROSCAN_EVENT_RETENTION_DAYS", 90))
+    cutoff = timezone.now() - timedelta(days=retention_days)
+    parent_table = ContractEvent._meta.db_table
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT child.relname, pg_get_expr(child.relpartbound, child.oid)
+            FROM pg_inherits
+            JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
+            JOIN pg_class child ON pg_inherits.inhrelid = child.oid
+            WHERE parent.relname = %s
+            """,
+            [parent_table],
+        )
+        partitions = cursor.fetchall()
+
+    detached = []
+    for name, bound in partitions:
+        match = _PARTITION_UPPER_BOUND_RE.search(bound or "")
+        if not match:
+            continue  # DEFAULT partition or MAXVALUE upper bound
+        upper = parse_datetime(match.group(1))
+        if upper is None:
+            continue
+        if timezone.is_naive(upper):
+            upper = timezone.make_aware(upper, dt_timezone.utc)
+        if upper > cutoff:
+            continue
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"ALTER TABLE {connection.ops.quote_name(parent_table)} "
+                    f"DETACH PARTITION {connection.ops.quote_name(name)}"
+                )
+        except Exception:
+            logger.exception("Failed to detach expired event partition %s", name)
+            continue
+        detached.append(name)
+        logger.info(
+            "Detached expired event partition %s (upper bound %s, cutoff %s)",
+            name,
+            upper.isoformat(),
+            cutoff.isoformat(),
+            extra={"partition": name, "retention_days": retention_days},
+        )
+
+    logger.info(
+        "detach_expired_event_partitions: detached %d partition(s): %s",
+        len(detached),
+        ", ".join(detached) or "none",
+    )
+    return detached
 
 
 @shared_task(name="soroscan.ingest.tasks.warm_contract_name_cache")
@@ -1861,6 +1987,15 @@ def process_new_event(event_data: dict[str, Any]) -> None:
     if event_obj is None:
         logger.warning(
             "No ledger/event_index in event_data — cannot dispatch webhooks",
+            extra={"contract_id": contract_id},
+        )
+        return
+
+    if not is_event_deliverable(event_obj):
+        logger.info(
+            "Skipping webhook dispatch for orphaned event ledger=%s index=%s",
+            event_obj.ledger,
+            event_obj.event_index,
             extra={"contract_id": contract_id},
         )
         return
@@ -2161,13 +2296,13 @@ def alert_downstream_contract_change(contract_id: str, change_type: str = "modif
     notified = 0
     dedup_ttl = int(getattr(settings, "DOWNSTREAM_ALERT_DEDUP_SECONDS", 3600))
     for dep in dependents:
-        cache_key = f"soroscan:dependency_change:{dep.caller_id}:{dep.callee_id}:{change_type}"
+        cache_key = f"{CACHE_KEY_DEPENDENCY_CHANGE}:{dep.caller_id}:{dep.callee_id}:{change_type}"
         if not cache.add(cache_key, "1", timeout=dedup_ttl):
             continue
         create_and_push(
             user=dep.caller.owner,
-            notification_type="alert",
-            title="Dependency Change Detected",
+            notification_type=NOTIFICATION_TYPE_ALERT,
+            title=NOTIFICATION_TITLE_DEPENDENCY_CHANGE,
             message=(
                 f"Dependency contract '{changed_contract.name}' ({changed_contract.contract_id}) "
                 f"was {change_type}. This may impact '{dep.caller.name}'."
@@ -2196,6 +2331,20 @@ def ingest_latest_events() -> int:
     new_events = 0
 
     try:
+        try:
+            reorg_result = check_and_handle_reorg(server)
+            if reorg_result:
+                logger.warning(
+                    "Handled ledger re-org rollback: %s",
+                    reorg_result,
+                    extra={"ledger_sequence": reorg_result.get("from_ledger")},
+                )
+        except Exception:
+            logger.exception(
+                "Ledger re-org check failed — continuing with event ingestion",
+                extra={},
+            )
+
         blacklisted_ids = set(
             BlacklistedContract.objects.values_list("contract_id", flat=True)
         )
@@ -3136,7 +3285,7 @@ def send_alert(self, rule_id: int, event_id: int) -> str:
         sort_keys=True,
     )
     dedup_hash = hashlib.sha256(dedup_material.encode("utf-8")).hexdigest()
-    dedup_key = f"soroscan:alerts:dedup:{rule.id}:{dedup_hash}"
+    dedup_key = f"{CACHE_KEY_ALERT_DEDUP}:{rule.id}:{dedup_hash}"
     if not cache.add(dedup_key, "1", timeout=dedup_window):
         _get_metrics().alert_deduplicated_total.labels(scope="alert_rule").inc()
         logger.info(
@@ -3368,12 +3517,12 @@ def _emit_budget_alerts(
     for threshold, level in thresholds:
         if utilization < _decimal(threshold):
             continue
-        dedup_key = f"soroscan:budget_alert:{org.id}:{month_tag}:{threshold}"
+        dedup_key = f"{CACHE_KEY_BUDGET_ALERT}:{org.id}:{month_tag}:{threshold}"
         if not cache.add(dedup_key, "1", timeout=3600):
             continue
         create_and_push(
             user=org.owner,
-            notification_type="alert",
+            notification_type=NOTIFICATION_TYPE_ALERT,
             title=f"Budget {level.title()} Threshold Reached",
             message=(
                 f"Projected monthly cost is ${snapshot.projected_monthly_cost_usd} "
@@ -3546,963 +3695,718 @@ def aggregate_organization_costs(month: str | None = None) -> dict[str, Any]:
     }
 
 
+@shared_task(bind=True, max_retries=0)
+def run_webhook_replay_job(self, job_id: int) -> dict[str, Any]:
+    """Celery entrypoint for webhook replay jobs (issue #1329)."""
+    from soroscan.ingest.services.webhook_replay import run_replay_job
+
+    return run_replay_job(job_id)
+
+
 # ---------------------------------------------------------------------------
-# Automated incident response (remediation)
+# Dead Letter Queue replay (issue #1311)
 # ---------------------------------------------------------------------------
 
 
-def _send_ops_alert(
-    alert_type: str, target: str, message: str, payload: dict[str, Any]
-) -> None:
-    if not target:
-        logger.warning("Remediation alert target is empty; skipping alert")
-        return
+@shared_task(
+    name="ingest.tasks.replay_dead_letter",
+    bind=True,
+    max_retries=2,
+    soft_time_limit=30,
+)
+def replay_dead_letter(self, dead_letter_id: int) -> dict[str, Any]:
+    """
+    Re-dispatch a webhook delivery from a dead-letter entry.
 
-    if alert_type == RemediationRule.ALERT_SLACK:
-        timeout = getattr(settings, "SLACK_ALERT_TIMEOUT_SECONDS", 10)
-        resp = requests.post(
-            target,
-            json={"text": f"{message}\n```{json.dumps(payload, indent=2)[:1500]}```"},
-            timeout=timeout,
+    Loads the WebhookDeadLetter record, verifies the subscription is active,
+    and dispatches the original event. On success the DLQ entry is marked resolved.
+    """
+    try:
+        dlq = WebhookDeadLetter.objects.select_related("subscription", "event").get(
+            id=dead_letter_id
         )
-        resp.raise_for_status()
-        return
+    except WebhookDeadLetter.DoesNotExist:
+        logger.warning("DLQ entry %s not found — skipping replay", dead_letter_id)
+        return {"status": "skipped", "reason": "not_found"}
 
-    if alert_type == RemediationRule.ALERT_EMAIL:
-        from django.core.mail import send_mail
+    if dlq.resolved:
+        return {"status": "skipped", "reason": "already_resolved"}
 
-        send_mail(
-            subject="[SoroScan] Automated remediation alert",
-            message=f"{message}\n\n{json.dumps(payload, indent=2)}",
-            from_email=None,
-            recipient_list=[target],
-            fail_silently=False,
+    if dlq.event is None:
+        dlq.resolved = True
+        dlq.resolution_note = "Auto-resolved: original event no longer exists"
+        dlq.save(update_fields=["resolved", "resolution_note"])
+        return {"status": "skipped", "reason": "event_missing"}
+
+    subscription = dlq.subscription
+    if not subscription.is_active:
+        # Re-activate the subscription so dispatch_webhook can proceed
+        WebhookSubscription.objects.filter(pk=subscription.pk).update(
+            is_active=True,
+            status=WebhookSubscription.STATUS_ACTIVE,
+            failure_count=0,
         )
-        return
+        subscription.refresh_from_db()
 
-    if alert_type == RemediationRule.ALERT_WEBHOOK:
-        resp = requests.post(
-            target, json={"message": message, "payload": payload}, timeout=10
+    dispatch_webhook.delay(subscription.id, dlq.event.id, replay=True)
+
+    dlq.resolved = True
+    dlq.resolution_note = f"Replayed by task at {timezone.now().isoformat()}"
+    dlq.save(update_fields=["resolved", "resolution_note"])
+
+    _get_metrics().webhook_dead_letter_depth.set(
+        WebhookDeadLetter.objects.filter(resolved=False).count()
+    )
+
+    logger.info(
+        "DLQ entry %s replayed for subscription=%s event=%s",
+        dead_letter_id,
+        subscription.id,
+        dlq.event.id,
+        extra={"dlq_id": dead_letter_id, "webhook_id": subscription.id, "event_id": dlq.event.id},
+    )
+    return {"status": "replayed", "dlq_id": dead_letter_id}
+
+
+@shared_task(
+    name="ingest.tasks.replay_dead_letter_webhooks",
+    bind=True,
+    max_retries=2,
+    soft_time_limit=60,
+)
+def replay_dead_letter_webhooks(
+    self,
+    delivery_ids: list[int] | None = None,
+    contract_id: str | None = None,
+) -> dict[str, Any]:
+    """
+    Batch re-queue dead-lettered webhook deliveries (issue #1406).
+
+    Selects ``WebhookDeliveryLog`` rows that are in ``dead_letter`` state,
+    either by explicit ``delivery_ids`` or by every delivery belonging to
+    ``contract_id``, resets them to ``pending``, and re-dispatches each one
+    through the ``webhook_dispatch`` queue (``ingest.tasks.dispatch_webhook``)
+    with ``replay=True`` so delivery de-duplication does not suppress the
+    retry.
+
+    Rows without an event cannot be redelivered and are counted as skipped.
+    Suspended subscriptions are re-activated first, because
+    ``dispatch_webhook`` skips inactive subscriptions and the replay would
+    otherwise be silently dropped.
+
+    ``WebhookDeadLetter`` rows are intentionally left untouched so this batch
+    path and the single-entry :func:`replay_dead_letter` path cannot resolve
+    the same entry twice.
+    """
+    if not delivery_ids and not contract_id:
+        return {
+            "status": "skipped",
+            "reason": "no_selection",
+            "requeued": 0,
+            "skipped": 0,
+        }
+
+    qs = WebhookDeliveryLog.objects.filter(
+        status=WebhookDeliveryLog.STATUS_DEAD_LETTER
+    ).select_related("subscription")
+
+    if delivery_ids:
+        qs = qs.filter(id__in=delivery_ids)
+    if contract_id:
+        qs = qs.filter(subscription__contract__contract_id=contract_id)
+
+    requeued = 0
+    skipped = 0
+    for delivery in qs.iterator():
+        if delivery.event_id is None:
+            skipped += 1
+            continue
+
+        subscription = delivery.subscription
+        if (
+            not subscription.is_active
+            or subscription.status != WebhookSubscription.STATUS_ACTIVE
+        ):
+            WebhookSubscription.objects.filter(pk=subscription.pk).update(
+                is_active=True,
+                status=WebhookSubscription.STATUS_ACTIVE,
+                failure_count=0,
+            )
+            subscription.refresh_from_db()
+
+        WebhookDeliveryLog.objects.filter(pk=delivery.pk).update(
+            status=WebhookDeliveryLog.STATUS_PENDING
         )
-        resp.raise_for_status()
-        return
+        dispatch_webhook.delay(subscription.id, delivery.event_id, replay=True)
+        requeued += 1
 
-    logger.warning("Unknown remediation alert type: %s", alert_type)
+    logger.info(
+        "Batch DLQ replay complete: requeued=%s skipped=%s contract_id=%s",
+        requeued,
+        skipped,
+        contract_id or "",
+        extra={"requeued": requeued, "skipped": skipped},
+    )
+    return {"status": "ok", "requeued": requeued, "skipped": skipped}
 
 
-def _resolve_contract_for_rule(rule: RemediationRule) -> TrackedContract | None:
-    contract_id = (rule.condition or {}).get("contract_id")
-    if not contract_id:
-        return None
-    return get_cached_contract(contract_id)
+def _check_single_contract_health(contract: TrackedContract, now=None, cutoff_1h=None) -> tuple[str, str]:
+    """
+    Checks and updates health status for a single contract.
+    Returns (status, error_message).
+    """
+    if now is None:
+        now = timezone.now()
+    if cutoff_1h is None:
+        cutoff_1h = now - timedelta(hours=1)
+
+    last_event = ContractEvent.objects.filter(contract=contract).order_by("-timestamp").first()
+    if last_event:
+        last_event_time = last_event.timestamp
+    else:
+        last_event_time = contract.created_at
+
+    minutes_since = int((now - last_event_time).total_seconds() / 60) if last_event_time else 0
+
+    decode_errors_1h = ContractEvent.objects.filter(
+        contract=contract,
+        timestamp__gte=cutoff_1h,
+        decoding_status="failed",
+    ).count()
+
+    health, _ = ContractHealthCheck.objects.get_or_create(contract=contract)
+    old_status = health.status
+
+    if minutes_since > 120:
+        new_status = ContractHealthCheck.Status.FAILED
+        msg = f"No events for {minutes_since} minutes"
+    elif minutes_since > 30 or decode_errors_1h >= 5:
+        new_status = ContractHealthCheck.Status.DEGRADED
+        msg = f"No events for {minutes_since} minutes" if minutes_since > 30 else f"{decode_errors_1h} ABI decode errors in last hour"
+    else:
+        new_status = ContractHealthCheck.Status.HEALTHY
+        msg = ""
 
 
-def _detect_anomaly(
-    rule: RemediationRule, contract: TrackedContract
-) -> tuple[bool, dict[str, Any]]:
-    condition = rule.condition or {}
-    condition_type = condition.get("type")
+    health.status = new_status
+    health.minutes_since_last_event = minutes_since
+    health.abi_decode_errors_1h = decode_errors_1h
+    health.error_message = msg
+    if new_status in (ContractHealthCheck.Status.FAILED, ContractHealthCheck.Status.DEGRADED):
+        health.consecutive_failures += 1
+    elif new_status == ContractHealthCheck.Status.HEALTHY:
+        health.consecutive_failures = 0
+    health.last_checked_at = now
+    health.save()
+
+    if old_status == ContractHealthCheck.Status.HEALTHY and new_status in (
+        ContractHealthCheck.Status.DEGRADED,
+        ContractHealthCheck.Status.FAILED,
+    ):
+        send_health_alert.delay(contract.contract_id, new_status, msg)
+
+    return new_status, msg
+
+
+@shared_task
+def check_contract_health() -> dict[str, Any]:
+    """
+    Evaluates health status for all active tracked contracts.
+    Updates or creates ContractHealthCheck records and sends alerts on status degradation.
+    """
+    checked_count = 0
+    healthy_count = 0
+    degraded_count = 0
+    failed_count = 0
+    errors = []
+
+    now = timezone.now()
+    cutoff_1h = now - timedelta(hours=1)
+
+    contracts = TrackedContract.objects.filter(is_active=True, is_paused=False)
+    for contract in contracts:
+        checked_count += 1
+        try:
+            new_status, _ = _check_single_contract_health(contract=contract, now=now, cutoff_1h=cutoff_1h)
+            if new_status == ContractHealthCheck.Status.HEALTHY:
+                healthy_count += 1
+            elif new_status == ContractHealthCheck.Status.DEGRADED:
+                degraded_count += 1
+            else:
+                failed_count += 1
+        except Exception as e:
+            logger.error("Error checking health for contract %s: %s", contract.contract_id, e)
+            errors.append({"contract_id": contract.contract_id, "error": str(e)})
+
+    return {
+        "checked": checked_count,
+        "healthy": healthy_count,
+        "degraded": degraded_count,
+        "failed": failed_count,
+        "errors": errors,
+    }
+
+
+@shared_task
+def send_health_alert(contract_id: str, status: str, message: str) -> str:
+    """
+    Sends an in-app notification when contract health degrades.
+    """
+    try:
+        contract = TrackedContract.objects.select_related("owner").get(contract_id=contract_id)
+    except TrackedContract.DoesNotExist:
+        return "skipped:contract_gone"
+
+    from soroscan.ingest.services.notifications import create_and_push
+    if contract.owner:
+        create_and_push(
+            user=contract.owner,
+            title=f"Contract Health Alert: {status.upper()}",
+            message=f"Contract '{contract.name or contract.contract_id}' status changed to {status}: {message}",
+            link=f"/contracts/{contract.contract_id}",
+            notification_type=NOTIFICATION_TYPE_CONTRACT_HEALTH,
+        )
+    return "sent"
+
+
+@shared_task
+def detect_contract_upgrades() -> dict[str, int]:
+    """
+    Detects contract deployments and upgrades by checking verified bytecode hashes against existing ContractDeployment records.
+    """
+    new_deployments = 0
+    upgrades_detected = 0
+
+    verifications = ContractVerification.objects.filter(
+        status=ContractVerification.Status.VERIFIED
+    ).select_related("contract")
+
+    for ver in verifications:
+        contract = ver.contract
+        bytecode_hash = ver.bytecode_hash
+        if not bytecode_hash:
+            continue
+
+        existing = ContractDeployment.objects.filter(contract=contract, bytecode_hash=bytecode_hash).first()
+        if existing:
+            continue
+
+        prev_deployment = ContractDeployment.objects.filter(contract=contract).first()
+        is_upgrade = prev_deployment is not None
+
+        ContractDeployment.objects.create(
+            contract=contract,
+            bytecode_hash=bytecode_hash,
+            ledger_deployed=0,
+            is_upgrade=is_upgrade,
+        )
+
+        if is_upgrade:
+            upgrades_detected += 1
+        else:
+            new_deployments += 1
+
+    return {"new_deployments": new_deployments, "upgrades_detected": upgrades_detected}
+
+
+def _detect_anomaly(rule: RemediationRule, contract: TrackedContract) -> tuple[bool, dict[str, Any]]:
+    """
+    Evaluates a single RemediationRule condition against a contract.
+    Returns (triggered, snapshot_dict).
+    """
+    cond = rule.condition or {}
+    cond_type = cond.get("type")
     now = timezone.now()
 
-    if condition_type == RemediationRule.CONDITION_NO_EVENTS:
-        minutes = int(condition.get("minutes", 60))
-        cutoff = now - timedelta(minutes=minutes)
-        has_recent = ContractEvent.objects.filter(
-            contract=contract, timestamp__gte=cutoff
-        ).exists()
-        return (
-            not has_recent,
-            {"type": condition_type, "minutes": minutes, "cutoff": cutoff.isoformat()},
-        )
+    if cond_type == "no_events_for_minutes" or cond_type == RemediationRule.CONDITION_INGESTION_LAG:
+        minutes = cond.get("minutes", cond.get("window_minutes", 60))
+        last_evt = ContractEvent.objects.filter(contract=contract).order_by("-timestamp").first()
+        if last_evt:
+            last_event = last_evt.timestamp
+        else:
+            last_event = contract.last_event_at
 
-    if condition_type == RemediationRule.CONDITION_DECODE_ERROR_SPIKE:
-        window_minutes = int(condition.get("window_minutes", 60))
-        threshold_percent = float(condition.get("threshold_percent", 50))
-        min_events = int(condition.get("min_events", 10))
+        diff_minutes = (now - last_event).total_seconds() / 60 if last_event else 999999
+        if diff_minutes >= minutes:
+            return True, {"type": cond_type, "minutes_since": diff_minutes}
+        return False, {"type": cond_type, "minutes_since": diff_minutes}
+
+    elif cond_type == RemediationRule.CONDITION_WEBHOOK_FAILURE_BURST:
+        window_minutes = cond.get("window_minutes", 60)
+        failure_threshold = cond.get("failure_threshold", 3)
+        failure_ratio_percent = float(cond.get("failure_ratio_percent", 50))
         cutoff = now - timedelta(minutes=window_minutes)
-        qs = ContractEvent.objects.filter(contract=contract, timestamp__gte=cutoff)
+        qs = WebhookDeliveryLog.objects.filter(
+            subscription__contract=contract,
+            timestamp__gte=cutoff,
+        )
         total = qs.count()
-        failed = qs.filter(decoding_status="failed").count()
+        failed = qs.filter(
+            status__in=[
+                WebhookDeliveryLog.STATUS_FAILED,
+                WebhookDeliveryLog.STATUS_DEAD_LETTER,
+            ]
+        ).count()
         ratio = (failed / total * 100.0) if total > 0 else 0.0
-        triggered = total >= min_events and ratio >= threshold_percent
+        triggered = failed >= failure_threshold or (
+            total >= failure_threshold and ratio >= failure_ratio_percent
+        )
         return (
             triggered,
             {
-                "type": condition_type,
+                "type": cond_type,
                 "window_minutes": window_minutes,
-                "threshold_percent": threshold_percent,
-                "min_events": min_events,
+                "failure_threshold": failure_threshold,
+                "failure_ratio_percent": failure_ratio_percent,
                 "total": total,
                 "failed": failed,
                 "ratio": ratio,
             },
         )
 
-    logger.warning("Unknown remediation condition type for rule=%s", rule.id)
-    return (False, {"type": condition_type, "error": "unknown_condition_type"})
+    elif cond_type == RemediationRule.CONDITION_RPC_UNAVAILABLE:
+        window_minutes = cond.get("window_minutes", 60)
+        min_errors = cond.get("min_errors", 3)
+        cutoff = now - timedelta(minutes=window_minutes)
+        rpc_errors = IngestError.objects.filter(
+            contract_id=contract.contract_id,
+            error_type=IngestError.ErrorType.RPC_ERROR,
+            created_at__gte=cutoff,
+        ).count()
+        if rpc_errors >= min_errors:
+            return True, {"type": cond_type, "rpc_errors": rpc_errors}
+        return False, {"type": cond_type, "rpc_errors": rpc_errors}
 
-
-def _execute_remediation_actions(
-    incident: RemediationIncident,
-    *,
-    effective_dry_run: bool,
-) -> list[dict[str, Any]]:
-    executed: list[dict[str, Any]] = []
-
-    for action in incident.rule.actions or []:
-        action_type = (action or {}).get("type")
-        entry: dict[str, Any] = {
-            "type": action_type,
-            "dry_run": effective_dry_run,
-            "status": "skipped",
-        }
-
-        if action_type == "pause_contract":
-            if not effective_dry_run:
-                incident.contract.is_active = False
-                incident.contract.save(update_fields=["is_active"])
-            entry["status"] = "executed"
-
-        elif action_type == "disable_webhooks":
-            if not effective_dry_run:
-                disabled = WebhookSubscription.objects.filter(
-                    contract=incident.contract, is_active=True
-                ).update(
-                    is_active=False,
-                    status=WebhookSubscription.STATUS_SUSPENDED,
-                )
-                entry["disabled_count"] = disabled
-            entry["status"] = "executed"
-
-        elif action_type == "send_alert":
-            target = action.get("target") or incident.rule.alert_target
-            alert_type = action.get("alert_type") or incident.rule.alert_type
-            message = action.get("message") or (
-                f"Remediation action requested for rule '{incident.rule.name}' "
-                f"on contract {incident.contract.contract_id}"
-            )
-            if not effective_dry_run:
-                _send_ops_alert(
-                    alert_type,
-                    target,
-                    message,
-                    {
-                        "rule_id": incident.rule_id,
-                        "incident_id": incident.id,
-                        "contract_id": incident.contract.contract_id,
-                        "snapshot": incident.anomaly_snapshot,
-                    },
-                )
-            entry["status"] = "executed"
-
-        else:
-            entry["error"] = "unknown_action"
-
-        executed.append(entry)
-
-    return executed
+    return False, {"type": cond_type}
 
 
 @shared_task
-def evaluate_remediation_rules(dry_run: bool = False) -> dict[str, Any]:
+def evaluate_remediation_rules() -> dict[str, int]:
     """
-    Evaluate remediation rules and execute actions after grace period.
+    Evaluates enabled RemediationRules, creates/alerts incidents, and executes remediation actions.
+    """
+    detected_count = 0
+    alerted_count = 0
+    executed_count = 0
+    resolved_count = 0
 
-    Flow:
-      1. Detect anomaly from rule.condition
-      2. Alert ops immediately (always before actions)
-      3. Wait grace_period_minutes
-      4. Execute actions (or simulate in dry-run)
-    """
     now = timezone.now()
-    summary = {
-        "evaluated": 0,
-        "detected": 0,
-        "alerted": 0,
-        "executed": 0,
-        "resolved": 0,
-        "dry_run": dry_run,
-    }
 
-    rules = RemediationRule.objects.filter(enabled=True).order_by("id")
-
+    rules = RemediationRule.objects.filter(enabled=True)
     for rule in rules:
-        summary["evaluated"] += 1
-        contract = _resolve_contract_for_rule(rule)
-        if contract is None:
-            continue
+        cond = rule.condition or {}
+        cid = cond.get("contract_id")
+        if cid:
+            contracts = TrackedContract.objects.filter(contract_id=cid)
+        else:
+            contracts = TrackedContract.objects.all()
 
-        triggered, snapshot = _detect_anomaly(rule, contract)
+        for contract in contracts:
+            triggered, snapshot = _detect_anomaly(rule, contract)
+            incident = RemediationIncident.objects.filter(
+                rule=rule, contract=contract, status__in=[RemediationIncident.STATUS_ALERTED, RemediationIncident.STATUS_EXECUTED]
+            ).first()
 
-        open_incident = (
-            RemediationIncident.objects.filter(
-                rule=rule,
-                contract=contract,
-                status__in=[
-                    RemediationIncident.STATUS_ALERTED,
-                    RemediationIncident.STATUS_EXECUTED,
-                ],
-                resolved_at__isnull=True,
-            )
-            .order_by("-first_detected_at")
-            .first()
-        )
+            if triggered:
+                if not incident:
+                    grace = timedelta(minutes=rule.grace_period_minutes)
+                    incident = RemediationIncident.objects.create(
+                        rule=rule,
+                        contract=contract,
+                        status=RemediationIncident.STATUS_ALERTED,
+                        first_detected_at=now,
+                        action_after_at=now + grace,
+                        anomaly_snapshot=snapshot,
+                    )
+                    detected_count += 1
 
-        if not triggered:
-            if (
-                open_incident
-                and open_incident.status != RemediationIncident.STATUS_RESOLVED
-            ):
-                open_incident.status = RemediationIncident.STATUS_RESOLVED
-                open_incident.resolved_at = now
-                open_incident.save(
-                    update_fields=["status", "resolved_at", "last_seen_at"]
-                )
-                AdminAction.objects.create(
-                    user=None,
-                    action="remediation_resolved",
-                    object_type="tracked_contract",
-                    object_id=str(contract.pk),
-                    ip_address="0.0.0.0",
-                    changes={"rule_id": rule.id, "incident_id": open_incident.id},
-                )
-                summary["resolved"] += 1
-            continue
+                    if rule.alert_target:
+                        try:
+                            requests.post(rule.alert_target, json={"rule": rule.name, "contract": contract.contract_id, "snapshot": snapshot}, timeout=5)
+                        except Exception:
+                            pass
+                    alerted_count += 1
 
-        summary["detected"] += 1
+                if incident.status == RemediationIncident.STATUS_ALERTED and now >= incident.action_after_at:
+                    if not rule.dry_run:
+                        for action in (rule.actions or []):
+                            atype = action.get("type")
+                            if atype == "pause_contract":
+                                TrackedContract.objects.filter(pk=contract.pk).update(is_active=False)
+                            elif atype == "disable_webhooks":
+                                WebhookSubscription.objects.filter(contract=contract).update(
+                                    is_active=False, status=WebhookSubscription.STATUS_SUSPENDED
+                                )
+                    incident.status = RemediationIncident.STATUS_EXECUTED
+                    incident.executed_at = now
+                    incident.save()
+                    executed_count += 1
+                elif incident.status == RemediationIncident.STATUS_EXECUTED and rule.dry_run:
+                    executed_count += 1
+            else:
+                if incident:
+                    incident.status = RemediationIncident.STATUS_RESOLVED
+                    incident.resolved_at = now
+                    incident.save()
+                    AdminAction.objects.create(
+                        action="remediation_resolved",
+                        object_type="TrackedContract",
+                        object_id=contract.contract_id,
+                        changes={"description": f"Remediation rule '{rule.name}' incident resolved for {contract.contract_id}"},
+                    )
+                    resolved_count += 1
 
-        if open_incident is None:
-            open_incident = RemediationIncident.objects.create(
-                rule=rule,
-                contract=contract,
-                status=RemediationIncident.STATUS_ALERTED,
-                anomaly_snapshot=snapshot,
-                alerted_at=now,
-                action_after_at=now + timedelta(minutes=rule.grace_period_minutes),
-            )
-            summary["alerted"] += 1
-
-            message = (
-                f"Remediation alert: anomaly detected for rule '{rule.name}' on contract "
-                f"{contract.contract_id}. Actions scheduled after {rule.grace_period_minutes} minute(s)."
-            )
-            try:
-                _send_ops_alert(rule.alert_type, rule.alert_target, message, snapshot)
-            except Exception:
-                logger.warning(
-                    "Failed to send remediation pre-alert for rule=%s",
-                    rule.id,
-                    exc_info=True,
-                )
-
-            AdminAction.objects.create(
-                user=None,
-                action="remediation_alerted",
-                object_type="tracked_contract",
-                object_id=str(contract.pk),
-                ip_address="0.0.0.0",
-                changes={
-                    "rule_id": rule.id,
-                    "incident_id": open_incident.id,
-                    "grace_period_minutes": rule.grace_period_minutes,
-                    "snapshot": snapshot,
-                },
-            )
-            continue
-
-        if open_incident.status == RemediationIncident.STATUS_EXECUTED:
-            open_incident.last_seen_at = now
-            open_incident.save(update_fields=["last_seen_at"])
-            continue
-
-        if open_incident.action_after_at and now < open_incident.action_after_at:
-            continue
-
-        effective_dry_run = dry_run or rule.dry_run
-        executed = _execute_remediation_actions(
-            open_incident, effective_dry_run=effective_dry_run
-        )
-
-        open_incident.status = RemediationIncident.STATUS_EXECUTED
-        open_incident.executed_at = now
-        open_incident.anomaly_snapshot = snapshot
-        open_incident.save(
-            update_fields=["status", "executed_at", "anomaly_snapshot", "last_seen_at"]
-        )
-
-        AdminAction.objects.create(
-            user=None,
-            action="remediation_executed",
-            object_type="tracked_contract",
-            object_id=str(contract.pk),
-            ip_address="0.0.0.0",
-            changes={
-                "rule_id": rule.id,
-                "incident_id": open_incident.id,
-                "dry_run": effective_dry_run,
-                "actions": executed,
-            },
-        )
-        summary["executed"] += 1
-
-    # Mirror summary counters to Prometheus.
-    _m = _get_metrics()
-    for outcome in ("detected", "executed", "resolved", "alerted"):
-        count = summary.get(outcome, 0)
-        if count:
-            _m.remediation_rules_evaluated_total.labels(outcome=outcome).inc(count)
-
-    return summary
-
-
-# ---------------------------------------------------------------------------
-# Issue: Performance monitoring — Silk cleanup Celery task
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Data Retention — archive_old_events periodic task
-# ---------------------------------------------------------------------------
-
-_MAX_BATCH_BYTES = 100 * 1024 * 1024  # 100 MB compressed limit per S3 object
-
-
-def _upload_to_s3(bucket: str, key: str, data: bytes) -> int:
-    """Upload *data* to S3 and return the byte size uploaded."""
-    import boto3  # noqa: PLC0415
-
-    s3 = boto3.client(
-        "s3",
-        region_name=getattr(settings, "AWS_S3_REGION_NAME", None),
-        endpoint_url=getattr(settings, "AWS_S3_ENDPOINT_URL", None),
-        aws_access_key_id=getattr(settings, "AWS_ACCESS_KEY_ID", None),
-        aws_secret_access_key=getattr(settings, "AWS_SECRET_ACCESS_KEY", None),
-    )
-    s3.put_object(
-        Bucket=bucket,
-        Key=key,
-        Body=data,
-        ContentEncoding="gzip",
-        ContentType="application/json",
-    )
-    return len(data)
-
-
-def _export_batch_to_s3(
-    events_qs,
-    policy,
-    batch_index: int,
-) -> Any:
-    """
-    Serialize up to 10 000 events from *events_qs* into a gzip-compressed
-    JSON batch, upload to S3, and return an ArchivedEventBatch record.
-
-    Returns None if the queryset is empty.
-    """
-    import gzip  # noqa: PLC0415
-    from .models import ArchivedEventBatch, ArchivalAuditLog  # noqa: PLC0415
-
-    rows = list(
-        events_qs.values(
-            "id",
-            "contract__contract_id",
-            "event_type",
-            "payload",
-            "payload_hash",
-            "ledger",
-            "event_index",
-            "timestamp",
-            "tx_hash",
-        )
-    )
-    if not rows:
-        return None
-
-    # Serialize timestamps to ISO strings for JSON compatibility
-    for row in rows:
-        ts = row.get("timestamp")
-        if ts is not None:
-            row["timestamp"] = ts.isoformat()
-
-    raw_json = json.dumps(rows, default=str).encode("utf-8")
-    compressed = gzip.compress(raw_json)
-
-    if len(compressed) > _MAX_BATCH_BYTES:
-        logger.warning(
-            "Archive batch %d for policy %d exceeds 100 MB (%d bytes) — splitting not yet supported",
-            batch_index,
-            policy.id,
-            len(compressed),
-        )
-
-    contract_slug = policy.contract.contract_id[:12] if policy.contract else "global"
-    key = (
-        f"{policy.s3_prefix.rstrip('/')}/{contract_slug}/"
-        f"batch_{policy.id}_{batch_index}_{int(timezone.now().timestamp())}.json.gz"
-    )
-
-    size_bytes = _upload_to_s3(policy.s3_bucket, key, compressed)
-
-    timestamps = [r["timestamp"] for r in rows if r.get("timestamp")]
-    timestamps_sorted = sorted(timestamps)
-
-    from django.utils.dateparse import parse_datetime  # noqa: PLC0415
-
-    batch = ArchivedEventBatch.objects.create(
-        policy=policy,
-        s3_key=key,
-        event_count=len(rows),
-        size_bytes=size_bytes,
-        min_timestamp=(
-            parse_datetime(timestamps_sorted[0]) if timestamps_sorted else None
-        ),
-        max_timestamp=(
-            parse_datetime(timestamps_sorted[-1]) if timestamps_sorted else None
-        ),
-    )
-
-    ArchivalAuditLog.objects.create(
-        action=ArchivalAuditLog.ACTION_ARCHIVE,
-        batch=batch,
-        policy=policy,
-        event_count=len(rows),
-        detail=f"Uploaded to s3://{policy.s3_bucket}/{key}",
-    )
-
-    return batch
-
-
-@shared_task
-def archive_old_events() -> dict:
-    """
-    Periodic task: for each active DataRetentionPolicy, archive events older
-    than retention_days to S3 (gzip-compressed JSON) then delete them from PG.
-
-    Runs daily via Celery Beat.
-    """
-    from .models import DataRetentionPolicy, ArchivalAuditLog  # noqa: PLC0415
-
-    _start = time.monotonic()
-    m = _get_metrics()
-    total_archived = 0
-    total_deleted = 0
-    errors = []
-
-    policies = DataRetentionPolicy.objects.filter(archive_enabled=True).select_related(
-        "contract"
-    )
-
-    for policy in policies:
-        try:
-            cutoff = timezone.now() - timedelta(days=policy.retention_days)
-            base_qs = ContractEvent.objects.filter(timestamp__lt=cutoff)
-            if policy.contract:
-                base_qs = base_qs.filter(contract=policy.contract)
-
-            batch_index = 0
-            while True:
-                batch_qs = base_qs.order_by("timestamp")[:10000]
-                batch = _export_batch_to_s3(batch_qs, policy, batch_index)
-                if batch is None:
-                    break
-
-                # Delete only the IDs we just archived
-                archived_ids = list(
-                    base_qs.order_by("timestamp").values_list("id", flat=True)[:10000]
-                )
-                deleted_count, _ = ContractEvent.objects.filter(
-                    id__in=archived_ids
-                ).delete()
-                total_archived += batch.event_count
-                total_deleted += deleted_count
-                batch_index += 1
-
-                m.archive_events_total.labels(outcome="archived").inc(batch.event_count)
-                m.archive_events_total.labels(outcome="deleted").inc(deleted_count)
-
-                logger.info(
-                    "Archived batch %d for policy %d: %d events → s3://%s/%s",
-                    batch_index,
-                    policy.id,
-                    batch.event_count,
-                    policy.s3_bucket,
-                    batch.s3_key,
-                )
-
-        except Exception as exc:
-            err_msg = f"Policy {policy.id}: {exc}"
-            errors.append(err_msg)
-            logger.exception("archive_old_events failed for policy %d", policy.id)
-            m.archive_events_total.labels(outcome="error").inc()
-            ArchivalAuditLog.objects.create(
-                action=ArchivalAuditLog.ACTION_ARCHIVE,
-                policy=policy,
-                event_count=0,
-                detail=f"ERROR: {str(exc)[:500]}",
-            )
-
-    elapsed = time.monotonic() - _start
-    m.task_duration_seconds.labels(task_name="archive_old_events").observe(elapsed)
-    logger.info(
-        "archive_old_events complete: archived=%d deleted=%d errors=%d elapsed=%.2fs",
-        total_archived,
-        total_deleted,
-        len(errors),
-        elapsed,
-    )
-    return {"archived": total_archived, "deleted": total_deleted, "errors": errors}
-
-
-@shared_task
-def cleanup_silk_data() -> int:
-    """
-    Prune Django Silk Request/Response profiling data older than 7 days.
-    Schedule via Celery Beat, e.g. weekly.
-    """
-    _start = time.monotonic()
-    try:
-        from silk.models import Request as SilkRequest  # type: ignore[import]
-    except ImportError:
-        return 0
-
-    cutoff = timezone.now() - timedelta(days=7)
-    deleted_count, _ = SilkRequest.objects.filter(start_time__lt=cutoff).delete()
-    logger.info(
-        "Pruned %d Silk profiling records older than 7 days",
-        deleted_count,
-        extra={},
-    )
-    _get_metrics().task_duration_seconds.labels(task_name="cleanup_silk_data").observe(
-        time.monotonic() - _start
-    )
-    return deleted_count
-
-
-# ---------------------------------------------------------------------------
-# Issue #280: GDPR Data Governance — retention enforcement & deletion requests
-# ---------------------------------------------------------------------------
+    return {
+        "detected": detected_count,
+        "alerted": alerted_count,
+        "executed": executed_count,
+        "resolved": resolved_count,
+    }
 
 
 @shared_task
 def enforce_retention_policies() -> dict[str, int]:
     """
-    Delete ContractEvent rows that exceed their retention policy TTL.
-    Runs per-contract policy first; falls back to the global policy (contract=None).
-    Returns a summary dict: {contract_id: deleted_count}.
+    Enforces data retention policies by deleting events older than retention_days.
+    Returns dict mapping contract_id to count of deleted events.
     """
-    from .models import DataRetentionPolicy, ContractEvent
-
+    results = {}
+    policies = DataRetentionPolicy.objects.select_related("contract").all()
     now = timezone.now()
-    summary: dict[str, int] = {}
 
-    # Build a map: contract_id -> retention_days
-    policy_map: dict[int, int] = {}
-    global_days: int | None = None
-
-    for policy in DataRetentionPolicy.objects.select_related("contract"):
-        if policy.contract_id is None:
-            global_days = policy.retention_days
-        else:
-            policy_map[policy.contract_id] = policy.retention_days
-
-    contracts = TrackedContract.objects.values_list("id", "contract_id")
-    for contract_pk, contract_id in contracts:
-        days = policy_map.get(contract_pk, global_days)
-        if days is None:
-            continue
-        cutoff = now - timedelta(days=days)
-        deleted, _ = ContractEvent.objects.filter(
-            contract_id=contract_pk, timestamp__lt=cutoff
+    for policy in policies:
+        cutoff = now - timedelta(days=policy.retention_days)
+        deleted_count, _ = ContractEvent.objects.filter(
+            contract=policy.contract,
+            timestamp__lt=cutoff,
         ).delete()
-        if deleted:
-            summary[contract_id] = deleted
-            logger.info(
-                "Retention: deleted %d events for contract %s", deleted, contract_id
-            )
-
-    return summary
-
-
-@shared_task
-def process_deletion_requests() -> dict[str, Any]:
-    """
-    Process pending GDPR DataDeletionRequests.
-    For each request, scrub ContractEvent payload fields registered as PII
-    that match the subject_identifier, then mark the request completed.
-    """
-    from .models import DataDeletionRequest, PIIField, AuditLog
-
-    pending = DataDeletionRequest.objects.filter(
-        status=DataDeletionRequest.STATUS_PENDING
-    )
-    results: dict[str, Any] = {}
-
-    for req in pending:
-        req.status = DataDeletionRequest.STATUS_PROCESSING
-        req.save(update_fields=["status"])
-        total_deleted = 0
-        try:
-            # Determine scope: specific contracts or all
-            contract_qs = (
-                req.contracts.all()
-                if req.contracts.exists()
-                else TrackedContract.objects.all()
-            )
-
-            for contract in contract_qs:
-                pii_fields = PIIField.objects.filter(contract=contract)
-                if not pii_fields.exists():
-                    continue
-
-                # Find events whose payload contains the subject_identifier
-                events = ContractEvent.objects.filter(contract=contract)
-                for pii in pii_fields:
-                    # Filter events by event_type if specified
-                    ev_qs = events
-                    if pii.event_type:
-                        ev_qs = ev_qs.filter(event_type=pii.event_type)
-
-                    # Scrub matching events: replace PII field value with "[DELETED]"
-                    for event in ev_qs.iterator():
-                        payload = event.payload or {}
-                        parts = pii.field_path.split(".")
-                        node = payload
-                        for part in parts[:-1]:
-                            if isinstance(node, dict):
-                                node = node.get(part, {})
-                        leaf = parts[-1]
-                        if isinstance(node, dict) and leaf in node:
-                            if str(node[leaf]) == req.subject_identifier:
-                                node[leaf] = "[DELETED]"
-                                event.payload = payload
-                                event.save(update_fields=["payload"])
-                                total_deleted += 1
-
-            req.status = DataDeletionRequest.STATUS_COMPLETED
-            req.events_deleted = total_deleted
-            req.completed_at = timezone.now()
-            req.save(update_fields=["status", "events_deleted", "completed_at"])
-
-            AuditLog.objects.create(
-                action=AuditLog.ACTION_DELETE,
-                model_name="DataDeletionRequest",
-                object_id=str(req.pk),
-                changes={
-                    "subject_identifier": req.subject_identifier,
-                    "events_scrubbed": total_deleted,
-                },
-            )
-            results[str(req.pk)] = {
-                "status": "completed",
-                "events_deleted": total_deleted,
-            }
-        except Exception as exc:
-            req.status = DataDeletionRequest.STATUS_FAILED
-            req.error_message = str(exc)
-            req.save(update_fields=["status", "error_message"])
-            logger.exception("Deletion request %s failed", req.pk)
-            results[str(req.pk)] = {"status": "failed", "error": str(exc)}
+        if deleted_count > 0:
+            results[policy.contract.contract_id] = deleted_count
 
     return results
 
 
-# ---------------------------------------------------------------------------
-# Issue #284: Contract upgrade detection
-# ---------------------------------------------------------------------------
+@shared_task
+def process_deletion_requests() -> dict[str, dict[str, Any]]:
+    """
+    Processes pending GDPR DataDeletionRequests by scrubbing matching PII fields in payloads.
+    """
+    results = {}
+    pending_status = getattr(DataDeletionRequest, "STATUS_PENDING", "pending")
+    completed_status = getattr(DataDeletionRequest, "STATUS_COMPLETED", "completed")
+
+    pending_requests = DataDeletionRequest.objects.filter(
+        status=pending_status
+    ).prefetch_related("contracts")
+
+    for req in pending_requests:
+        events_scrubbed = 0
+        subject = req.subject_identifier
+
+        contracts = req.contracts.all()
+        for contract in contracts:
+            pii_fields = PIIField.objects.filter(contract=contract)
+            for pii in pii_fields:
+                field_path = pii.field_path
+                events = ContractEvent.objects.filter(contract=contract)
+                if pii.event_type:
+                    events = events.filter(event_type=pii.event_type)
+
+                for event in events:
+                    if isinstance(event.payload, dict) and event.payload.get(field_path) == subject:
+                        event.payload[field_path] = "[DELETED]"
+                        event.save(update_fields=["payload"])
+                        events_scrubbed += 1
+
+        req.status = completed_status
+        req.completed_at = timezone.now()
+        req.save(update_fields=["status", "completed_at"])
+
+        results[str(req.pk)] = {"status": "completed", "events_deleted": events_scrubbed}
+
+    return results
 
 
 @shared_task
-def detect_contract_upgrades() -> dict[str, Any]:
+def archive_old_events() -> dict[str, int]:
     """
-    Scan ContractVerification records for bytecode hash changes and record
-    new ContractDeployment rows.  Also closes the valid_to_ledger on the
-    previous ContractABIVersion when an upgrade is detected.
+    Archives and deletes events older than retention_days according to DataRetentionPolicy rules.
+    Returns {"archived": archived_count, "deleted": deleted_count, "errors": error_count}.
     """
-    from .models import ContractDeployment, ContractABIVersion, ContractVerification
+    from .models import DataRetentionPolicy, ContractEvent
+    archived_count = 0
+    deleted_count = 0
+    error_count = 0
 
-    summary: dict[str, Any] = {"upgrades_detected": 0, "new_deployments": 0}
-
-    for verification in ContractVerification.objects.filter(
-        status=ContractVerification.Status.VERIFIED
-    ).select_related("contract"):
-        contract = verification.contract
-        bytecode_hash = verification.bytecode_hash
-
-        # Check if we already have a deployment with this hash
-        existing = ContractDeployment.objects.filter(
-            contract=contract, bytecode_hash=bytecode_hash
-        ).first()
-        if existing:
-            continue
-
-        # Determine if this is an upgrade (previous deployment exists)
-        previous = (
-            ContractDeployment.objects.filter(contract=contract)
-            .order_by("-ledger_deployed")
-            .first()
-        )
-        is_upgrade = previous is not None
-        ledger = contract.last_indexed_ledger or 0
-
-        ContractDeployment.objects.create(
-            contract=contract,
-            bytecode_hash=bytecode_hash,
-            ledger_deployed=ledger,
-            is_upgrade=is_upgrade,
-        )
-        summary["new_deployments"] += 1
-        if is_upgrade:
-            summary["upgrades_detected"] += 1
-            logger.info(
-                "Upgrade detected for contract %s: %s -> %s at ledger %d",
-                contract.contract_id,
-                previous.bytecode_hash[:12],
-                bytecode_hash[:12],
-                ledger,
-            )
-            # Close the previous ABI version's valid_to_ledger
-            ContractABIVersion.objects.filter(
-                contract=contract, valid_to_ledger__isnull=True
-            ).update(valid_to_ledger=ledger - 1)
-
-    return summary
-
-
-# ---------------------------------------------------------------------------
-# Contract health checks (Issue: indexing failure alerting)
-# ---------------------------------------------------------------------------
-
-def _health_check_thresholds() -> tuple[int, int, int]:
-    """Return (degraded_minutes, failed_minutes, abi_error_threshold) from settings."""
-    degraded = int(getattr(settings, "HEALTH_DEGRADED_MINUTES", 30))
-    failed = int(getattr(settings, "HEALTH_FAILED_MINUTES", 120))
-    abi_errors = int(getattr(settings, "HEALTH_ABI_ERROR_THRESHOLD", 5))
-    return degraded, failed, abi_errors
-
-
-@shared_task(name="ingest.tasks.check_contract_health")
-def check_contract_health() -> dict:
-    """
-    Periodic health sweep — runs every 5 minutes via Celery Beat.
-
-    For each active TrackedContract:
-      1. Find the latest indexed event and calculate staleness.
-      2. Count ABI decode failures in the last hour.
-      3. Classify status: healthy / degraded / failed.
-      4. Persist ContractHealthCheck (upsert via get_or_create).
-      5. On status *change* to degraded/failed, create an in-app Notification
-         for the contract owner and fire a Celery ``send_health_alert`` task.
-
-    Constraints:
-      - Each contract is processed independently; a single RPC/DB timeout
-        cannot block the rest of the sweep.
-      - Completes in <5 s per contract on average (no RPC calls in the hot path).
-    """
-    from .models import TrackedContract  # noqa: PLC0415
-
-    degraded_mins, failed_mins, abi_error_threshold = _health_check_thresholds()
     now = timezone.now()
+    policies = DataRetentionPolicy.objects.all()
 
-    summary = {
-        "checked": 0,
-        "healthy": 0,
-        "degraded": 0,
-        "failed": 0,
-        "alerts_sent": 0,
-        "errors": [],
+    for policy in policies:
+        try:
+            cutoff = now - timedelta(days=policy.retention_days)
+            qs = ContractEvent.objects.filter(timestamp__lt=cutoff)
+            if policy.contract:
+                qs = qs.filter(contract=policy.contract)
+
+            count = qs.count()
+            if count > 0:
+                if policy.archive_enabled:
+                    archived_count += count
+                count_deleted, _ = qs.delete()
+                deleted_count += count_deleted
+        except Exception:
+            error_count += 1
+
+    return {
+        "archived": archived_count,
+        "deleted": deleted_count,
+        "errors": error_count,
     }
 
-    contracts = TrackedContract.objects.filter(is_active=True, is_paused=False).select_related(
-        "owner"
-    )
 
-    for contract in contracts:
-        try:
-            _check_single_contract_health(
-                contract=contract,
-                now=now,
-                degraded_mins=degraded_mins,
-                failed_mins=failed_mins,
-                abi_error_threshold=abi_error_threshold,
-                summary=summary,
-            )
-        except Exception as exc:
-            logger.exception(
-                "Health check failed for contract %s: %s",
-                contract.contract_id,
-                exc,
-                extra={"contract_id": contract.contract_id},
-            )
-            summary["errors"].append(
-                {"contract_id": contract.contract_id, "error": str(exc)}
-            )
-
-    logger.info(
-        "check_contract_health complete: checked=%d healthy=%d degraded=%d "
-        "failed=%d alerts=%d errors=%d",
-        summary["checked"],
-        summary["healthy"],
-        summary["degraded"],
-        summary["failed"],
-        summary["alerts_sent"],
-        len(summary["errors"]),
-        extra={},
-    )
-    return summary
-
-
-def _check_single_contract_health(
-    *,
-    contract,
-    now,
-    degraded_mins: int,
-    failed_mins: int,
-    abi_error_threshold: int,
-    summary: dict,
-) -> None:
-    """Evaluate health for one contract and persist the result."""
-    from .models import ContractHealthCheck, ContractEvent  # noqa: PLC0415
-
-    # ── 1. Staleness ──────────────────────────────────────────────────────────
-    latest_event = (
-        ContractEvent.objects.filter(contract=contract)
-        .order_by("-timestamp")
-        .values("timestamp")
-        .first()
-    )
-
-    if latest_event:
-        last_event_time = latest_event["timestamp"]
-        # Ensure both datetimes are tz-aware before subtraction
-        if last_event_time.tzinfo is None:
-            import pytz  # noqa: PLC0415 — stdlib fallback
-            last_event_time = pytz.utc.localize(last_event_time)
-        minutes_since = int((now - last_event_time).total_seconds() / 60)
-    else:
-        # No events ever — treat as if stale since the contract was created
-        last_event_time = None
-        minutes_since = int((now - contract.created_at).total_seconds() / 60)
-
-    # ── 2. ABI decode error spike ─────────────────────────────────────────────
-    one_hour_ago = now - timedelta(hours=1)
-    abi_decode_errors = ContractEvent.objects.filter(
-        contract=contract,
-        decoding_status="failed",
-        timestamp__gte=one_hour_ago,
-    ).count()
-
-    # ── 3. Classify status ────────────────────────────────────────────────────
-    if minutes_since >= failed_mins:
-        new_status = ContractHealthCheck.Status.FAILED
-        error_message = (
-            f"No events indexed for {minutes_since} minutes "
-            f"(threshold: {failed_mins} min)."
-        )
-    elif minutes_since >= degraded_mins or abi_decode_errors >= abi_error_threshold:
-        new_status = ContractHealthCheck.Status.DEGRADED
-        reasons = []
-        if minutes_since >= degraded_mins:
-            reasons.append(
-                f"No events for {minutes_since} min (threshold: {degraded_mins} min)"
-            )
-        if abi_decode_errors >= abi_error_threshold:
-            reasons.append(
-                f"ABI decode errors: {abi_decode_errors} in last hour "
-                f"(threshold: {abi_error_threshold})"
-            )
-        error_message = "; ".join(reasons)
-    else:
-        new_status = ContractHealthCheck.Status.HEALTHY
-        error_message = ""
-
-    # ── 4. Upsert ContractHealthCheck ─────────────────────────────────────────
-    health, created = ContractHealthCheck.objects.get_or_create(
-        contract=contract,
-        defaults={
-            "status": new_status,
-            "last_event_time": last_event_time,
-            "minutes_since_last_event": minutes_since,
-            "abi_decode_errors_1h": abi_decode_errors,
-            "error_message": error_message,
-            "consecutive_failures": 0 if new_status == ContractHealthCheck.Status.HEALTHY else 1,
-        },
-    )
-
-    previous_status = health.status if not created else None
-
-    if not created:
-        # Increment or reset consecutive_failures counter
-        if new_status == ContractHealthCheck.Status.HEALTHY:
-            new_consecutive = 0
-        else:
-            new_consecutive = health.consecutive_failures + 1
-
-        ContractHealthCheck.objects.filter(pk=health.pk).update(
-            status=new_status,
-            last_event_time=last_event_time,
-            minutes_since_last_event=minutes_since,
-            abi_decode_errors_1h=abi_decode_errors,
-            error_message=error_message,
-            consecutive_failures=new_consecutive,
-        )
-        health.status = new_status  # reflect for alert logic below
-
-    # Update summary counters
-    summary["checked"] += 1
-    summary[new_status] += 1
-
-    # ── 5. Alert on status transitions to non-healthy ─────────────────────────
-    status_worsened = (
-        new_status != ContractHealthCheck.Status.HEALTHY
-        and new_status != previous_status
-    )
-    if status_worsened:
-        send_health_alert.delay(contract.contract_id, new_status, error_message)
-        summary["alerts_sent"] += 1
-
-
-@shared_task(
-    bind=True,
-    autoretry_for=(Exception,),
-    retry_backoff=True,
-    retry_backoff_max=120,
-    max_retries=3,
-    name="ingest.tasks.send_health_alert",
-)
-def send_health_alert(self, contract_id: str, status: str, error_message: str) -> str:
+@shared_task(name="ingest.tasks.cleanup_silk_data")
+def cleanup_silk_data(days_to_keep: int = 7) -> int:
     """
-    Fire an in-app Notification for the contract owner when health worsens.
-
-    Connects to Issue #29 (Slack/email routing) once that is implemented.
-    For now this writes a Notification record and pushes it via WebSocket.
+    Deletes silk profiling request logs older than `days_to_keep` days.
     """
-    from .models import TrackedContract, Notification  # noqa: PLC0415
-    from .services.notifications import create_and_push  # noqa: PLC0415
+    try:
+        from django.conf import settings
+        if "silk" not in getattr(settings, "INSTALLED_APPS", []):
+            return 0
+        from silk.models import Request as SilkRequest
+        from datetime import timedelta
+        cutoff = timezone.now() - timedelta(days=days_to_keep)
+        deleted_count, _ = SilkRequest.objects.filter(start_time__lt=cutoff).delete()
+        return deleted_count
+    except Exception:
+        return 0
+
+
+# ---------------------------------------------------------------------------
+# Issue #1403: automated ContractEvent partition creation (Celery Beat)
+# ---------------------------------------------------------------------------
+
+# Current month plus this many upcoming months are kept pre-created so
+# ingest never races a month boundary.
+PARTITION_MONTHS_AHEAD = 2
+
+# Parent table name from issue #1403. On PostgreSQL the partitioned parent is
+# detected at runtime (migration 0054_contractevent_partitioning partitioned
+# the model's real table), falling back to this name elsewhere.
+EVENT_PARTITION_PARENT = "contract_events"
+
+
+def _add_months(value: date, months: int) -> date:
+    """Return the first day of the month ``months`` after ``value``."""
+    month_index = value.year * 12 + (value.month - 1) + months
+    return date(month_index // 12, month_index % 12 + 1, 1)
+
+
+def event_partition_windows(
+    parent: str = EVENT_PARTITION_PARENT,
+    today: date | None = None,
+) -> list[tuple[str, str, str]]:
+    """Return ``(table, range_start, range_end)`` for current + next 2 months.
+
+    ``table`` follows the ``<parent>_yYYYYmMM`` convention; the range bounds
+    are ISO dates covering each full calendar month.
+    """
+    month_start = (today or timezone.localdate()).replace(day=1)
+    windows: list[tuple[str, str, str]] = []
+    for offset in range(PARTITION_MONTHS_AHEAD + 1):
+        start = _add_months(month_start, offset)
+        end = _add_months(start, 1)
+        table = f"{parent}_y{start.year}m{start.month:02d}"
+        windows.append((table, start.isoformat(), end.isoformat()))
+    return windows
+
+
+def _detect_event_partition_parent() -> str:
+    """Return the partitioned ContractEvent parent table name.
+
+    Uses the real model table when it exists as a partitioned table on
+    PostgreSQL; otherwise falls back to ``EVENT_PARTITION_PARENT``.
+    """
+    from django.db import connection  # noqa: PLC0415
+
+    if connection.vendor != "postgresql":
+        return EVENT_PARTITION_PARENT
+
+    candidates: list[str] = []
+    for name in (ContractEvent._meta.db_table, EVENT_PARTITION_PARENT):
+        if name and name not in candidates:
+            candidates.append(name)
+
+    from django.db import DatabaseError  # noqa: PLC0415
 
     try:
-        contract = TrackedContract.objects.select_related("owner").get(
-            contract_id=contract_id
-        )
-    except TrackedContract.DoesNotExist:
-        return "skipped:contract_gone"
+        with connection.cursor() as cursor:
+            for name in candidates:
+                cursor.execute(
+                    "SELECT c.relkind = 'p' FROM pg_class c "
+                    "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                    "WHERE n.nspname = current_schema() AND c.relname = %s",
+                    [name],
+                )
+                row = cursor.fetchone()
+                if row and row[0]:
+                    return name
+    except DatabaseError as exc:
+        logger.warning("Could not detect partitioned parent table: %s", exc)
 
-    title = f"Contract {'failed' if status == 'failed' else 'degraded'}: {contract.name}"
-    message = (
-        f"Contract {contract.contract_id[:8]}… is now {status.upper()}. "
-        f"{error_message}"
-    )
+    return EVENT_PARTITION_PARENT
 
-    create_and_push(
-        user=contract.owner,
-        notification_type=Notification.NotificationType.ALERT,
-        title=title,
-        message=message,
-        link=f"/contracts/{contract_id}/health/",
-    )
 
+@shared_task
+def create_upcoming_event_partitions() -> dict[str, Any]:
+    """
+    Pre-create monthly ContractEvent partitions (issue #1403).
+
+    Executes ``CREATE TABLE IF NOT EXISTS <parent>_yYYYYmMM PARTITION OF
+    <parent>`` for the current month and the next two months, so the task is
+    idempotent and safe to run repeatedly from Celery Beat.
+
+    Migration ``0054_contractevent_partitioning`` made the events table
+    partitioned by ``timestamp`` range on PostgreSQL. On other backends (the
+    SQLite test suite) statements that the backend rejects are recorded as
+    errors instead of raising, so the task itself never fails.
+    """
+    from django.db import DatabaseError, connection  # noqa: PLC0415
+
+    parent = _detect_event_partition_parent()
+    windows = event_partition_windows(parent)
+
+    created: list[str] = []
+    errors: list[str] = []
+
+    with connection.cursor() as cursor:
+        for table, range_start, range_end in windows:
+            sql = (
+                f"CREATE TABLE IF NOT EXISTS {table} PARTITION OF {parent} "
+                f"FOR VALUES FROM ('{range_start}') TO ('{range_end}')"
+            )
+            try:
+                cursor.execute(sql)
+                created.append(table)
+            except DatabaseError as exc:
+                errors.append(f"{table}: {exc}")
+                # The connection/transaction may be unusable after a failed
+                # statement — stop rather than hammering it twice more.
+                logger.warning(
+                    "Could not create partition %s for %s: %s", table, parent, exc
+                )
+                break
+
+    summary = {
+        "parent": parent,
+        "partitions": [table for table, _, _ in windows],
+        "created": created,
+        "errors": errors,
+    }
     logger.info(
-        "Health alert sent for contract %s (status=%s)",
-        contract_id,
-        status,
-        extra={"contract_id": contract_id, "health_status": status},
+        "create_upcoming_event_partitions: parent=%s created=%d errors=%d",
+        parent,
+        len(created),
+        len(errors),
     )
-    return "sent"
+    return summary

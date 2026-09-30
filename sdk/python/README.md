@@ -18,6 +18,8 @@ pip install soroscan-sdk
 
 ## Quick Start
 
+> See [QUICKSTART.md](QUICKSTART.md) for a step-by-step walkthrough.
+
 ### CLI
 
 Installing the package exposes the `soroscan` command for local developer use.
@@ -84,6 +86,33 @@ print(f"Total events: {stats.total_events}")
 # Close client when done
 client.close()
 ```
+
+### Pagination helpers
+
+Use `Paginator` / `AsyncPaginator` to auto-manage page numbers and offsets:
+
+```python
+from soroscan import SoroScanClient
+from soroscan.pagination import Paginator
+
+client = SoroScanClient(base_url="https://api.soroscan.io")
+
+paginator = Paginator(
+    client.get_events,
+    contract_id="CCAAA...",
+    page_size=20,
+)
+
+page1 = paginator.next_page()
+if paginator.has_next_page():
+    page2 = paginator.next_page()
+
+page5 = paginator.go_to_page(5)
+page4 = paginator.previous_page()
+```
+
+Both helpers expose `has_next_page()`, `next_page()`, `previous_page()`, and
+`go_to_page(n)` for Python and TypeScript SDKs.
 
 ### Async Client
 
@@ -405,6 +434,73 @@ events = client.get_events(
     page_size=100
 )
 ```
+
+### Fluent Builder Pattern (issue #1281)
+
+The SDK provides a fluent builder for constructing complex queries with chainable, type-hinted methods. The builder supports `filter_by_*`, `paginate`/`page`, `order_by`, `build()` (inspect params without executing), and `execute()`.
+
+```python
+from soroscan import SoroScanClient
+
+client = SoroScanClient(base_url="https://api.soroscan.io", api_key="...")
+
+# Events — filter, paginate, and inspect before execution
+query = (SoroScanClient()
+    .events()
+    .filter_by_contract("ABC123")
+    .filter_by_event_type("transfer")
+    .paginate(limit=50, offset=0)
+    .build())
+# {'contract_id': 'ABC123', 'event_type': 'transfer', 'ordering': '-timestamp', 'page': 1, 'page_size': 50}
+
+events = (client.events()
+    .filter_by_contract("ABC123")
+    .filter_by_event_type("transfer")
+    .filter_by_ledger_range(min=1000, max=2000)
+    .filter_by_validation_status("passed")
+    .order_by("-timestamp")
+    .paginate(limit=50, offset=0)
+    .execute())
+
+for e in events.results:
+    print(e.ledger, e.event_type)
+
+# Contracts
+contracts = (client.contracts()
+    .filter_by_active(True)
+    .search("token")
+    .page(1, 20)
+    .execute())
+
+# Webhooks
+webhooks = (client.webhooks()
+    .filter_by_active(True)
+    .filter_by_event_type("transfer")
+    .paginate(limit=20, offset=0)
+    .execute())
+```
+
+Async variant (with `await`):
+
+```python
+import asyncio
+from soroscan import AsyncSoroScanClient
+
+async def main():
+    async with AsyncSoroScanClient(base_url="https://api.soroscan.io") as aclient:
+        events = await (aclient.events()
+            .filter_by_contract("ABC123")
+            .filter_by_event_type("transfer")
+            .paginate(limit=50, offset=0)
+            .execute())
+
+        # Or build params without network call
+        params = aclient.events().filter_by_contract("ABC123").build()
+
+asyncio.run(main())
+```
+
+Every builder method is fully type-hinted and returns `Self` for chaining, verified by `mypy --strict` and `tests/test_builder.py`.
 
 ### Async Batch Operations
 

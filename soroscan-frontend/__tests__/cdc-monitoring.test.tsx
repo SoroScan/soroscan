@@ -7,7 +7,7 @@ import '@testing-library/jest-dom';
 
 // ── Mock recharts so tests run without canvas ─────────────────────────────────
 jest.mock('recharts', () => {
-  const React = require('react');
+  const React = jest.requireActual('react');
   const Mock = ({ children, 'data-testid': tid }: { children?: React.ReactNode; 'data-testid'?: string }) =>
     <div data-testid={tid}>{children}</div>;
   return {
@@ -424,8 +424,8 @@ describe('SyncConfigForm', () => {
   it('shows validation error when host is empty', async () => {
     render(<SyncConfigForm onSubmit={jest.fn()} onTestConnection={jest.fn()} />);
     fireEvent.change(screen.getByTestId('cfg-name'), { target: { value: 'My Sync' } });
-    await act(async () => { fireEvent.click(screen.getByTestId('cfg-submit-button')); });
-    expect(screen.getByTestId('cfg-error')).toHaveTextContent('Host is required');
+    await act(async () => { fireEvent.submit(screen.getByTestId('sync-config-form')); });
+    expect(screen.getByTestId('cfg-error')).toHaveTextContent(/Host is required/i);
   });
 
   it('calls onSubmit with config when form is valid', async () => {

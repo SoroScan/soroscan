@@ -5,10 +5,13 @@ import json
 import logging
 import time
 import uuid
+import secrets
 
 from django.conf import settings
 from django.db import connection
 from django.http import JsonResponse
+from django.utils.deprecation import MiddlewareMixin
+from prometheus_client import Histogram
 
 from .log_context import set_request_id
 
@@ -16,49 +19,71 @@ logger = logging.getLogger(__name__)
 slow_query_logger = logging.getLogger("soroscan.slow_queries")
 
 
-class RequestIdMiddleware:
-    """Set request_id on the request and in log context for the request lifecycle."""
 
-    def __init__(self, get_response):
-        self.get_response = get_response
+class TraceContextMiddleware(MiddlewareMixin):
+    """
+    Extract incoming W3C traceparent headers or generate a new trace ID to propagate 
+    distributed tracing context across HTTP handlers.
+    """
+    def process_request(self, request):
+        traceparent = request.META.get("HTTP_TRACEPARENT")
+        
+        if not traceparent:
+            # Generate new W3C traceparent: 00-{trace-id}-{span-id}-{trace-flags}
+            trace_id = secrets.token_hex(16)
+            span_id = secrets.token_hex(8)
+            traceparent = f"00-{trace_id}-{span_id}-01"
+            
+        request.traceparent = traceparent
+        
+        # Save trace context into our thread-local storage for tasks/loggers
+        from .log_context import log_context_var
+        ctx = log_context_var.get()
+        ctx["traceparent"] = traceparent
 
-    def __call__(self, request):
-        request_id = request.META.get("HTTP_X_REQUEST_ID") or getattr(request, "request_id", None) or uuid.uuid4().hex
-        request.request_id = request_id
-        set_request_id(request_id)
-        
-        response = self.get_response(request)
-        response["X-Request-ID"] = request_id
-        
-        if response.status_code >= 400 and response.get("Content-Type", "").startswith("application/json"):
-            if not getattr(response, "streaming", False):
-                try:
-                    data = json.loads(response.content)
-                    if isinstance(data, dict):
-                        data["request_id"] = request_id
-                        new_content = json.dumps(data).encode("utf-8")
-                        response.content = new_content
-                        if "Content-Length" in response:
-                            response["Content-Length"] = str(len(new_content))
-                except (json.JSONDecodeError, AttributeError):
-                    pass
-                    
+    def process_response(self, request, response):
+        if hasattr(request, "traceparent"):
+            response["traceparent"] = request.traceparent
         return response
 
 
-class PlatformVersionMiddleware:
+class RequestIdMiddleware(MiddlewareMixin):
+    """Set request_id on the request and in log context for the request lifecycle."""
+
+    def process_request(self, request):
+        request_id = request.META.get("HTTP_X_REQUEST_ID") or getattr(request, "request_id", None) or uuid.uuid4().hex
+        request.request_id = request_id
+        set_request_id(request_id)
+
+    def process_response(self, request, response):
+        request_id = getattr(request, "request_id", None)
+        if request_id:
+            response["X-Request-ID"] = request_id
+            
+            if response.status_code >= 400 and response.get("Content-Type", "").startswith("application/json"):
+                if not getattr(response, "streaming", False):
+                    try:
+                        data = json.loads(response.content)
+                        if isinstance(data, dict):
+                            data["request_id"] = request_id
+                            new_content = json.dumps(data).encode("utf-8")
+                            response.content = new_content
+                            if "Content-Length" in response:
+                                response["Content-Length"] = str(len(new_content))
+                    except (json.JSONDecodeError, AttributeError):
+                        pass
+        return response
+
+
+class PlatformVersionMiddleware(MiddlewareMixin):
     """Attach platform version metadata to every response."""
 
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
-        response = self.get_response(request)
+    def process_response(self, request, response):
         response["X-SoroScan-Version"] = getattr(settings, "SOFTWARE_VERSION", "unknown")
         return response
 
 
-class ReverseProxyFixedIPMiddleware:
+class ReverseProxyFixedIPMiddleware(MiddlewareMixin):
     """
     Middleware to handle rate limiting behind a reverse proxy.
 
@@ -67,18 +92,14 @@ class ReverseProxyFixedIPMiddleware:
     extracts the original client IP from X-Forwarded-For header.
     """
 
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
+    def process_request(self, request):
         x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
         if x_forwarded_for:
             client_ip = x_forwarded_for.split(",")[0].strip()
             request.META["REMOTE_ADDR"] = client_ip
-        return self.get_response(request)
 
 
-class SlowQueryMiddleware:
+class SlowQueryMiddleware(MiddlewareMixin):
     """
     Wrap every DB execute call to log queries that exceed
     LOGGING_SLOW_QUERIES_THRESHOLD_MS (default 100 ms) to the
@@ -88,11 +109,11 @@ class SlowQueryMiddleware:
     and the wrapper is only active when the logger is configured.
     """
 
-    def __init__(self, get_response):
-        self.get_response = get_response
+    def __init__(self, get_response=None):
+        super().__init__(get_response)
         self.threshold_ms: int = getattr(settings, "LOGGING_SLOW_QUERIES_THRESHOLD_MS", 100)
 
-    def __call__(self, request):
+    def _make_execute_wrapper(self, request):
         threshold = self.threshold_ms
 
         def _execute(execute, sql, params, many, context):
@@ -102,7 +123,6 @@ class SlowQueryMiddleware:
             finally:
                 duration_ms = (time.monotonic() - start) * 1000
                 if duration_ms >= threshold:
-                    # Convert params to a serializable format or stringify it to avoid log formatting errors
                     safe_params = str(params)[:1000] if params else ""
                     slow_query_logger.warning(
                         "Slow query (%dms): %s\nParams: %s",
@@ -113,27 +133,41 @@ class SlowQueryMiddleware:
                             "duration_ms": round(duration_ms, 2),
                             "sql": (sql or "")[:1000],
                             "params": safe_params,
-                            "request_path": request.path,
+                            "request_path": getattr(request, "path", ""),
                         },
                     )
 
-        with connection.execute_wrapper(_execute):
-            response = self.get_response(request)
+        return _execute
 
-        # Forward RateLimit-* headers set by APIKeyThrottle
-        headers = getattr(request, "_api_key_throttle_headers", None)
-        if headers and hasattr(response, "__setitem__"):
-            for name, value in headers.items():
+    def __call__(self, request):
+        if self.async_mode:
+            # Route through the async path with the wrapper active.
+            return self.__acall__(request)
+        with connection.execute_wrapper(self._make_execute_wrapper(request)):
+            return super().__call__(request)
+
+    async def __acall__(self, request):
+        with connection.execute_wrapper(self._make_execute_wrapper(request)):
+            return await super().__acall__(request)
+
+    def process_response(self, request, response):
+        # Forward RateLimit-* headers set by throttle classes.
+        throttle_headers: dict = {}
+        generic = getattr(request, "_throttle_headers", None)
+        if generic:
+            throttle_headers.update(generic)
+        api_key = getattr(request, "_api_key_throttle_headers", None)
+        if api_key:
+            throttle_headers.update(api_key)  # API-key values override generic
+        if throttle_headers and hasattr(response, "__setitem__"):
+            for name, value in throttle_headers.items():
                 response[name] = value
 
         return response
 
-class RequestBodySizeMiddleware:
-    def __init__(self, get_response):
-        self.get_response = get_response
 
-    def __call__(self, request):
-        # We check this at the very beginning of the __call__
+class RequestBodySizeMiddleware(MiddlewareMixin):
+    def process_request(self, request):
         if request.method == "POST":
             max_size = getattr(settings, "MAX_REQUEST_BODY_SIZE", 10485760)
             try:
@@ -146,50 +180,39 @@ class RequestBodySizeMiddleware:
                     )
             except (ValueError, TypeError):
                 pass
-        
-        return self.get_response(request)
-        
-class GracefulShutdownMiddleware:
+
+
+class GracefulShutdownMiddleware(MiddlewareMixin):
     """Reject new requests during shutdown and track in-flight request count."""
 
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
-        from soroscan.shutdown import end_request, try_begin_request
+    def process_request(self, request):
+        from soroscan.shutdown import try_begin_request
 
         if not try_begin_request():
             return JsonResponse(
                 {"error": "Server is shutting down"},
                 status=503,
             )
-        try:
-            return self.get_response(request)
-        finally:
-            end_request()
+
+    def process_response(self, request, response):
+        from soroscan.shutdown import end_request
+        end_request()
+        return response
 
 
-class MaintenanceModeMiddleware:
+class MaintenanceModeMiddleware(MiddlewareMixin):
     """Return 503 for all non-admin routes when MAINTENANCE_MODE=True."""
 
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
+    def process_request(self, request):
         if getattr(settings, "MAINTENANCE_MODE", False) and not request.path.startswith("/admin"):
             return JsonResponse(
                 {"error": "Service temporarily unavailable. Please try again later."},
                 status=503,
             )
-        return self.get_response(request)
 
 
-class ApiDeprecationMiddleware:
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
-        response = self.get_response(request)
+class ApiDeprecationMiddleware(MiddlewareMixin):
+    def process_response(self, request, response):
         deprecated_endpoints = getattr(settings, "DEPRECATED_ENDPOINTS", {})
 
         # Normalize request path: remove leading/trailing slashes
@@ -210,20 +233,13 @@ _STATIC_PATH_PREFIXES = ("/static/", "/media/", "/favicon.ico")
 ip_logger = logging.getLogger("soroscan.ip_access")
 
 
-class ClientIPLoggingMiddleware:
+class ClientIPLoggingMiddleware(MiddlewareMixin):
     """
     Log the client IP address, HTTP method, and request path for every
     incoming API request.
-
-    The client IP is read from REMOTE_ADDR, which is expected to already
-    be set correctly by ReverseProxyFixedIPMiddleware when running behind
-    a proxy. Static-asset paths are excluded to avoid log noise.
     """
 
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
+    def process_request(self, request):
         path = request.path
         if not path.startswith(_STATIC_PATH_PREFIXES):
             client_ip = request.META.get("REMOTE_ADDR", "unknown")
@@ -238,10 +254,9 @@ class ClientIPLoggingMiddleware:
                     "path": path,
                 },
             )
-        return self.get_response(request)
 
 
-class CacheBustingMiddleware:
+class CacheBustingMiddleware(MiddlewareMixin):
     """
     Add Cache-Control headers to API responses.
 
@@ -253,17 +268,12 @@ class CacheBustingMiddleware:
 
     CACHE_CONTROL_PATHS = ("/api/", "/graphql/")
 
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
+    def process_response(self, request, response):
         # Check if client requests cache bypass
         cache_bust = (
             request.headers.get("Cache-Control") == "no-cache"
             or request.headers.get("X-Cache-Bust") == "1"
         )
-
-        response = self.get_response(request)
 
         if any(request.path.startswith(p) for p in self.CACHE_CONTROL_PATHS):
             if cache_bust:
@@ -274,4 +284,44 @@ class CacheBustingMiddleware:
                 if "max-age" not in existing:
                     response["Cache-Control"] = "private, max-age=0"
 
+        return response
+
+
+# Histogram buckets are chosen to make p50/p95/p99 percentiles meaningful
+# (5ms … 30s) while keeping cardinality bounded via the per-endpoint label.
+REQUEST_LATENCY_SECONDS = Histogram(
+    "soroscan_request_latency_seconds",
+    "Request latency distribution used to derive p50/p95/p99 percentiles",
+    ["method", "endpoint", "status"],
+    buckets=(
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        2.5,
+        5.0,
+        10.0,
+        30.0,
+    ),
+)
+
+
+class RequestLatencyMiddleware(MiddlewareMixin):
+    """Record per-endpoint request latency for percentile analysis."""
+
+    def process_request(self, request):
+        request._latency_start = time.perf_counter()
+
+    def process_response(self, request, response):
+        start = getattr(request, "_latency_start", None)
+        if start is not None:
+            duration = time.perf_counter() - start
+            match = getattr(request, "resolver_match", None)
+            endpoint = getattr(match, "route", None) or request.path
+            status = getattr(response, "status_code", 0)
+            REQUEST_LATENCY_SECONDS.labels(request.method, endpoint, status).observe(duration)
         return response

@@ -29,6 +29,7 @@ export default function ContractsPage() {
   const [isDeleting, setIsDeleting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [showFavoritesOnly, setShowFavoritesOnly] = React.useState(false);
+  const [showUnverifiedOnly, setShowUnverifiedOnly] = React.useState(false);
   const [backfillInProgress, setBackfillInProgress] = React.useState<string | null>(null);
 
   const loadContracts = React.useCallback(async () => {
@@ -97,6 +98,10 @@ export default function ContractsPage() {
 
   const totalEvents = contracts.reduce((sum, c) => c.eventCount, 0);
   const activeContracts = contracts.filter((c) => c.status === "active").length;
+  const unverifiedContracts = contracts.filter(
+    (contract) => contract.verificationStatus === "pending",
+  );
+  const visibleContracts = showUnverifiedOnly ? unverifiedContracts : contracts;
 
   return (
     <div className="min-h-screen bg-terminal-black p-4 sm:p-8">
@@ -124,6 +129,20 @@ export default function ContractsPage() {
               {showFavoritesOnly ? "Show All" : "Show Favorites"}
             </Button>
             <Button
+              variant={showUnverifiedOnly ? "primary" : "secondary"}
+              onClick={() => setShowUnverifiedOnly(!showUnverifiedOnly)}
+              className="w-full sm:w-auto"
+              data-testid="unverified-contracts-filter"
+            >
+              {showUnverifiedOnly ? "All Contracts" : "Unverified Contracts"}
+              <span
+                className="ml-2 inline-flex min-w-5 items-center justify-center rounded-full border border-current px-1.5 text-xs"
+                data-testid="unverified-contracts-count"
+              >
+                {unverifiedContracts.length}
+              </span>
+            </Button>
+            <Button
               variant="primary"
               data-testid="register-contract-btn"
               data-tour="register-contract"
@@ -145,20 +164,20 @@ export default function ContractsPage() {
 
         {/* Contract Summary Stats */}
         {contracts.length > 0 && !isLoading && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="rounded border border-terminal-green/20 p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
+            <div className="h-full flex flex-col justify-between rounded border border-terminal-green/20 p-4">
               <p className="text-xs text-terminal-gray mb-1">Total Contracts</p>
               <p className="text-2xl font-bold text-terminal-green">{contracts.length}</p>
             </div>
-            <div className="rounded border border-terminal-cyan/20 p-4">
+            <div className="h-full flex flex-col justify-between rounded border border-terminal-cyan/20 p-4">
               <p className="text-xs text-terminal-gray mb-1">Active</p>
               <p className="text-2xl font-bold text-terminal-cyan">{activeContracts}</p>
             </div>
-            <div className="rounded border border-terminal-yellow/20 p-4">
+            <div className="h-full flex flex-col justify-between rounded border border-terminal-yellow/20 p-4">
               <p className="text-xs text-terminal-gray mb-1">Total Events</p>
               <p className="text-2xl font-bold text-terminal-yellow">{totalEvents}</p>
             </div>
-            <div className="rounded border border-terminal-magenta/20 p-4">
+            <div className="h-full flex flex-col justify-between rounded border border-terminal-magenta/20 p-4">
               <p className="text-xs text-terminal-gray mb-1">Avg Events</p>
               <p className="text-2xl font-bold text-terminal-magenta">
                 {contracts.length > 0 ? Math.round(totalEvents / contracts.length) : 0}
@@ -173,7 +192,7 @@ export default function ContractsPage() {
           ) : (
             <div className="space-y-4">
               <ContractTable
-                contracts={contracts}
+                contracts={visibleContracts}
                 onDelete={handleDeleteClick}
                 onRegister={() => setIsRegisterModalOpen(true)}
                 showFavoritesOnly={showFavoritesOnly}
@@ -192,14 +211,14 @@ export default function ContractsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {contracts.length === 0 ? (
+                    {visibleContracts.length === 0 ? (
                       <tr>
                         <td colSpan={5} className="px-3 py-4 text-center text-terminal-gray">
                           No contracts. Register one to start.
                         </td>
                       </tr>
                     ) : (
-                      contracts.map((contract) => (
+                      visibleContracts.map((contract) => (
                         <tr key={contract.id} className="border-t border-terminal-green/10 hover:bg-terminal-green/5">
                           <td className="px-3 py-2 font-mono text-terminal-cyan text-xs">
                             {contract.id.slice(0, 12)}...

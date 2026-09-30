@@ -1,4 +1,4 @@
-"""Tests for Paginator and AsyncPaginator helpers — issue #483."""
+"""Tests for Paginator and AsyncPaginator helpers — issue #483 / #1283."""
 
 from __future__ import annotations
 

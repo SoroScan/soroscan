@@ -6,10 +6,12 @@ import secrets
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator, MaxValueValidator, RegexValidator
+from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
 from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
+
+from .fields import CompressedJSONField
 
 User = get_user_model()
 
@@ -17,7 +19,18 @@ User = get_user_model()
 class Organization(models.Model):
     """Top-level tenant boundary for contracts, teams, and members."""
 
+    class Tier(models.TextChoices):
+        FREE = "free", "Free"
+        PRO = "pro", "Pro"
+        ENTERPRISE = "enterprise", "Enterprise"
+
     name = models.CharField(max_length=128)
+    tier = models.CharField(
+        max_length=16,
+        choices=Tier.choices,
+        default=Tier.FREE,
+        db_index=True,
+    )
     slug = models.SlugField(max_length=160, unique=True, db_index=True)
     owner = models.ForeignKey(
         User,
@@ -726,7 +739,7 @@ class ContractEvent(models.Model):
         db_index=True,
         help_text="Result of schema validation",
     )
-    payload = models.JSONField(help_text="Decoded event payload")
+    payload = CompressedJSONField(help_text="Decoded event payload")
     payload_hash = models.CharField(
         max_length=64,
         db_index=True,
@@ -778,6 +791,17 @@ class ContractEvent(models.Model):
         db_index=True,
         help_text="Result of event signature verification",
     )
+    status = models.CharField(
+        max_length=16,
+        choices=[
+            ("CONFIRMED", "Confirmed"),
+            ("PENDING_REORG", "Pending Re-org"),
+            ("ORPHANED", "Orphaned"),
+        ],
+        default="CONFIRMED",
+        db_index=True,
+        help_text="Chain confirmation status (re-org detection)",
+    )
 
     class Meta:
         ordering = ["-timestamp"]
@@ -787,6 +811,14 @@ class ContractEvent(models.Model):
             models.Index(fields=["ledger"]),
             models.Index(fields=["tx_hash"]),
             models.Index(fields=["contract", "ledger", "event_index"]),
+            # Ledger-window queries filter a single contract by ledger range and
+            # order by recency. The `contract, ledger` prefix of the unique
+            # index above is not usable for the trailing `timestamp` ordering,
+            # so keep a dedicated composite covering the range + sort.
+            models.Index(
+                fields=["contract", "ledger", "timestamp"],
+                name="idx_event_contract_ledger_ts",
+            ),
             models.Index(fields=["invocation"]),
             models.Index(fields=["signature_status"]),
         ]
@@ -952,6 +984,103 @@ class WebhookSubscription(models.Model):
         if not self.secret:
             self.secret = secrets.token_hex(32)
         super().save(*args, **kwargs)
+
+
+class WebhookReplayJob(models.Model):
+    """
+    Tracks an asynchronous webhook replay request with filters and progress.
+
+    Issue #1329 — replay endpoint with filtering, rate limiting, and status tracking.
+    """
+
+    STATUS_PENDING = "pending"
+    STATUS_RUNNING = "running"
+    STATUS_COMPLETED = "completed"
+    STATUS_FAILED = "failed"
+    STATUS_CANCELLED = "cancelled"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_RUNNING, "Running"),
+        (STATUS_COMPLETED, "Completed"),
+        (STATUS_FAILED, "Failed"),
+        (STATUS_CANCELLED, "Cancelled"),
+    ]
+
+    subscription = models.ForeignKey(
+        "WebhookSubscription",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="replay_jobs",
+        help_text="Optional specific subscription; when null, all active webhooks for the contract",
+    )
+    requested_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="webhook_replay_jobs",
+    )
+    contract_id = models.CharField(max_length=56, db_index=True)
+    filters = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Replay filters: event_type, from_date, to_date, ledgers, limit, dry_run",
+    )
+    rate_limit_per_second = models.FloatField(
+        default=5.0,
+        help_text="Max webhook dispatches per second during replay",
+    )
+    dry_run = models.BooleanField(default=False)
+    status = models.CharField(
+        max_length=16,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        db_index=True,
+    )
+    total_events = models.PositiveIntegerField(default=0)
+    processed_events = models.PositiveIntegerField(default=0)
+    succeeded = models.PositiveIntegerField(default=0)
+    failed = models.PositiveIntegerField(default=0)
+    skipped = models.PositiveIntegerField(default=0)
+    result = models.JSONField(default=dict, blank=True)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status", "created_at"]),
+            models.Index(fields=["contract_id", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"WebhookReplayJob({self.pk}, {self.status}, {self.contract_id})"
+
+    def to_status_dict(self) -> dict:
+        return {
+            "id": self.pk,
+            "status": self.status,
+            "contract_id": self.contract_id,
+            "subscription_id": self.subscription_id,
+            "filters": self.filters,
+            "rate_limit_per_second": self.rate_limit_per_second,
+            "dry_run": self.dry_run,
+            "total_events": self.total_events,
+            "processed_events": self.processed_events,
+            "succeeded": self.succeeded,
+            "failed": self.failed,
+            "skipped": self.skipped,
+            "error_message": self.error_message,
+            "result": self.result,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
 
 
 class WebhookDeliveryLog(models.Model):
@@ -1437,9 +1566,17 @@ class RemediationRule(models.Model):
 
     CONDITION_NO_EVENTS = "no_events_for_minutes"
     CONDITION_DECODE_ERROR_SPIKE = "decode_error_spike"
+    CONDITION_INGESTION_LAG = "event_ingestion_lag"
+    CONDITION_WEBHOOK_FAILURE_BURST = "webhook_delivery_failure_burst"
+    CONDITION_DB_POOL_EXHAUSTED = "database_connection_pool_exhausted"
+    CONDITION_RPC_UNAVAILABLE = "rpc_endpoint_unavailable"
     CONDITION_CHOICES = [
         (CONDITION_NO_EVENTS, "No events for N minutes"),
         (CONDITION_DECODE_ERROR_SPIKE, "Decode error spike"),
+        (CONDITION_INGESTION_LAG, "Event ingestion lag"),
+        (CONDITION_WEBHOOK_FAILURE_BURST, "Webhook delivery failure burst"),
+        (CONDITION_DB_POOL_EXHAUSTED, "Database connection pool exhausted"),
+        (CONDITION_RPC_UNAVAILABLE, "RPC endpoint unavailable"),
     ]
 
     ALERT_SLACK = "slack"
@@ -1895,12 +2032,12 @@ class IngestError(models.Model):
     """
     Tracks ingestion errors for admin visibility.
     """
-    
+
     class ErrorType(models.TextChoices):
         DECODE_ERROR = "decode_error", "Decode Error"
         VALIDATION_ERROR = "validation_error", "Validation Error"
         RPC_ERROR = "rpc_error", "RPC Error"
-    
+
     error_type = models.CharField(
         max_length=32,
         choices=ErrorType.choices,
@@ -1927,19 +2064,19 @@ class IngestError(models.Model):
         help_text="Transaction hash if available",
     )
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
-    
+
     class Meta:
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["error_type", "contract_id", "created_at"]),
             models.Index(fields=["created_at"]),
         ]
-    
+
     def save(self, *args, **kwargs):
         if not self.sample_error:
             self.sample_error = self.error_message[:500]
         super().save(*args, **kwargs)
-    
+
     def __str__(self):
         return f"{self.error_type}: {self.contract_id} at {self.created_at}"
 
@@ -1977,12 +2114,13 @@ class ContractMetadata(models.Model):
 
     def clean(self):
         from django.core.exceptions import ValidationError
+
         errors = {}
-        
+
         # Validate name is not empty or just whitespace
         if not self.name or not self.name.strip():
             errors["name"] = "Name cannot be empty or just whitespace."
-        
+
         # Validate tags is a list of strings
         if not isinstance(self.tags, list):
             errors["tags"] = "Tags must be a list of strings."
@@ -1997,11 +2135,11 @@ class ContractMetadata(models.Model):
                 if not tag.strip():
                     errors["tags"] = f"Tag at index {i} cannot be empty or just whitespace."
                     break
-        
+
         # Validate description length (optional, but reasonable limit)
         if len(self.description) > 10000:
             errors["description"] = "Description is too long (max 10000 characters)."
-        
+
         if errors:
             raise ValidationError(errors)
 
@@ -2092,6 +2230,24 @@ class ContractVerification(models.Model):
 
     def __str__(self):
         return f"Verification for {self.contract.contract_id[:8]}... ({self.status})"
+
+    def mark_verified(self, bytecode_hash: str) -> None:
+        """Record a successful verification and persist the updated fields."""
+        from django.utils import timezone
+
+        self.bytecode_hash = bytecode_hash
+        self.status = self.Status.VERIFIED
+        self.verified_at = timezone.now()
+        self.error_message = ""
+        self.save(
+            update_fields=["bytecode_hash", "status", "verified_at", "error_message"]
+        )
+
+    def mark_failed(self, reason: str) -> None:
+        """Record a failed verification without touching verified_at."""
+        self.status = self.Status.FAILED
+        self.error_message = reason
+        self.save(update_fields=["status", "error_message"])
 
 
 # ---------------------------------------------------------------------------

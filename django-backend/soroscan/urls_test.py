@@ -10,15 +10,19 @@ from django.http import JsonResponse
 from django.urls import include, path
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from soroscan.health import health_view, readiness_view, worker_health_view
-from soroscan.meta_views import db_pool_stats_view
+from soroscan.health import health_view, ping_view, readiness_view, worker_health_view
+from soroscan.meta_views import db_pool_stats_view, version_view
 from soroscan.pact_provider import provider_states
 from soroscan.ingest.views import (
+    DLQDeliveryLogViewSet,
     all_contracts_health_view,
+    audit_trail_view,
     cache_stats_view,
+    celery_status_view,
     contract_status,
     db_explain_view,
     rate_limit_analytics_view,
+    schema_versions_view,
     webhook_batch_delivery_status_view,
     webhook_delivery_metrics_view,
 )
@@ -41,14 +45,19 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("health/", health_view, name="health"),
     path("ready/", readiness_view, name="readiness"),
+    path("api/health/ping/", ping_view, name="health-ping"),
+    path("api/audit-trail/", audit_trail_view, name="audit-trail"),
     path("api/contracts/status/", contract_status, name="contract-status"),
     path("api/analytics/rate-limits/", rate_limit_analytics_view, name="rate-limit-analytics"),
     path("api/analytics/contracts/health/", all_contracts_health_view, name="all-contracts-health"),
     path("api/meta/db-pool/", db_pool_stats_view, name="db-pool-stats"),
+    path("api/version/", version_view, name="api-version"),
+    path("api/schema/versions/", schema_versions_view, name="schema-versions"),
     path("api/health/workers/", worker_health_view, name="worker-health"),
     path("api/dev/summary/", dev_summary_view, name="dev-summary"),
     path("api/admin/db/explain/", db_explain_view, name="admin-db-explain"),
     path("api/cache/stats/", cache_stats_view, name="cache-stats"),
+    path("api/celery/status/", celery_status_view, name="celery-status"),
     path(
         "api/webhooks/deliveries/batch-status/",
         webhook_batch_delivery_status_view,
@@ -58,6 +67,11 @@ urlpatterns = [
         "api/webhooks/deliveries/metrics/",
         webhook_delivery_metrics_view,
         name="webhook-delivery-metrics",
+    ),
+    path(
+        "api/v1/webhooks/dlq/",
+        DLQDeliveryLogViewSet.as_view({"get": "list"}),
+        name="webhook-dlq-list",
     ),
     path("api/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),

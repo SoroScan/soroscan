@@ -97,4 +97,43 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
 )
 Card.displayName = "Card"
 
-export { Card, cardVariants }
+// Compound-style subcomponents for callers that prefer composing a card from
+// parts rather than using Card's `title`/`footer` props (e.g. demo/showcase
+// components with multi-element headers). Plain wrapper divs — no variant
+// logic of their own.
+const CardHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  ({ className, ...props }, ref) => (
+    <div ref={ref} data-slot="card-header" className={cn("px-4 py-3 space-y-1.5", className)} {...props} />
+  )
+)
+CardHeader.displayName = "CardHeader"
+
+const CardTitle = React.forwardRef<HTMLHeadingElement, React.HTMLAttributes<HTMLHeadingElement>>(
+  ({ className, ...props }, ref) => (
+    <h3 ref={ref} data-slot="card-title" className={cn("font-semibold leading-none tracking-tight", className)} {...props} />
+  )
+)
+CardTitle.displayName = "CardTitle"
+
+const CardDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLParagraphElement>>(
+  ({ className, ...props }, ref) => (
+    <p ref={ref} data-slot="card-description" className={cn("text-sm text-gray-500 dark:text-terminal-gray", className)} {...props} />
+  )
+)
+CardDescription.displayName = "CardDescription"
+
+const CardContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  ({ className, ...props }, ref) => (
+    <div ref={ref} data-slot="card-content" className={cn("px-4 py-3", className)} {...props} />
+  )
+)
+CardContent.displayName = "CardContent"
+
+const CardFooter = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  ({ className, ...props }, ref) => (
+    <div ref={ref} data-slot="card-footer" className={cn("px-4 py-3 border-t border-gray-200 dark:border-terminal-medium", className)} {...props} />
+  )
+)
+CardFooter.displayName = "CardFooter"
+
+export { Card, cardVariants, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }

@@ -33,16 +33,19 @@ from .models import (
     Notification,
     TrackedContract,
     WebhookDeliveryLog,
+    WebhookSubscription,
 )
 from .services.contract_state import decode_state_payload, get_state_at_ledger
 from .services.timeline import build_timeline
 from ..graphql_extensions import (
     GraphQLRateLimitExtension,
     GraphQLResolverLoggingExtension,
+    MaxQueryDepthExtension,
     log_graphql_resolver,
     IsAuthenticated,
     IsStaff,
     permission_classes,
+    field_permission_classes,
 )
 from ..graphql_n1_detector import N1QueryDetectorExtension
 
@@ -74,15 +77,32 @@ class ContractType:
     contract_id: auto
     name: auto
     alias: auto
-    description: auto
     is_active: auto
     last_event_at: auto
-    deprecation_status: auto
+    deprecation_status: auto = strawberry_django.field(
+        description=(
+            "Lifecycle state of the contract. One of 'active', 'deprecated', or 'suspended'. "
+            "Deprecated and suspended contracts still serve historical data but should no longer "
+            "be used for new integrations. Check the 'warnings' field for human-readable details."
+        )
+    )
     deprecation_reason: auto
     event_filter_type: auto
-    event_filter_list: strawberry.scalars.JSON
+    event_filter_list: strawberry.scalars.JSON = strawberry_django.field(
+        description=(
+            "JSON array of event type names used by the ingest filter. "
+            "When event_filter_type is 'whitelist', only event types in this list are stored. "
+            "When 'blacklist', event types in this list are dropped. "
+            "Empty when event_filter_type is 'none'."
+        )
+    )
     metadata: strawberry.scalars.JSON
     created_at: auto
+
+    @strawberry.field
+    def description(self) -> str:
+        """Return empty string fallback when description is None (issue #1438)."""
+        return self.description or ""
 
     @strawberry.field
     def verification_status(self) -> Optional[str]:
@@ -91,13 +111,22 @@ class ContractType:
         except ContractVerification.DoesNotExist:
             return None
 
+    # Field-level authorization: `team_id` / `organization_id` are internal
+    # billing/org identifiers (see TrackedContract.metadata help text -- "team,
+    # owner, cost center, etc."), not something an anonymous or ordinary
+    # caller needs to see even though they can query the surrounding
+    # `ContractType`. Gated with `IsStaff`; see
+    # `soroscan.graphql_extensions.field_permission_classes` for the
+    # "field visible, value protected" behavior this implements.
     @strawberry.field
-    def team_id(self) -> Optional[int]:
+    @field_permission_classes([IsStaff])
+    def team_id(self, info: Info) -> Optional[int]:
         tid = getattr(self, "team_id", None)
         return int(tid) if tid is not None else None
 
     @strawberry.field
-    def organization_id(self) -> Optional[int]:
+    @field_permission_classes([IsStaff])
+    def organization_id(self, info: Info) -> Optional[int]:
         oid = getattr(self, "organization_id", None)
         return int(oid) if oid is not None else None
 
@@ -127,7 +156,7 @@ class ContractType:
                 tags=m.tags,
                 documentation_url=m.documentation_url,
                 github_repo=m.github_repo,
-                team_email=m.team_email,
+                team_email_value=m.team_email,
             )
         except ContractMetadata.DoesNotExist:
             return None
@@ -141,12 +170,26 @@ class WarningType:
 
 @strawberry.type
 class ContractMetadataType:
+    """Metadata for a tracked contract.
+
+    ``team_email`` (a real ``EmailField`` on the ``ContractMetadata`` model)
+    is PII and is field-level protected: it stays visible in the schema, but
+    only resolves for authenticated callers. See
+    ``soroscan.graphql_extensions.field_permission_classes`` for the
+    "field visible, value protected" contract this implements.
+    """
+
     name: str
     description: str
     tags: strawberry.scalars.JSON
     documentation_url: str
     github_repo: str
-    team_email: str
+    team_email_value: strawberry.Private[str]
+
+    @strawberry.field
+    @field_permission_classes([IsAuthenticated])
+    def team_email(self, info: Info) -> Optional[str]:
+        return self.team_email_value
 
 
 @strawberry.type
@@ -497,7 +540,7 @@ class Query:
                 tags=m.tags,
                 documentation_url=m.documentation_url,
                 github_repo=m.github_repo,
-                team_email=m.team_email,
+                team_email_value=m.team_email,
             )
         except ContractMetadata.DoesNotExist:
             return None
@@ -1043,7 +1086,7 @@ class Mutation:
             tags=instance.tags,
             documentation_url=instance.documentation_url,
             github_repo=instance.github_repo,
-            team_email=instance.team_email,
+            team_email_value=instance.team_email,
         )
 
     @strawberry.mutation
@@ -1060,6 +1103,66 @@ class Mutation:
             return True
         except ContractMetadata.DoesNotExist:
             return False
+
+    @strawberry.mutation
+    @permission_classes([IsStaff])
+    def replay_dead_letter_webhooks(
+        self,
+        info: Info,
+        delivery_ids: list[strawberry.ID],
+    ) -> int:
+        """Re-queue dead-lettered webhook deliveries. Returns the count re-queued.
+
+        Each id is a `WebhookDeliveryLog` id. Deliveries that are not in the
+        `dead_letter` state, or that no longer have an event to deliver, are
+        skipped. Staff-only: the mutation re-sends payloads to subscriber
+        endpoints.
+        """
+        from soroscan.ingest.tasks import dispatch_webhook
+
+        normalized_ids = []
+        for raw_id in delivery_ids:
+            try:
+                normalized_ids.append(int(str(raw_id)))
+            except (TypeError, ValueError):
+                raise Exception(f"Invalid delivery id: {raw_id}")
+
+        if not normalized_ids:
+            return 0
+
+        deliveries = (
+            WebhookDeliveryLog.objects.filter(
+                id__in=normalized_ids,
+                status=WebhookDeliveryLog.STATUS_DEAD_LETTER,
+            )
+            .select_related("subscription")
+            .order_by("id")
+        )
+
+        requeued = 0
+        for delivery in deliveries:
+            if delivery.event_id is None:
+                continue
+
+            subscription = delivery.subscription
+            if (
+                not subscription.is_active
+                or subscription.status != WebhookSubscription.STATUS_ACTIVE
+            ):
+                WebhookSubscription.objects.filter(pk=subscription.pk).update(
+                    is_active=True,
+                    status=WebhookSubscription.STATUS_ACTIVE,
+                    failure_count=0,
+                )
+                subscription.refresh_from_db()
+
+            WebhookDeliveryLog.objects.filter(pk=delivery.pk).update(
+                status=WebhookDeliveryLog.STATUS_PENDING
+            )
+            dispatch_webhook.delay(subscription.id, delivery.event_id, replay=True)
+            requeued += 1
+
+        return requeued
 
     @strawberry.mutation
     @permission_classes([IsAuthenticated])
@@ -1246,6 +1349,7 @@ schema = strawberry.Schema(
     mutation=Mutation,
     subscription=Subscription,
     extensions=[
+        MaxQueryDepthExtension(max_depth=7),
         GraphQLRateLimitExtension,
         GraphQLResolverLoggingExtension,
         N1QueryDetectorExtension,

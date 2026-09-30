@@ -22,32 +22,27 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "soroscan.settings")
 
 
 class ContextPropagatingTask(Task):
-    """Celery Task base class that propagates the current request_id into
+    """Celery Task base class that propagates the current request_id and traceparent into
     task headers so that Celery worker logs share the same correlation ID
     as the HTTP request that dispatched the task.
-
-    Usage:
-        @shared_task(base=ContextPropagatingTask)
-        def my_task():
-            ...
-
-    Or set ``app.Task = ContextPropagatingTask`` to make it the default.
     """
 
-    # The header key used to carry the request_id across process boundaries.
     REQUEST_ID_HEADER = "X-Request-ID"
+    TRACEPARENT_HEADER = "traceparent"
 
     def apply_async(self, *args, **kwargs):
-        # Inject the current request_id (if any) into the task headers so
-        # the worker can restore it in task_prerun.
         headers = kwargs.setdefault("headers", {})
-        if self.REQUEST_ID_HEADER not in headers:
-            from soroscan.log_context import log_context_var
+        from soroscan.log_context import log_context_var
 
-            ctx = log_context_var.get()
-            request_id = ctx.get("request_id", "")
-            if request_id:
-                headers[self.REQUEST_ID_HEADER] = request_id
+        ctx = log_context_var.get()
+        request_id = ctx.get("request_id", "")
+        if request_id and self.REQUEST_ID_HEADER not in headers:
+            headers[self.REQUEST_ID_HEADER] = request_id
+            
+        traceparent = ctx.get("traceparent", "")
+        if traceparent and self.TRACEPARENT_HEADER not in headers:
+            headers[self.TRACEPARENT_HEADER] = traceparent
+            
         return super().apply_async(*args, **kwargs)
 
 
@@ -60,29 +55,33 @@ _task_started_at: dict[str, float] = {}
 
 @task_prerun.connect
 def set_celery_task_context(sender, task_id, **kwargs):
-    """Set task_id in log context so Celery logs include it (no PII).
-
-    Also restores the originating HTTP request_id from task headers so
-    that Celery worker log records share the same correlation ID as the
-    request that dispatched the task (issue #1006).
-    """
-    from soroscan.log_context import set_request_id, set_task_id
+    """Set task_id in log context so Celery logs include it (no PII)."""
+    from soroscan.log_context import set_request_id, set_task_id, log_context_var
 
     set_task_id(task_id or "")
 
-    # Restore the original request_id if it was propagated via task headers.
     request = kwargs.get("request")
     if request is not None:
         request_id = ""
+        traceparent = ""
         headers = getattr(request, "headers", None)
+        
         if isinstance(headers, dict):
             request_id = headers.get("X-Request-ID", "")
-        if not request_id:
+            traceparent = headers.get("traceparent", "")
+            
+        if not request_id or not traceparent:
             delivery_info = getattr(request, "delivery_info", None)
             if isinstance(delivery_info, dict):
-                request_id = delivery_info.get("X-Request-ID", "")
+                request_id = request_id or delivery_info.get("X-Request-ID", "")
+                traceparent = traceparent or delivery_info.get("traceparent", "")
+                
         if request_id:
             set_request_id(request_id)
+            
+        if traceparent:
+            ctx = log_context_var.get()
+            ctx["traceparent"] = traceparent
 
     from soroscan.ingest.metrics import celery_tasks_active
 

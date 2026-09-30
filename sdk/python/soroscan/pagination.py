@@ -1,7 +1,7 @@
 """
 Pagination helper classes for the SoroScan Python SDK.
 
-Issue #483 — feat: add pagination helper methods to both SDKs
+Issue #483 / #1283 — feat: add pagination helper methods to both SDKs
 
 Provides ``Paginator`` (sync) and ``AsyncPaginator`` (async) that wrap any
 SoroScan list method and expose:
