@@ -16,11 +16,52 @@ pnpm dev
 
 Open `http://localhost:3000/admin`.
 
-The GraphQL proxy at `/api/graphql` forwards requests to the Django backend. Set `BACKEND_BASE_URL` in `.env.local` when running outside Docker:
+### Environment Setup
+
+1. Start the Django backend (see `django-backend/`) so it is reachable at `http://localhost:8000`.
+2. Copy the example env file and adjust values as needed:
+
+   ```bash
+   # from soroscan-frontend/
+   cp .env.example .env.local
+   ```
+
+3. Run `pnpm dev` and sign in at `http://localhost:3000/login` with an admin account.
+
+The admin dashboard reads the following variables. `NEXT_PUBLIC_*` values are inlined at build time, so restart `pnpm dev` (or rebuild) after changing them.
+
+| Variable | Default | Used by |
+|----------|---------|---------|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | REST base URL for the admin pages (`dedup/`, `contracts-import/`) and the JWT refresh call in `lib/auth.ts` |
+| `NEXT_PUBLIC_GRAPHQL_URL` | `http://localhost:8000/graphql/` | Apollo Client HTTP endpoint (system metrics, audit logs, CDC, data quality) |
+| `NEXT_PUBLIC_WS_URL` | _unset_ | GraphQL subscriptions / live updates. Leave unset to disable real-time features |
+| `BACKEND_BASE_URL` | `http://localhost:8000` | Server-side GraphQL proxy at `/api/graphql` |
+| `BACKEND_GRAPHQL_URL` | `${BACKEND_BASE_URL}/graphql/` | Overrides the full proxy target URL |
+
+Example `.env.local` for running outside Docker:
 
 ```env
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_GRAPHQL_URL=http://localhost:8000/graphql/
+NEXT_PUBLIC_WS_URL=ws://localhost:8000/graphql/
 BACKEND_BASE_URL=http://localhost:8000
 ```
+
+> **Note:** There is no separate admin API URL or mock-data switch. `NEXT_PUBLIC_ADMIN_API_URL` and `NEXT_PUBLIC_ENABLE_MOCK_DATA` are **not** read by the code. The admin section shares `NEXT_PUBLIC_API_URL` / `NEXT_PUBLIC_GRAPHQL_URL` with the rest of the frontend and always talks to a live backend.
+
+### npm Scripts
+
+Run from `soroscan-frontend/` (`npm run <script>` works the same as `pnpm <script>`):
+
+| Script | Description |
+|--------|-------------|
+| `dev` | Start the Next.js dev server on `http://localhost:3000` |
+| `build` | Run GraphQL codegen, then create a production build (`next build`) |
+| `start` | Serve the production build |
+| `codegen` | Regenerate typed GraphQL hooks from the backend schema |
+| `lint` | Run ESLint |
+| `test` | Run Jest unit tests (e.g. `__tests__/admin-login-page.test.tsx`) |
+| `test:e2e` | Run Playwright end-to-end tests (includes `tests/admin.spec.ts`) |
 
 ---
 

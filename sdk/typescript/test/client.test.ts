@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { SoroScanClient, SoroScanError } from "../src/client.js";
+import { SoroScanClient, SoroScanError, DEFAULT_USER_AGENT } from "../src/client.js";
 import { EventQueryBuilder } from "../src/builder.js";
 import type {
   GetEventsResponse,
@@ -184,6 +184,41 @@ describe("Authorization header", () => {
       RequestInit
     ];
     expect((init.headers as Record<string, string>)["Authorization"]).toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// User-Agent header
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("User-Agent header", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  function sentHeaders(): Record<string, string> {
+    const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit
+    ];
+    return init.headers as Record<string, string>;
+  }
+
+  it("sends the default SDK User-Agent", async () => {
+    mockFetch({ items: [], pageInfo: mockPageInfo, totalCount: 0 });
+    await makeClient().getEvents();
+
+    expect(DEFAULT_USER_AGENT).toBe("SoroScan-TS-SDK/1.4.0");
+    expect(sentHeaders()["User-Agent"]).toBe("SoroScan-TS-SDK/1.4.0");
+  });
+
+  it("uses a custom userAgent when provided", async () => {
+    mockFetch({ items: [], pageInfo: mockPageInfo, totalCount: 0 });
+    const client = new SoroScanClient({
+      baseUrl: BASE_URL,
+      userAgent: "my-app/2.0",
+    });
+    await client.getEvents();
+
+    expect(sentHeaders()["User-Agent"]).toBe("my-app/2.0");
   });
 });
 

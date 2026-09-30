@@ -88,6 +88,9 @@ function isAbortError(err: unknown): boolean {
 // Client
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Default User-Agent header sent by the SDK; override via `userAgent`. */
+export const DEFAULT_USER_AGENT = "SoroScan-TS-SDK/1.4.0";
+
 export class SoroScanClient {
   readonly #baseUrl: string;
   readonly #apiKey: string | undefined;
@@ -95,6 +98,7 @@ export class SoroScanClient {
   readonly #maxRetries: number;
   readonly #initialDelayMs: number;
   readonly #maxDelayMs: number;
+  readonly #userAgent: string;
 
   constructor(config: SoroScanClientConfig) {
     if (!config.baseUrl) {
@@ -106,6 +110,7 @@ export class SoroScanClient {
     this.#maxRetries = Math.max(0, Math.trunc(config.maxRetries ?? 3));
     this.#initialDelayMs = Math.max(0, config.initialDelayMs ?? 250);
     this.#maxDelayMs = Math.max(0, config.maxDelayMs ?? 10_000);
+    this.#userAgent = config.userAgent || DEFAULT_USER_AGENT;
   }
 
   // ─── Core fetch ────────────────────────────────────────────────────────────
@@ -124,6 +129,7 @@ export class SoroScanClient {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: "application/json",
+      "User-Agent": this.#userAgent,
     };
     if (this.#apiKey) {
       headers["Authorization"] = `Bearer ${this.#apiKey}`;

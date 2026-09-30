@@ -15,6 +15,8 @@ export interface SoroScanClientConfig {
   initialDelayMs?: number;
   /** Maximum full-jitter backoff ceiling in milliseconds (default: 10_000) */
   maxDelayMs?: number;
+  /** User-Agent header sent with every request (default: "SoroScan-TS-SDK/1.4.0") */
+  userAgent?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -460,6 +462,9 @@ export interface AddIndexerResponse {
   txHash: string | null;
   transactionStatus: string | null;
   error: string | null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SC-30: Recent contract events
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -525,6 +530,9 @@ export interface IndexerStats {
   indexer: string;
   /** Total events recorded by this indexer */
   eventsRecorded: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SC-28: Contract pause status
 // ─────────────────────────────────────────────────────────────────────────────
 

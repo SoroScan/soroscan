@@ -1,4 +1,4 @@
-export { SoroScanClient, SoroScanError, Paginator } from "./client.js";
+export { SoroScanClient, SoroScanError, Paginator, DEFAULT_USER_AGENT } from "./client.js";
 export { EventQueryBuilder, ContractQueryBuilder } from "./builder.js";
 export { verifyWebhookSignature } from "./webhookVerification.js";
 export { WebSocketClient } from "./websocket-client.js";
