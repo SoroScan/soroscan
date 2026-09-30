@@ -1,4 +1,8 @@
 #![no_std]
+
+pub mod topics;
+
+use crate::topics::TOPIC_SOROSCAN;
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, Address, BytesN, Env, Map,
     Symbol, Vec,
@@ -365,7 +369,7 @@ impl SoroScanCore {
 
         // Publish the event for off-chain indexers
         env.events()
-            .publish((symbol_short!("soroscan"), event_type), record);
+            .publish((Symbol::new(&env, TOPIC_SOROSCAN), event_type), record);
 
         Ok(count)
     }
@@ -426,7 +430,7 @@ impl SoroScanCore {
             &record,
         );
         env.events().publish(
-            (symbol_short!("soroscan"), symbol_short!("sc38"), event_type),
+            (Symbol::new(&env, TOPIC_SOROSCAN), symbol_short!("sc38"), event_type),
             record,
         );
 
@@ -688,7 +692,7 @@ impl SoroScanCore {
             push_recent_event(&env, entry.contract_id.clone(), record.clone());
 
             env.events().publish(
-                (symbol_short!("soroscan"), entry.event_type.clone()),
+                (Symbol::new(&env, TOPIC_SOROSCAN), entry.event_type.clone()),
                 record,
             );
         }
@@ -705,7 +709,7 @@ impl SoroScanCore {
 
         // Emit a single batch summary event
         env.events().publish(
-            (symbol_short!("soroscan"), symbol_short!("batch")),
+            (Symbol::new(&env, TOPIC_SOROSCAN), symbol_short!("batch")),
             (indexer, batch_len, count),
         );
 
@@ -983,7 +987,7 @@ impl SoroScanCore {
             .set(&DataKey::LatestTaggedByType(event_type.clone()), &record);
 
         env.events().publish(
-            (symbol_short!("soroscan"), symbol_short!("sc24"), event_type),
+            (Symbol::new(&env, TOPIC_SOROSCAN), symbol_short!("sc24"), event_type),
             record,
         );
 
@@ -998,6 +1002,10 @@ impl SoroScanCore {
             .get(&DataKey::LatestTaggedByType(event_type))
     }
 }
+
+#[cfg(test)]
+#[path = "tests.rs"]
+mod max_payload_tests;
 
 #[cfg(test)]
 mod tests {
