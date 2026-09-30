@@ -170,3 +170,103 @@ def test_requests_without_x_api_key_are_not_rate_limited(request_factory):
 
     assert response.status_code == 200
     assert "X-RateLimit-Reset" not in response
+
+
+# --- Issue #1574: X-RateLimit-Tier header -------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_tier_header_reports_the_key_tier(request_factory):
+    user = User.objects.create_user(username="tier-header-user")
+    api_key = APIKey.objects.create(
+        user=user,
+        name="Pro Key",
+        tier=APIKey.Tier.PRO,
+        quota_per_hour=APIKey.TIER_QUOTAS[APIKey.Tier.PRO],
+    )
+
+    middleware = TieredAPIKeyRateLimitMiddleware(_ok_response)
+    response = _call(middleware, request_factory.get("/", HTTP_X_API_KEY=api_key.key))
+
+    assert response["X-RateLimit-Tier"] == APIKey.Tier.PRO
+    # The header must agree with the limit the middleware enforces.
+    assert response["X-RateLimit-Limit"] == str(APIKey.TIER_QUOTAS[APIKey.Tier.PRO])
+
+
+@pytest.mark.django_db(transaction=True)
+def test_tier_header_reports_organization_tier(request_factory):
+    """An org-owned key reports the org tier, which is what limits it."""
+    user = User.objects.create_user(username="org-tier-user")
+    organization = Organization.objects.create(
+        name="Enterprise Org Headers",
+        owner=user,
+        tier=Organization.Tier.ENTERPRISE,
+    )
+    team = Team.objects.create(
+        name="Enterprise Team Headers",
+        organization=organization,
+        created_by=user,
+    )
+    TeamMembership.objects.create(
+        team=team,
+        user=user,
+        role=TeamMembership.Role.OWNER,
+    )
+    api_key = APIKey.objects.create(
+        user=user,
+        team=team,
+        name="Org Key",
+        tier=APIKey.Tier.FREE,
+        quota_per_hour=1,
+    )
+
+    middleware = TieredAPIKeyRateLimitMiddleware(_ok_response)
+    response = _call(middleware, request_factory.get("/", HTTP_X_API_KEY=api_key.key))
+
+    assert response["X-RateLimit-Tier"] == Organization.Tier.ENTERPRISE
+
+
+@pytest.mark.django_db(transaction=True)
+def test_tier_header_is_present_on_the_429_response(request_factory, monkeypatch):
+    user = User.objects.create_user(username="blocked-tier-user")
+    api_key = APIKey.objects.create(
+        user=user,
+        name="Tiny Key",
+        tier=APIKey.Tier.FREE,
+        quota_per_hour=1,
+    )
+    monkeypatch.setitem(APIKey.TIER_QUOTAS, APIKey.Tier.FREE, 1)
+
+    middleware = TieredAPIKeyRateLimitMiddleware(_ok_response)
+
+    _call(middleware, request_factory.get("/", HTTP_X_API_KEY=api_key.key))
+    blocked = _call(middleware, request_factory.get("/", HTTP_X_API_KEY=api_key.key))
+
+    assert blocked.status_code == 429
+    assert blocked["X-RateLimit-Tier"] == APIKey.Tier.FREE
+    assert blocked["X-RateLimit-Remaining"] == "0"
+
+
+@pytest.mark.django_db
+def test_anonymous_request_reports_the_free_tier(request_factory):
+    """#1574: no key -> free tier headers, not missing headers."""
+    middleware = TieredAPIKeyRateLimitMiddleware(_ok_response)
+
+    response = _call(middleware, request_factory.get("/"))
+
+    assert response["X-RateLimit-Tier"] == APIKey.Tier.FREE
+    # Anonymous requests are not rate limited, so no quota headers are added.
+    assert "X-RateLimit-Limit" not in response
+
+
+@pytest.mark.django_db
+def test_unknown_api_key_reports_the_free_tier(request_factory):
+    """An unrecognised key falls back to free rather than erroring."""
+    middleware = TieredAPIKeyRateLimitMiddleware(_ok_response)
+
+    response = _call(
+        middleware, request_factory.get("/", HTTP_X_API_KEY="nope-not-a-key")
+    )
+
+    assert response.status_code == 200
+    assert response["X-RateLimit-Tier"] == APIKey.Tier.FREE
