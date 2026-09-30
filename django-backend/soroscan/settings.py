@@ -108,6 +108,7 @@ MIDDLEWARE = [
     "soroscan.middleware.GracefulShutdownMiddleware",
     "soroscan.monitoring.ErrorRateMetricsMiddleware",
     "soroscan.middleware.RequestLatencyMiddleware",
+    "soroscan.middleware.ResponseTimeMiddleware",
     "soroscan.middleware.RequestBodySizeMiddleware",
     "soroscan.middleware.MaintenanceModeMiddleware",
     "django.middleware.security.SecurityMiddleware",
