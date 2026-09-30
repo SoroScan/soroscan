@@ -1,7 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import { Check, Copy } from 'lucide-react';
 
+import { Button } from '@/components/ui/button';
 import { CopyEventLink } from '@/components/events/CopyEventLink';
 import { formatDateTime } from '@/components/ingest/formatters';
 import type { EventRecord } from '@/components/ingest/types';
@@ -97,11 +99,8 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
                 }}
               >
                 <MetaBadge label="Timestamp" value={formatDateTime(event.timestamp)} />
-
                 <MetaBadge label="Ledger" value={event.ledger.toString()} />
-
                 <MetaBadge label="Event Index" value={event.eventIndex.toString()} />
-
                 <MetaBadge label="Event Type" value={event.eventType} />
               </div>
             </section>
@@ -301,6 +300,26 @@ function MetaBadge({ label, value }: MetaBadgeProps) {
   );
 }
 
+interface CopyButtonProps {
+  label: string;
+  copied: boolean;
+  onCopy: () => void;
+}
+
+function CopyButton({ label, copied, onCopy }: CopyButtonProps) {
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="icon-xs"
+      onClick={onCopy}
+      aria-label={`Copy ${label}`}
+    >
+      {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+    </Button>
+  );
+}
+
 interface DetailRowProps {
   label: string;
   value: string;
@@ -336,18 +355,7 @@ function DetailRow({ label, value, onCopy, copied }: DetailRowProps) {
         </code>
 
         {onCopy ? (
-          <button
-            type="button"
-            className={styles.btn}
-            style={{
-              padding: '0.4rem 0.6rem',
-              fontSize: '0.75rem',
-            }}
-            onClick={onCopy}
-            aria-label={`Copy ${label}`}
-          >
-            {copied ? '✓' : '📋'}
-          </button>
+          <CopyButton label={label} copied={!!copied} onCopy={onCopy} />
         ) : null}
       </div>
     </div>
