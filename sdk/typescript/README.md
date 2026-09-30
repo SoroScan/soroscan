@@ -307,6 +307,70 @@ do {
 } while (after);
 ```
 
+### Paginating Events
+
+For large event sets, iterate page by page using the `endCursor` token until the
+API reports no further pages. This keeps memory usage flat regardless of how many
+events match the query:
+
+```ts
+import { SoroScanClient, type ContractEvent } from "@soroscan/sdk";
+
+const client = new SoroScanClient({ baseUrl: "https://api.soroscan.io" });
+
+async function* paginateEvents(contractId: string): AsyncGenerator<ContractEvent> {
+  let cursor: string | null = null;
+
+  while (true) {
+    const page = await client.getEvents({
+      contractId,
+      first: 200,
+      ...(cursor ? { after: cursor } : {}),
+    });
+
+    for (const event of page.items) {
+      yield event;
+    }
+
+    if (!page.pageInfo.hasNextPage) {
+      break;
+    }
+
+    cursor = page.pageInfo.endCursor;
+  }
+}
+
+// Consume the full, paginated event set
+for await (const event of paginateEvents("CCAAA...")) {
+  console.log(event.ledger, event.type, event.txHash);
+}
+```
+
+If you prefer an explicit loop over the cursor token, the same traversal can be
+written without a generator:
+
+```ts
+let cursor: string | null = null;
+
+while (cursor !== null || cursor === null) {
+  const page = await client.getEvents({
+    contractId: "CCAAA...",
+    first: 200,
+    ...(cursor ? { after: cursor } : {}),
+  });
+
+  for (const event of page.items) {
+    console.log(event.ledger, event.type, event.txHash);
+  }
+
+  if (!page.pageInfo.hasNextPage) {
+    break;
+  }
+
+  cursor = page.pageInfo.endCursor;
+}
+```
+
 ### Paginator helper
 
 The `Paginator` class wraps any list method and exposes `hasNextPage()`, `nextPage()`,
@@ -341,35 +405,6 @@ See also [`docs/react-hooks.md`](./docs/react-hooks.md) for Apollo-integrated Re
 
 ## TypeScript Usage
 
-All types are exported from the package root:
 
-```ts
-import type {
-  ContractEvent,
-  Contract,
-  Webhook,
-  GetEventsParams,
-  SoroScanClientConfig,
-} from "@soroscan/sdk";
-```
 
----
-
-## Node.js / Browser Compatibility
-
-| Environment | Supported |
-|---|---|
-| Node.js 18+ | ✅ (native `fetch`) |
-| Node.js 16 | ⚠️ requires `node-fetch` polyfill |
-| Modern browsers | ✅ |
-| React Native | ✅ |
-
----
-
-## Contributing
-
-See [CONTRIBUTING.md](../../CONTRIBUTING.md) in the monorepo root.
-
-## License
-
-MIT © SoroScan Contributors
+/* … truncated 522 chars — edit only what you need near the top … */

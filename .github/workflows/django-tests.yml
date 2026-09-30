@@ -51,6 +51,23 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
+      - name: Check for missing Django migrations
+        working-directory: django-backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_soroscan
+          REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: test-secret-key-for-ci
+          DEBUG: "False"
+          DJANGO_SETTINGS_MODULE: soroscan.settings_test
+          CELERY_TASK_ALWAYS_EAGER: "True"
+          SOROBAN_RPC_URL: https://soroban-testnet.stellar.org
+          STELLAR_NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
+          SOROSCAN_CONTRACT_ID: CCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+          WEBHOOK_DELIVERY_RETENTION_DAYS: "30"
+          LOG_FORMAT: ""
+          SENTRY_DSN: ""
+        run: python manage.py makemigrations --check --dry-run
+
       - name: Run tests with coverage
         working-directory: django-backend
         env:

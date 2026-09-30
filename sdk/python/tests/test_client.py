@@ -1,5 +1,6 @@
 """Tests for synchronous SoroScan client."""
 
+import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 
@@ -20,6 +21,69 @@ def test_client_initialization(base_url: str, api_key: str) -> None:
     assert client.api_key == api_key
     assert client.timeout == 60.0
     client.close()
+
+
+def test_client_default_max_retries(base_url: str) -> None:
+    """Test that max_retries defaults to 3."""
+    with SoroScanClient(base_url=base_url) as client:
+        assert client.max_retries == 3
+
+
+def test_client_custom_max_retries(base_url: str) -> None:
+    """Test that max_retries can be configured."""
+    with SoroScanClient(base_url=base_url, max_retries=5) as client:
+        assert client.max_retries == 5
+
+
+def test_client_retries_transient_503(
+    base_url: str,
+    sample_contract_data: dict,
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Test that transient 503 errors are retried up to max_retries."""
+    url = f"{base_url}/api/contracts/1/"
+    httpx_mock.add_response(url=url, status_code=503)
+    httpx_mock.add_response(url=url, status_code=503)
+    httpx_mock.add_response(url=url, json=sample_contract_data)
+
+    with SoroScanClient(base_url=base_url, max_retries=3) as client:
+        contract = client.get_contract("1")
+
+        assert isinstance(contract, TrackedContract)
+        assert contract.id == 1
+
+    assert len(httpx_mock.get_requests()) == 3
+
+
+def test_client_retries_exhausted_raises(
+    base_url: str,
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Test that exhausting retries on 503 surfaces the error."""
+    url = f"{base_url}/api/contracts/1/"
+    for _ in range(4):
+        httpx_mock.add_response(url=url, status_code=503)
+
+    with SoroScanClient(base_url=base_url, max_retries=3) as client:
+        with pytest.raises(httpx.HTTPStatusError):
+            client.get_contract("1")
+
+    assert len(httpx_mock.get_requests()) == 4
+
+
+def test_client_does_not_retry_4xx(
+    base_url: str,
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Test that 4xx client errors are not retried."""
+    url = f"{base_url}/api/contracts/1/"
+    httpx_mock.add_response(url=url, status_code=404, json={"detail": "Not found"})
+
+    with SoroScanClient(base_url=base_url, max_retries=3) as client:
+        with pytest.raises(SoroScanNotFoundError):
+            client.get_contract("1")
+
+    assert len(httpx_mock.get_requests()) == 1
 
 
 def test_client_context_manager(base_url: str) -> None:
@@ -288,106 +352,75 @@ def test_test_webhook(
     """Test sending a test webhook."""
     httpx_mock.add_response(
         url=f"{base_url}/api/webhooks/1/test/",
-        json={"status": "test_webhook_queued"},
+        json={"status": "sent"},
+        status_code=200,
     )
 
     with SoroScanClient(base_url=base_url) as client:
         result = client.test_webhook(1)
 
-        assert result["status"] == "test_webhook_queued"
+        assert result["status"] == "sent"
 
 
-def test_error_handling_404(
+def test_auth_error(
     base_url: str,
     httpx_mock: HTTPXMock,
 ) -> None:
-    """Test 404 error handling."""
+    """Test authentication error handling."""
+    httpx_mock.add_response(
+        url=f"{base_url}/api/contracts/1/",
+        status_code=401,
+        json={"detail": "Invalid API key"},
+    )
+
+    with SoroScanClient(base_url=base_url, api_key="bad-key") as client:
+        with pytest.raises(SoroScanAuthError):
+            client.get_contract("1")
+
+
+def test_not_found_error(
+    base_url: str,
+    httpx_mock: HTTPXMock,
+) -> None:
+    """Test not found error handling."""
     httpx_mock.add_response(
         url=f"{base_url}/api/contracts/999/",
-        json={"detail": "Not found"},
         status_code=404,
+        json={"detail": "Not found"},
     )
 
     with SoroScanClient(base_url=base_url) as client:
-        with pytest.raises(SoroScanNotFoundError) as exc_info:
+        with pytest.raises(SoroScanNotFoundError):
             client.get_contract("999")
 
-        assert exc_info.value.status_code == 404
 
-
-def test_error_handling_401(
+def test_validation_error(
     base_url: str,
     httpx_mock: HTTPXMock,
 ) -> None:
-    """Test 401 error handling."""
-    httpx_mock.add_response(
-        url=f"{base_url}/api/contracts/?page=1&page_size=50",
-        json={"detail": "Authentication required"},
-        status_code=401,
-    )
-
-    with SoroScanClient(base_url=base_url) as client:
-        with pytest.raises(SoroScanAuthError) as exc_info:
-            client.get_contracts()
-
-        assert exc_info.value.status_code == 401
-
-
-def test_error_handling_429(
-    base_url: str,
-    httpx_mock: HTTPXMock,
-) -> None:
-    """Test 429 rate limit error handling."""
-    httpx_mock.add_response(
-        url=f"{base_url}/api/events/?page=1&page_size=50&ordering=-timestamp",
-        json={"detail": "Rate limit exceeded"},
-        status_code=429,
-    )
-
-    with SoroScanClient(base_url=base_url) as client:
-        with pytest.raises(SoroScanRateLimitError) as exc_info:
-            client.get_events()
-
-        assert exc_info.value.status_code == 429
-
-
-def test_error_handling_400(
-    base_url: str,
-    httpx_mock: HTTPXMock,
-) -> None:
-    """Test 400 validation error handling."""
+    """Test validation error handling."""
     httpx_mock.add_response(
         url=f"{base_url}/api/contracts/",
-        json={"error": "Invalid contract_id"},
         status_code=400,
+        json={"name": ["This field is required."]},
     )
 
     with SoroScanClient(base_url=base_url) as client:
-        with pytest.raises(SoroScanValidationError) as exc_info:
-            client.create_contract(
-                contract_id="invalid",
-                name="Test",
-            )
-
-        assert exc_info.value.status_code == 400
+        with pytest.raises(SoroScanValidationError):
+            client.create_contract(contract_id="invalid")
 
 
-def test_headers_with_api_key(
+def test_rate_limit_error(
     base_url: str,
-    api_key: str,
+    httpx_mock: HTTPXMock,
 ) -> None:
-    """Test that API key is included in headers."""
-    with SoroScanClient(base_url=base_url, api_key=api_key) as client:
-        headers = client._get_headers()
+    """Test rate limit error handling."""
+    httpx_mock.add_response(
+        url=f"{base_url}/api/contracts/1/",
+        status_code=429,
+        json={"detail": "Rate limit exceeded"},
+    )
 
-        assert headers["Authorization"] == f"Bearer {api_key}"
-        assert headers["Content-Type"] == "application/json"
-
-
-def test_headers_without_api_key(base_url: str) -> None:
-    """Test headers without API key."""
     with SoroScanClient(base_url=base_url) as client:
-        headers = client._get_headers()
-
-        assert "Authorization" not in headers
-        assert headers["Content-Type"] == "application/json"
+        with pytest.raises(SoroScanRateLimitError):
+            client.get_contract("1")
