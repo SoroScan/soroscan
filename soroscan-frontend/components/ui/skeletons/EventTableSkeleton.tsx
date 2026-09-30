@@ -39,7 +39,7 @@ const ROW_COUNT = 5;
 
 export function EventTableSkeleton({ showTags = false }: { showTags?: boolean }) {
   return (
-    <div className={styles.tableWrap}>
+    <div className={`${styles.tableWrap} min-h-[400px]`}>
       {/* Inline responsive CSS – same breakpoints as EventTable */}
       <style>{`
         .soroscan-events-card-grid-sk { display: none; }
