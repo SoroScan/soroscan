@@ -7,9 +7,36 @@ This folder contains all Soroban smart contracts for SoroScan.
 ### soroscan_core
 
 The core contract that:
+
 - Accepts event submissions from authorized indexers
 - Emits standardized events for off-chain consumption
 - Stores event counters and latest events by type
+
+### Emitting Custom Events
+
+To emit custom indexed events for off-chain consumption, use `env.events().publish(...)` in your contract functions. The first argument is a tuple of up to 4 topics (keys), and the second argument is the event data payload.
+
+```rust
+#![no_std]
+use soroban_sdk::{contract, contractimpl, symbol_short, Env, Symbol};
+
+#[contract]
+pub struct CustomEventContract;
+
+#[contractimpl]
+impl CustomEventContract {
+    pub fn emit_custom_event(env: Env, user_id: u32, action: Symbol) {
+        // Topics define how the event is indexed. Use a tuple for multiple topics.
+        let topics = (symbol_short!("action"), user_id);
+
+        // The data payload of the event
+        let data = action;
+
+        // Emit the custom event
+        env.events().publish(topics, data);
+    }
+}
+```
 
 ## Building
 
@@ -23,18 +50,18 @@ cargo build --target wasm32-unknown-unknown --release
 Unit tests live in `soroscan_core/src/lib.rs` under `#[cfg(test)]` and use
 `soroban_sdk::testutils` (`Env::default()`, `register_contract`, `mock_all_auths`).
 
-| Test | Scenario | Expected |
-|------|----------|----------|
-| `test_initialize` | Deploy and init with admin | Admin set correctly |
-| `test_add_indexer_as_admin` | Admin adds indexer | Indexer whitelisted |
-| `test_add_indexer_as_non_admin` | Non-admin adds indexer | `ContractError::Unauthorized` |
-| `test_record_event_whitelisted` | Whitelisted indexer records event | Event emitted, counter incremented |
-| `test_record_event_not_whitelisted` | Non-whitelisted address records | `ContractError::IndexerNotFound` |
-| `test_remove_indexer` | Admin removes indexer | Indexer no longer whitelisted |
-| `test_recent_events_returns_newest_first` | Query recent events after several records | Events returned newest-first |
-| `test_recent_events_respects_limit` | Query with a `limit` smaller than history | Only `limit` newest events returned |
-| `test_recent_events_evicts_oldest_beyond_cap` | Record more than the retention cap | Oldest entries evicted, cap enforced |
-| `test_recent_events_invalid_limit` | Query with `limit` above the cap | `ContractError::InvalidLimit` |
+| Test                                          | Scenario                                  | Expected                             |
+| --------------------------------------------- | ----------------------------------------- | ------------------------------------ |
+| `test_initialize`                             | Deploy and init with admin                | Admin set correctly                  |
+| `test_add_indexer_as_admin`                   | Admin adds indexer                        | Indexer whitelisted                  |
+| `test_add_indexer_as_non_admin`               | Non-admin adds indexer                    | `ContractError::Unauthorized`        |
+| `test_record_event_whitelisted`               | Whitelisted indexer records event         | Event emitted, counter incremented   |
+| `test_record_event_not_whitelisted`           | Non-whitelisted address records           | `ContractError::IndexerNotFound`     |
+| `test_remove_indexer`                         | Admin removes indexer                     | Indexer no longer whitelisted        |
+| `test_recent_events_returns_newest_first`     | Query recent events after several records | Events returned newest-first         |
+| `test_recent_events_respects_limit`           | Query with a `limit` smaller than history | Only `limit` newest events returned  |
+| `test_recent_events_evicts_oldest_beyond_cap` | Record more than the retention cap        | Oldest entries evicted, cap enforced |
+| `test_recent_events_invalid_limit`            | Query with `limit` above the cap          | `ContractError::InvalidLimit`        |
 
 ### SC-9: Indexer authorization
 
@@ -44,6 +71,7 @@ The `add_indexer` contract function is exposed via:
 - Python SDK: `client.add_indexer(indexer_address)`
 - TypeScript SDK: `client.addIndexer({ indexerAddress })`
 - CLI: `soroscan indexers add <address>`
+
 ### SC-15: Contract authorization queries
 
 Read-only Soroban simulations for `is_indexer` and `get_admin` are exposed via:
