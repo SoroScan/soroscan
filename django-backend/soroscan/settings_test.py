@@ -89,6 +89,20 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": ":memory:",
+        # Issue #1575 — the test database is created from scratch on every run
+        # and never needs crash safety, so trade durability for speed:
+        #   synchronous=OFF  skips the fsync after each transaction
+        #   journal_mode=MEMORY  keeps the rollback journal in memory
+        #   temp_store=MEMORY    keeps temporary tables in memory
+        # These are test-only settings; production uses PostgreSQL and is
+        # unaffected.
+        "OPTIONS": {
+            "init_command": (
+                "PRAGMA synchronous=OFF;"
+                "PRAGMA journal_mode=MEMORY;"
+                "PRAGMA temp_store=MEMORY;"
+            ),
+        },
     }
 }
 
