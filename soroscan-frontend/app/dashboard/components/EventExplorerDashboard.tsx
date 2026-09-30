@@ -15,7 +15,11 @@ import { useToast } from "@/context/ToastContext";
 import { parseSearchQuery, matchesFilters } from "@/lib/search-parser";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { useContractEventSubscription } from "@/src/hooks/useContractEventSubscription";
-import { SubscriptionStatusBadge } from "@/components/ui/SubscriptionStatusBadge";
+import { ConnectionStatusBadge } from "@/src/components/ConnectionStatusBadge";
+import {
+  prependRecoveredEvents,
+  useEventGapCatchUp,
+} from "@/src/hooks/useEventGapCatchUp";
 import { DashboardWorkspace } from "@/components/layout/DashboardWorkspace";
 import { DashboardPanel } from "@/components/layout/DashboardPanel";
 
@@ -72,11 +76,17 @@ export function EventExplorerDashboard() {
   const [newEventsCount, setNewEventsCount] = useState(0);
   const previousEventsRef = useRef<EventRecord[]>([]);
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const tableRef = useRef<HTMLDivElement>(null);
 
   // ── Persist page size ──────────────────────────────────────────────────────
   useEffect(() => {
     localStorage.setItem(PAGE_SIZE_STORAGE_KEY, pageSize.toString());
   }, [pageSize]);
+
+  // Scroll the events table into view on page change for smooth UX
+  useEffect(() => {
+    tableRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [currentPage]);
 
   // ── Multi-select state ─────────────────────────────────────────────────────
   /**
@@ -247,6 +257,33 @@ export function EventExplorerDashboard() {
     contractId: filters.contractId || "",
     maxEvents: 10,
   });
+
+  const { recoveredEvents, recordReceivedEvent } = useEventGapCatchUp(
+    filters.contractId || "",
+    connectionState === "connected",
+  );
+
+  useEffect(() => {
+    for (const event of realTimeEvents) {
+      recordReceivedEvent({ id: event.id, ledger: event.ledgerSequence });
+    }
+  }, [realTimeEvents, recordReceivedEvent]);
+
+  useEffect(() => {
+    if (currentPage !== 1) {
+      return;
+    }
+    for (const event of events) {
+      recordReceivedEvent({ id: event.id, ledger: event.ledger });
+    }
+  }, [currentPage, events, recordReceivedEvent]);
+
+  useEffect(() => {
+    if (!recoveredEvents.length) {
+      return;
+    }
+    setEvents((prev) => prependRecoveredEvents(prev, recoveredEvents));
+  }, [recoveredEvents]);
 
   // Track new events
   useEffect(() => {
@@ -431,6 +468,15 @@ export function EventExplorerDashboard() {
               </p>
             </div>
             <div className="flex items-center gap-3 self-start sm:self-auto">
+              <ConnectionStatusBadge
+                status={
+                  connectionState === "connected"
+                    ? "connected"
+                    : connectionState === "reconnecting"
+                      ? "reconnecting"
+                      : "offline"
+                }
+              />
               <NotificationBell />
             </div>
           </>
@@ -451,13 +497,13 @@ export function EventExplorerDashboard() {
           initialQuery={filters.searchQuery}
         />
 
+        <div ref={tableRef}>
         <DashboardPanel
           elevation="default"
           title="Contract Events"
           aria-label="Events table"
           actions={
             <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-              <SubscriptionStatusBadge connectionState={connectionState} />
               {newEventsCount > 0 && (
                 <button
                   type="button"
@@ -467,6 +513,7 @@ export function EventExplorerDashboard() {
                     borderColor: "rgba(0, 255, 156, 0.6)",
                   }}
                   onClick={() => setNewEventsCount(0)}
+                  aria-label={`Dismiss ${newEventsCount} new event notification${newEventsCount !== 1 ? "s" : ""}`}
                 >
                   {newEventsCount} new event{newEventsCount !== 1 ? "s" : ""}
                 </button>
@@ -485,6 +532,8 @@ export function EventExplorerDashboard() {
                     setNewEventsCount(0);
                   }
                 }}
+                aria-label={isPaused ? "Resume live event updates" : "Pause live event updates"}
+                aria-pressed={isPaused}
               >
                 {isPaused ? "▶ Resume" : "⏸ Pause"}
               </button>
@@ -525,6 +574,7 @@ export function EventExplorerDashboard() {
             onPageSizeChange={handlePageSizeChange}
           />
         </DashboardPanel>
+        </div>
       </DashboardWorkspace>
 
       {selectedEvent && (

@@ -5,13 +5,14 @@ import time
 import traceback
 from typing import Any, Callable, Dict, Optional
 
-from strawberry.extensions import SchemaExtension
+from strawberry.extensions import QueryDepthLimiter, SchemaExtension
 from strawberry.types import Info
 from strawberry.exceptions import StrawberryException
 from django.conf import settings
 from django.core.cache import cache
 
 logger = logging.getLogger("soroscan.graphql")
+SLOW_RESOLVER_THRESHOLD_MS = 200
 
 
 def _get_authenticated_user(info: Info):
@@ -186,6 +187,12 @@ def log_graphql_resolver(func: Callable) -> Callable:
                 "status": status,
             }
 
+            if duration_ms > SLOW_RESOLVER_THRESHOLD_MS:
+                logger.warning(
+                    f"Slow GraphQL resolver: {query_name} in {duration_ms:.2f}ms",
+                    extra=extra,
+                )
+
             if error:
                 extra["error"] = str(error)
                 extra["stack_trace"] = traceback.format_exc()
@@ -326,3 +333,17 @@ class GraphQLRateLimitExtension(SchemaExtension):
             return num_requests, duration
         except (ValueError, KeyError, IndexError):
             return None, None
+
+
+class MaxQueryDepthExtension(QueryDepthLimiter):
+    """
+    Reject queries nested deeper than ``max_depth`` (default 7).
+
+    Runs as a validation rule, so over-deep queries fail with a GraphQL error
+    (e.g. "'MyQuery' exceeds maximum operation depth of 7") before any
+    resolver executes.
+    """
+
+    def __init__(self, max_depth: int = 7, **kwargs):
+        self.max_depth = max_depth
+        super().__init__(max_depth=max_depth, **kwargs)

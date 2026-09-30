@@ -10,6 +10,7 @@ from django.utils.text import slugify
 from .cache_utils import get_event_count
 from .models import (
     APIKey,
+    ContractDeployment,
     ContractEvent,
     ContractInvocation,
     ContractMetadata,
@@ -329,6 +330,34 @@ class TrackedContractSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("You are not a member of this team.")
         return value
 
+
+class ContractDeploymentSerializer(serializers.ModelSerializer):
+    detected_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
+    class Meta:
+        model = ContractDeployment
+        fields = [
+            "id",
+            "bytecode_hash",
+            "ledger_deployed",
+            "deployer_address",
+            "is_upgrade",
+            "tx_hash",
+            "notes",
+            "detected_at",
+        ]
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        if representation["detected_at"] is None:
+            discovery_date = getattr(instance.contract, "created_at", None)
+            detected_at_field = self.fields["detected_at"]
+            representation["detected_at"] = detected_at_field.to_representation(
+                discovery_date
+            )
+        return representation
+
+
 class ContractEventSerializer(serializers.ModelSerializer):
     """
     Serializer for ContractEvent model.
@@ -550,6 +579,22 @@ class WebhookDeliveryLogSerializer(serializers.ModelSerializer):
             "response_body",
             "timestamp",
         ]
+        read_only_fields = fields
+
+
+class DLQDeliveryLogSerializer(WebhookDeliveryLogSerializer):
+    """
+    Dead-lettered WebhookDeliveryLog entry, including the contract it belongs to.
+
+    Exposed via ``GET /api/v1/webhooks/dlq/`` (Issue #1405).
+    """
+
+    contract_id = serializers.CharField(
+        source="subscription.contract.contract_id", read_only=True
+    )
+
+    class Meta(WebhookDeliveryLogSerializer.Meta):
+        fields = WebhookDeliveryLogSerializer.Meta.fields + ["contract_id"]
         read_only_fields = fields
 
 

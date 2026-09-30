@@ -385,3 +385,8 @@ This project is licensed under the [MIT License](LICENSE).
 - [Architecture Overview](docs/architecture/README.md) — end-to-end system design, data flows, component interaction, and deployment architecture
 - [Architecture Decision Records](docs/architecture/adr.md) — rationale for core technology and design choices
 - [DATABASE_TUNING.md](docs/database/DATABASE_TUNING.md) — Recommended configuration settings for high-volume write workloads and indexing optimizations.
+
+## Handsoff notes
+
+<!-- handsoff-issue-1527 -->
+- #1527: style: harmonize border radius across admin input fields
