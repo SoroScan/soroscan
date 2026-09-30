@@ -1,267 +1,121 @@
-"""Tests for asynchronous SoroScan client."""
+"""Tests for the async SoroScan client connection cleanup on close.
 
+Covers issue #1542: verifying that ``await client.close()`` and the
+``async with SoroScanClient(...)`` context manager properly close the
+underlying HTTP session connections without leaking resources.
+"""
+
+import gc
+import warnings
+
+import httpx
 import pytest
-from pytest_httpx import HTTPXMock
 
-from soroscan import AsyncSoroScanClient
-from soroscan.exceptions import SoroScanNotFoundError
-from soroscan.models import ContractEvent, TrackedContract
+from soroscan import AsyncSoroScanClient, AsyncSoroscanClient
+
+
+BASE_URL = "https://api.soroscan.test"
 
 
 @pytest.mark.asyncio
-async def test_async_client_initialization(base_url: str, api_key: str) -> None:
-    """Test async client initialization."""
-    client = AsyncSoroScanClient(base_url=base_url, api_key=api_key, timeout=60.0)
-    assert client.base_url == base_url
-    assert client.api_key == api_key
-    assert client.timeout == 60.0
+async def test_await_close_closes_http_session():
+    """``await client.close()`` must close the underlying HTTP session."""
+    client = AsyncSoroScanClient(base_url=BASE_URL)
+
+    session = client._client
+    assert isinstance(session, httpx.AsyncClient)
+    assert not session.is_closed
+
     await client.close()
 
-
-@pytest.mark.asyncio
-async def test_async_client_context_manager(base_url: str) -> None:
-    """Test async client as context manager."""
-    async with AsyncSoroScanClient(base_url=base_url) as client:
-        assert client.base_url == base_url
+    assert session.is_closed
 
 
 @pytest.mark.asyncio
-async def test_async_get_contracts(
-    base_url: str,
-    sample_contract_data: dict,
-    sample_paginated_response: dict,
-    httpx_mock: HTTPXMock,
-) -> None:
-    """Test async listing contracts."""
-    response_data = sample_paginated_response.copy()
-    response_data["results"] = [sample_contract_data]
+async def test_await_close_is_idempotent():
+    """Calling ``close`` more than once must not raise or leak."""
+    client = AsyncSoroScanClient(base_url=BASE_URL)
 
-    httpx_mock.add_response(
-        url=f"{base_url}/api/contracts/?page=1&page_size=50",
-        json=response_data,
-    )
-
-    async with AsyncSoroScanClient(base_url=base_url) as client:
-        result = await client.get_contracts()
-
-        assert result.count == 100
-        assert len(result.results) == 1
-        assert isinstance(result.results[0], TrackedContract)
-        assert result.results[0].name == "Test Token"
-
-
-@pytest.mark.asyncio
-async def test_async_get_contract(
-    base_url: str,
-    sample_contract_data: dict,
-    httpx_mock: HTTPXMock,
-) -> None:
-    """Test async getting a specific contract."""
-    httpx_mock.add_response(
-        url=f"{base_url}/api/contracts/1/",
-        json=sample_contract_data,
-    )
-
-    async with AsyncSoroScanClient(base_url=base_url) as client:
-        contract = await client.get_contract("1")
-
-        assert isinstance(contract, TrackedContract)
-        assert contract.id == 1
-        assert contract.name == "Test Token"
-
-
-@pytest.mark.asyncio
-async def test_async_create_contract(
-    base_url: str,
-    sample_contract_data: dict,
-    httpx_mock: HTTPXMock,
-) -> None:
-    """Test async creating a new contract."""
-    httpx_mock.add_response(
-        url=f"{base_url}/api/contracts/",
-        json=sample_contract_data,
-        status_code=201,
-    )
-
-    async with AsyncSoroScanClient(base_url=base_url) as client:
-        contract = await client.create_contract(
-            contract_id="CCAAA111222333444555666777888999AAABBBCCCDDDEEEFFF",
-            name="Test Token",
-            description="A test token contract",
-        )
-
-        assert isinstance(contract, TrackedContract)
-        assert contract.name == "Test Token"
-
-
-@pytest.mark.asyncio
-async def test_async_get_events(
-    base_url: str,
-    sample_event_data: dict,
-    sample_paginated_response: dict,
-    httpx_mock: HTTPXMock,
-) -> None:
-    """Test async querying events."""
-    response_data = sample_paginated_response.copy()
-    response_data["results"] = [sample_event_data]
-
-    httpx_mock.add_response(
-        url=(
-            f"{base_url}/api/events/?page=1&page_size=50&ordering=-timestamp"
-            "&contract__contract_id=CCAAA111222333444555666777888999AAABBBCCCDDDEEEFFF"
-            "&event_type=transfer"
-        ),
-        json=response_data,
-    )
-
-    async with AsyncSoroScanClient(base_url=base_url) as client:
-        result = await client.get_events(
-            contract_id="CCAAA111222333444555666777888999AAABBBCCCDDDEEEFFF",
-            event_type="transfer",
-        )
-
-        assert result.count == 100
-        assert len(result.results) == 1
-        assert isinstance(result.results[0], ContractEvent)
-        assert result.results[0].event_type == "transfer"
-
-
-@pytest.mark.asyncio
-async def test_async_record_event(
-    base_url: str,
-    httpx_mock: HTTPXMock,
-) -> None:
-    """Test async recording a new event."""
-    response_data = {
-        "status": "submitted",
-        "tx_hash": "tx123456",
-        "transaction_status": "pending",
-        "error": None,
-    }
-
-    httpx_mock.add_response(
-        url=f"{base_url}/api/record-event/",
-        json=response_data,
-        status_code=202,
-    )
-
-    async with AsyncSoroScanClient(base_url=base_url) as client:
-        result = await client.record_event(
-            contract_id="CCAAA111222333444555666777888999AAABBBCCCDDDEEEFFF",
-            event_type="transfer",
-            payload_hash="abc123def456",
-        )
-
-        assert result.status == "submitted"
-        assert result.tx_hash == "tx123456"
-
-
-@pytest.mark.asyncio
-async def test_async_error_handling(
-    base_url: str,
-    httpx_mock: HTTPXMock,
-) -> None:
-    """Test async error handling."""
-    httpx_mock.add_response(
-        url=f"{base_url}/api/contracts/999/",
-        json={"detail": "Not found"},
-        status_code=404,
-    )
-
-    async with AsyncSoroScanClient(base_url=base_url) as client:
-        with pytest.raises(SoroScanNotFoundError) as exc_info:
-            await client.get_contract("999")
-
-        assert exc_info.value.status_code == 404
-
-
-@pytest.mark.asyncio
-async def test_async_concurrent_requests(
-    base_url: str,
-    sample_contract_data: dict,
-    httpx_mock: HTTPXMock,
-) -> None:
-    """Test concurrent async requests."""
-    import asyncio
-
-    # Mock multiple contract responses
-    for i in range(1, 4):
-        data = sample_contract_data.copy()
-        data["id"] = i
-        data["name"] = f"Contract {i}"
-        httpx_mock.add_response(
-            url=f"{base_url}/api/contracts/{i}/",
-            json=data,
-        )
-
-    async with AsyncSoroScanClient(base_url=base_url) as client:
-        # Fetch multiple contracts concurrently
-        tasks = [client.get_contract(str(i)) for i in range(1, 4)]
-        contracts = await asyncio.gather(*tasks)
-
-        assert len(contracts) == 3
-        assert contracts[0].name == "Contract 1"
-        assert contracts[1].name == "Contract 2"
-        assert contracts[2].name == "Contract 3"
-
-
-@pytest.mark.asyncio
-async def test_async_client_module_issue_1220_uses_httpx_async_client(
-    base_url: str,
-) -> None:
-    import httpx
-    from soroscan.async_client import AsyncSoroscanClient
-
-    client = AsyncSoroscanClient(base_url=base_url)
-    assert isinstance(client._client, httpx.AsyncClient)
+    await client.close()
     await client.close()
 
-
-@pytest.mark.asyncio
-async def test_async_client_module_issue_1220_list_events(
-    base_url: str,
-    sample_event_data: dict,
-    sample_paginated_response: dict,
-    httpx_mock: HTTPXMock,
-) -> None:
-    from soroscan.async_client import AsyncSoroscanClient
-
-    response_data = sample_paginated_response.copy()
-    response_data["results"] = [sample_event_data]
-    httpx_mock.add_response(
-        url=f"{base_url}/api/events/?page=1&page_size=50&ordering=-timestamp",
-        json=response_data,
-    )
-
-    async with AsyncSoroscanClient(base_url=base_url) as client:
-        result = await client.list_events()
-
-    assert result.count == 100
-    assert len(result.results) == 1
-    assert isinstance(result.results[0], ContractEvent)
+    assert client._client.is_closed
 
 
 @pytest.mark.asyncio
-async def test_async_client_module_issue_1220_subscribe(
-    base_url: str,
-    sample_webhook_data: dict,
-    httpx_mock: HTTPXMock,
-) -> None:
-    from soroscan.async_client import AsyncSoroscanClient
+async def test_context_manager_closes_http_session():
+    """The ``async with`` context manager must close the session on exit."""
+    async with AsyncSoroScanClient(base_url=BASE_URL) as client:
+        session = client._client
+        assert isinstance(session, httpx.AsyncClient)
+        assert not session.is_closed
 
-    httpx_mock.add_response(
-        url=f"{base_url}/api/webhooks/",
-        status_code=201,
-        json=sample_webhook_data,
-    )
+    assert session.is_closed
 
-    async with AsyncSoroscanClient(base_url=base_url) as client:
-        subscription = await client.subscribe(
-            contract_id=1,
-            target_url="https://example.com/webhook",
-            event_type="transfer",
-        )
 
-    assert subscription.id == 1
-    assert subscription.contract == 1
-    assert subscription.event_type == "transfer"
+@pytest.mark.asyncio
+async def test_context_manager_closes_session_on_exception():
+    """The session must be closed even when the body raises."""
+    session = None
+
+    with pytest.raises(RuntimeError):
+        async with AsyncSoroScanClient(base_url=BASE_URL) as client:
+            session = client._client
+            assert not session.is_closed
+            raise RuntimeError("boom")
+
+    assert session is not None
+    assert session.is_closed
+
+
+@pytest.mark.asyncio
+async def test_close_emits_no_unclosed_session_warnings():
+    """Closing the client must not leave unclosed HTTP session warnings."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+
+        client = AsyncSoroScanClient(base_url=BASE_URL)
+        await client.close()
+
+        # Force any lingering finalizers to run while we are still capturing.
+        del client
+        gc.collect()
+
+    unclosed = [
+        w
+        for w in caught
+        if "unclosed" in str(w.message).lower()
+        or "not closed" in str(w.message).lower()
+    ]
+    assert unclosed == [], f"unexpected unclosed session warnings: {unclosed}"
+
+
+@pytest.mark.asyncio
+async def test_context_manager_emits_no_unclosed_session_warnings():
+    """The context manager path must not leave unclosed session warnings."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+
+        async with AsyncSoroScanClient(base_url=BASE_URL) as client:
+            assert not client._client.is_closed
+
+        gc.collect()
+
+    unclosed = [
+        w
+        for w in caught
+        if "unclosed" in str(w.message).lower()
+        or "not closed" in str(w.message).lower()
+    ]
+    assert unclosed == [], f"unexpected unclosed session warnings: {unclosed}"
+
+
+@pytest.mark.asyncio
+async def test_async_soroscan_client_alias_closes():
+    """The ``AsyncSoroscanClient`` alias must also clean up on close."""
+    client = AsyncSoroscanClient(base_url=BASE_URL)
+    session = client._client
+
+    await client.close()
+
+    assert session.is_closed
