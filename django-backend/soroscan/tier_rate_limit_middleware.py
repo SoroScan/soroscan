@@ -21,11 +21,18 @@ class TieredAPIKeyRateLimitMiddleware(MiddlewareMixin):
     async def __call__(self, request):
         raw_key = request.headers.get("X-API-Key")
         if not raw_key:
-            return await self.get_response(request)
+            # Issue #1574 — an anonymous request still gets the tier headers, so
+            # a client can discover its effective tier and quota without first
+            # being rate limited. The anonymous fallback is the free tier.
+            response = await self.get_response(request)
+            self._set_tier_header(response, APIKey.Tier.FREE)
+            return response
 
         api_key = await sync_to_async(self._get_api_key)(raw_key)
         if api_key is None:
-            return await self.get_response(request)
+            response = await self.get_response(request)
+            self._set_tier_header(response, APIKey.Tier.FREE)
+            return response
 
         tier = await sync_to_async(self._effective_tier)(api_key)
         limit = APIKey.TIER_QUOTAS.get(
@@ -34,7 +41,9 @@ class TieredAPIKeyRateLimitMiddleware(MiddlewareMixin):
         )
 
         if limit is None:
-            return await self.get_response(request)
+            response = await self.get_response(request)
+            self._set_tier_header(response, tier)
+            return response
 
         now = time.time()
         cache_key = f"{CACHE_PREFIX}:{api_key.pk}"
@@ -60,6 +69,7 @@ class TieredAPIKeyRateLimitMiddleware(MiddlewareMixin):
                 limit=limit,
                 remaining=0,
                 reset_at=reset_at,
+                tier=tier,
             )
             return response
 
@@ -74,6 +84,7 @@ class TieredAPIKeyRateLimitMiddleware(MiddlewareMixin):
             limit=limit,
             remaining=max(0, limit - len(history)),
             reset_at=reset_at,
+            tier=tier,
         )
         return response
 
@@ -94,13 +105,20 @@ class TieredAPIKeyRateLimitMiddleware(MiddlewareMixin):
         return api_key.tier
 
     @staticmethod
+    def _set_tier_header(response, tier: str) -> None:
+        """Attach only the tier header (no quota data available on this path)."""
+        response["X-RateLimit-Tier"] = str(tier)
+
+    @staticmethod
     def _set_headers(
         response,
         *,
         limit: int,
         remaining: int,
         reset_at: int,
+        tier: str,
     ) -> None:
         response["X-RateLimit-Limit"] = str(limit)
         response["X-RateLimit-Remaining"] = str(remaining)
         response["X-RateLimit-Reset"] = str(reset_at)
+        response["X-RateLimit-Tier"] = str(tier)
