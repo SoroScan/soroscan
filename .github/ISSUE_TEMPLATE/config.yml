@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/SoroScan/soroscan/security/advisories/new
+    about: Report security vulnerabilities privately through GitHub Security Advisories.
+  - name: Questions and discussions
+    url: https://github.com/SoroScan/soroscan/discussions
+    about: Ask questions and discuss ideas with the community.
