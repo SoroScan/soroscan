@@ -1,0 +1,75 @@
+---
+id: api-ingest-api-keys-retrieve
+title: "api_ingest_api_keys_retrieve"
+description: "ViewSet for managing API keys with tiered rate limiting."
+sidebar_label: "api_ingest_api_keys_retrieve"
+hide_title: true
+hide_table_of_contents: true
+api: eJztVcFu40YM/RWCp92F7GT3VPgWtN4gbYoN1m57SAx7LNEWE2lG4VBOXEP/XlCyHcf2AgV67UmjEefpzSMfucFQkTjl4G8yHKCreMp+SVGntnyidZwKqTCtCBPMKKbClYXjAP9kehmRwiIIlM67JfslXN3dgB2DF9YclEkoA3FKUHDJyn7Zf/APfuizKrDXOHjwPbgejuHCVdyzkxfQg1uOCutQyx7Pwu6+jY7ifhYyaAeeXnahp4AbzhqLvia1AMhIHRcRPtjLyhU1QczDi4fgizUED6nBcvAfDeuX4e1wPDwD951W4YnA+d2fMcHKiStJSSIO7jfIplPlNMcEvSsJB8gZJhjTnEqHgw3qurLdqMJ+iU2CQs81C2U4UKmpmSSobmlolhycJBgprYV13f7g8UWvas1xcD+xUKFYBR8pGvSXy0t7pMErebWlq6qC0/ZqF4/Rkrg5pRLmj5TqSbZHJOwK/pukTfjV3c1vtIYyZFT0H/w4J5jNnmg9m8GCqciAI7wIK/WCT2kAK448L6iTmD1oTnuZYUe7bwqKlaRydwfODpixV1qSoN3TZd98sd6KtBP3WM4ES/d6S35pCn3+8lOToKXpTNwJoFWuBZKvSxN/IUQdO0yQvJJUwpEsIcdY73X7BDM7O4MefBWiB/8JZpUEe7+T0L6+wdnu8A3caGhh4GMmGRqVJsHnOqibViTTPNTyL/Q5pvS7ewUrM4oaoSIBw+nDVa2hF83QEsrWuode6NuvOU5dqrw61HoeQkHO2+fCRZ3WkbKp03MqL4KU9gUzp9RTLukMV18XhZvbrbepaBn8F8zmna3uDwGTzo+ded/R39bUidyTt6R0HsDG8N8rjLZVkubBuuqStG0NVoVofeSi67FHLQXfvD0yU3YO2Dt8f/Vctdr1kDYB5KTNerf4uhPk17/GLQ/2i9Ae39IeBQmjtGtbmOCKJHasP/cv+5cnBfx9OBq3HS4LaV2S186z1gR2SAk4GCkVhev25s5DLJ0oWPMRlyqwz+iVpK2iKkQtXdt9tk3RVQydJmDLdoD8aO4cdLT/R9CZEbStEqVXvagKx60zaylMua4Gu1FihWGKY4I7XExw0PrBqjwPUS12s5m7SH9I0TS2/VyT2OyZJLhywp1T7zeYcbR1hoOFK+JxzzlM2ofvWy9+hB/R3W46bxdq5TFTbbu3WbaZNAnm5DLr0veb7YerNKVKD46cDDwbkntfXg/Hdvn37jpyU4t+ls5m00WMwxP5ptmzU3s3gk3zD32zMAY=
+sidebar_class_name: "get api-method"
+info_path: api-reference/soroscan-api
+custom_edit_url: null
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"api_ingest_api_keys_retrieve"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"get"}
+  path={"/api/ingest/api-keys/{id}/"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+ViewSet for managing API keys with tiered rate limiting.
+
+Endpoints:
+- GET /api-keys/ - List your API keys
+- POST /api-keys/ - Create a new API key
+- GET /api-keys/\{id\}/ - Get key details (key value shown only on creation)
+- DELETE /api-keys/\{id\}/ - Revoke an API key
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./api-ingest-api-keys-retrieve.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./api-ingest-api-keys-retrieve.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./api-ingest-api-keys-retrieve.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

@@ -1,0 +1,71 @@
+---
+id: api-ingest-contracts-deployments-retrieve
+title: "api_ingest_contracts_deployments_retrieve"
+description: "GET /api/contracts/<contract_id>/deployments/"
+sidebar_label: "api_ingest_contracts_deployments_retrieve"
+hide_title: true
+hide_table_of_contents: true
+api: eJzVU8Fu2zAM/RWBpw0QkmxHYxjQAV2RHYahybBDGwS0zcRabcml6LaG4X8faCep066772RJJh/5+B47CDUxigt+mUMCWLut83uKss2CF8ZM4janugxtRV7ilknY0QOBhZxixq7WXEjg6nJt5li7+Slv/ul43Lr883yCMr/11yQN+2ikILNrytI8/zaFixK4Nehzc/FlaR6Iows+ml1gg+aIOrv1S5+VTU7RZKGqUVzqSieteUT2zu/HhJQJ75zfD1BZgcpuBhZqZKxIiCMkNx04JVGjFGDBY0WQwKR9sBCzgiqEpANpa/0dhZ3fQ2+B6b5xTDkkwg31GwuCe4XVecLGQqSsYSftUOn3o1w0UkBys9FQplgHHykq9MfFQj/no/0ezDHIpCFvoe8tVCRFUMn2JAMbRYRBgVHAiRDdhEl/JgQ897ZSfmMXpw5PXAuR+jgDvaeETAz2cPgauEKBBL79Wg/dOb8LQ7qTUuNXgcMqQ28ufizBwkFRSODDbDFbvDLT9eVqraEmD1mjnQ4OHeQ8IlmDZiVUlji+pehNrJDl5A/jfE5PxDOVqA5RKvTa00FdrJ0ZJ3XKiBMXRvOW1bvBGOTlf3T9QU+hJ5nXJTqvw2m4VFqjh0bTqoQ6G7CnNYhgITnfiQk7sKBOL0IUxei6FCP95LLv9fm+IVb3byw8IDtM1RU3HeQu6jmHZIdlpH9M+t31Ycnem7doHB7Rt2oxLBu9gYU7al9sc7+ZbtDV5Ros4LnjXzh86PavBbpujFiHO/J9f6onetdKff8HWHLlYg==
+sidebar_class_name: "get api-method"
+info_path: api-reference/soroscan-api
+custom_edit_url: null
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"api_ingest_contracts_deployments_retrieve"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"get"}
+  path={"/api/ingest/contracts/{contract_id}/deployments/"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+GET /api/contracts/&lt;contract_id&gt;/deployments/
+Returns the full deployment history and ABI versions for a contract.
+Includes compatibility warnings for breaking ABI changes.
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./api-ingest-contracts-deployments-retrieve.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./api-ingest-contracts-deployments-retrieve.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./api-ingest-contracts-deployments-retrieve.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

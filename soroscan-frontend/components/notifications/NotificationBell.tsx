@@ -27,7 +27,7 @@ export function NotificationBell() {
           relative flex items-center justify-center w-9 h-9
           border border-terminal-green/40 text-terminal-green/70
           hover:border-terminal-green hover:text-terminal-green
-          transition-colors duration-150
+          transition-colors duration-150 cursor-pointer
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-terminal-green
         "
       >

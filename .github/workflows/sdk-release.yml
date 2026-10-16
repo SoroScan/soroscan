@@ -37,6 +37,15 @@ jobs:
             exit 1
           fi
 
+      - name: Verify GraphQL Codegen
+        run: |
+          cd sdk/typescript && npm ci && npm run generate
+          cd ../python && pip install ariadne-codegen && ariadne-codegen
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "::error::Generated SDK types are out of sync with the schema. Run codegen locally and commit the changes."
+            exit 1
+          fi
+
       - name: Run tests
         run: pip install -e ".[dev]" && pytest -q
 

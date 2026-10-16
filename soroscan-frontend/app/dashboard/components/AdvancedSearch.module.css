@@ -132,14 +132,43 @@
   background: transparent;
   border: 1px solid rgba(0, 212, 255, 0.35);
   color: #00d4ff;
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border-radius: 4px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: bold;
+  font-size: 0.9rem;
+  transition: 0.18s ease;
+}
+
+.helpToggle:hover {
+  border-color: #00d4ff;
+  background: rgba(0, 212, 255, 0.1);
+  box-shadow: 0 0 10px rgba(0, 212, 255, 0.15);
+}
+
+.saveBtn {
+  background: transparent;
+  border: 1px solid rgba(0, 229, 255, 0.35);
+  color: #00e5ff;
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  transition: 0.18s ease;
+}
+
+.saveBtn:hover {
+  border-color: #00e5ff;
+  background: rgba(0, 229, 255, 0.1);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.15);
 }
 
 .helpContent {
@@ -162,18 +191,4 @@
   background: rgba(0, 212, 255, 0.05);
   padding: 0.1rem 0.3rem;
   border-radius: 2px;
-}
-
-.saveBtn {
-  background: rgba(0, 255, 156, 0.1);
-  border: 1px solid rgba(0, 255, 156, 0.3);
-  color: #00ff9c;
-  padding: 0.35rem 0.75rem;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  cursor: pointer;
-}
-
-.saveBtn:hover {
-  background: rgba(0, 255, 156, 0.2);
 }

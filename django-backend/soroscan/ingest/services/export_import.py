@@ -4,6 +4,7 @@ Streaming export/import service for ContractEvent data.
 Supports Parquet, CSV, JSON, and Avro formats with idempotent import
 (deduplication via the unique_contract_ledger_event_index constraint).
 """
+
 import csv
 import json
 import logging
@@ -17,18 +18,18 @@ logger = logging.getLogger(__name__)
 
 # Fields exported/imported for each event
 EXPORT_FIELDS = [
-    "contract_id",       # TrackedContract.contract_id (string)
+    "contract_id",  # TrackedContract.contract_id (string)
     "event_type",
     "schema_version",
     "validation_status",
-    "payload",           # JSON string in flat formats
+    "payload",  # JSON string in flat formats
     "payload_hash",
     "ledger",
     "event_index",
-    "timestamp",         # ISO-8601 string
+    "timestamp",  # ISO-8601 string
     "tx_hash",
     "raw_xdr",
-    "decoded_payload",   # JSON string in flat formats
+    "decoded_payload",  # JSON string in flat formats
     "decoding_status",
     "signature_status",
 ]
@@ -39,6 +40,7 @@ CHUNK_SIZE = 500  # rows per DB query batch
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _event_to_dict(event: ContractEvent) -> dict:
     return {
@@ -53,17 +55,26 @@ def _event_to_dict(event: ContractEvent) -> dict:
         "timestamp": event.timestamp.isoformat(),
         "tx_hash": event.tx_hash,
         "raw_xdr": event.raw_xdr,
-        "decoded_payload": json.dumps(event.decoded_payload) if event.decoded_payload is not None else None,
+        "decoded_payload": (
+            json.dumps(event.decoded_payload)
+            if event.decoded_payload is not None
+            else None
+        ),
         "decoding_status": event.decoding_status,
         "signature_status": event.signature_status,
     }
 
 
-def _iter_events(contract_id: str, start_ledger: int | None, end_ledger: int | None) -> Iterator[ContractEvent]:
+def _iter_events(
+    contract_id: str,
+    start_ledger: int | None,
+    end_ledger: int | None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+) -> Iterator[ContractEvent]:
     """Yield events in (ledger, event_index) order using pk-based pagination to avoid loading all rows."""
     qs = (
-        ContractEvent.objects
-        .filter(contract__contract_id=contract_id)
+        ContractEvent.objects.filter(contract__contract_id=contract_id)
         .select_related("contract")
         .order_by("ledger", "event_index", "pk")
     )
@@ -71,6 +82,10 @@ def _iter_events(contract_id: str, start_ledger: int | None, end_ledger: int | N
         qs = qs.filter(ledger__gte=start_ledger)
     if end_ledger is not None:
         qs = qs.filter(ledger__lte=end_ledger)
+    if start_date is not None:
+        qs = qs.filter(timestamp__gte=start_date)
+    if end_date is not None:
+        qs = qs.filter(timestamp__lte=end_date)
 
     last_pk = 0
     while True:
@@ -82,12 +97,22 @@ def _iter_events(contract_id: str, start_ledger: int | None, end_ledger: int | N
         last_pk = chunk[-1].pk
 
 
-def _count_events(contract_id: str, start_ledger: int | None, end_ledger: int | None) -> int:
+def _count_events(
+    contract_id: str,
+    start_ledger: int | None,
+    end_ledger: int | None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+) -> int:
     qs = ContractEvent.objects.filter(contract__contract_id=contract_id)
     if start_ledger is not None:
         qs = qs.filter(ledger__gte=start_ledger)
     if end_ledger is not None:
         qs = qs.filter(ledger__lte=end_ledger)
+    if start_date is not None:
+        qs = qs.filter(timestamp__gte=start_date)
+    if end_date is not None:
+        qs = qs.filter(timestamp__lte=end_date)
     return qs.count()
 
 
@@ -95,11 +120,21 @@ def _count_events(contract_id: str, start_ledger: int | None, end_ledger: int | 
 # Export
 # ---------------------------------------------------------------------------
 
-def export_json(contract_id: str, out: IO, start_ledger=None, end_ledger=None) -> int:
+
+def export_json(
+    contract_id: str,
+    out: IO,
+    start_ledger=None,
+    end_ledger=None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+) -> int:
     """Stream events as a JSON array to *out*. Returns event count."""
     out.write("[\n")
     count = 0
-    for event in _iter_events(contract_id, start_ledger, end_ledger):
+    for event in _iter_events(
+        contract_id, start_ledger, end_ledger, start_date, end_date
+    ):
         if count > 0:
             out.write(",\n")
         out.write(json.dumps(_event_to_dict(event)))
@@ -108,18 +143,34 @@ def export_json(contract_id: str, out: IO, start_ledger=None, end_ledger=None) -
     return count
 
 
-def export_csv(contract_id: str, out: IO, start_ledger=None, end_ledger=None) -> int:
+def export_csv(
+    contract_id: str,
+    out: IO,
+    start_ledger=None,
+    end_ledger=None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+) -> int:
     """Stream events as CSV to *out*. Returns event count."""
     writer = csv.DictWriter(out, fieldnames=EXPORT_FIELDS, lineterminator="\n")
     writer.writeheader()
     count = 0
-    for event in _iter_events(contract_id, start_ledger, end_ledger):
+    for event in _iter_events(
+        contract_id, start_ledger, end_ledger, start_date, end_date
+    ):
         writer.writerow(_event_to_dict(event))
         count += 1
     return count
 
 
-def export_parquet(contract_id: str, path: str, start_ledger=None, end_ledger=None) -> int:
+def export_parquet(
+    contract_id: str,
+    path: str,
+    start_ledger=None,
+    end_ledger=None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+) -> int:
     """Write events to a Parquet file at *path*. Returns event count."""
     try:
         import pyarrow as pa
@@ -127,22 +178,24 @@ def export_parquet(contract_id: str, path: str, start_ledger=None, end_ledger=No
     except ImportError:
         raise ImportError("pyarrow is required for Parquet export: pip install pyarrow")
 
-    schema = pa.schema([
-        pa.field("contract_id", pa.string()),
-        pa.field("event_type", pa.string()),
-        pa.field("schema_version", pa.int64()),
-        pa.field("validation_status", pa.string()),
-        pa.field("payload", pa.string()),
-        pa.field("payload_hash", pa.string()),
-        pa.field("ledger", pa.int64()),
-        pa.field("event_index", pa.int32()),
-        pa.field("timestamp", pa.string()),
-        pa.field("tx_hash", pa.string()),
-        pa.field("raw_xdr", pa.string()),
-        pa.field("decoded_payload", pa.string()),
-        pa.field("decoding_status", pa.string()),
-        pa.field("signature_status", pa.string()),
-    ])
+    schema = pa.schema(
+        [
+            pa.field("contract_id", pa.string()),
+            pa.field("event_type", pa.string()),
+            pa.field("schema_version", pa.int64()),
+            pa.field("validation_status", pa.string()),
+            pa.field("payload", pa.string()),
+            pa.field("payload_hash", pa.string()),
+            pa.field("ledger", pa.int64()),
+            pa.field("event_index", pa.int32()),
+            pa.field("timestamp", pa.string()),
+            pa.field("tx_hash", pa.string()),
+            pa.field("raw_xdr", pa.string()),
+            pa.field("decoded_payload", pa.string()),
+            pa.field("decoding_status", pa.string()),
+            pa.field("signature_status", pa.string()),
+        ]
+    )
 
     writer = pq.ParquetWriter(path, schema)
     count = 0
@@ -153,7 +206,9 @@ def export_parquet(contract_id: str, path: str, start_ledger=None, end_ledger=No
         table = pa.table(arrays, schema=schema)
         writer.write_table(table)
 
-    for event in _iter_events(contract_id, start_ledger, end_ledger):
+    for event in _iter_events(
+        contract_id, start_ledger, end_ledger, start_date, end_date
+    ):
         batch.append(_event_to_dict(event))
         count += 1
         if len(batch) >= CHUNK_SIZE:
@@ -167,7 +222,14 @@ def export_parquet(contract_id: str, path: str, start_ledger=None, end_ledger=No
     return count
 
 
-def export_avro(contract_id: str, path: str, start_ledger=None, end_ledger=None) -> int:
+def export_avro(
+    contract_id: str,
+    path: str,
+    start_ledger=None,
+    end_ledger=None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+) -> int:
     """Write events to an Avro file at *path*. Returns event count."""
     try:
         import fastavro
@@ -198,7 +260,9 @@ def export_avro(contract_id: str, path: str, start_ledger=None, end_ledger=None)
 
     count = 0
     records = []
-    for event in _iter_events(contract_id, start_ledger, end_ledger):
+    for event in _iter_events(
+        contract_id, start_ledger, end_ledger, start_date, end_date
+    ):
         records.append(_event_to_dict(event))
         count += 1
         if len(records) >= CHUNK_SIZE:
@@ -218,10 +282,11 @@ def export_avro(contract_id: str, path: str, start_ledger=None, end_ledger=None)
 # Import
 # ---------------------------------------------------------------------------
 
+
 class ImportResult:
     def __init__(self):
         self.imported = 0
-        self.skipped = 0   # duplicates
+        self.skipped = 0  # duplicates
         self.errors = 0
         self.error_details: list[str] = []
 
@@ -275,7 +340,9 @@ def _row_to_event(row: dict, contracts: dict[str, TrackedContract]) -> ContractE
     )
 
 
-def _import_batch(batch: list[dict], contracts: dict, result: ImportResult, dry_run: bool):
+def _import_batch(
+    batch: list[dict], contracts: dict, result: ImportResult, dry_run: bool
+):
     events = []
     for row in batch:
         try:
@@ -338,7 +405,9 @@ def import_csv(src: IO, result: ImportResult, dry_run: bool = False) -> ImportRe
     return result
 
 
-def import_parquet(path: str, result: ImportResult, dry_run: bool = False) -> ImportResult:
+def import_parquet(
+    path: str, result: ImportResult, dry_run: bool = False
+) -> ImportResult:
     try:
         import pyarrow.parquet as pq
     except ImportError:
@@ -349,6 +418,28 @@ def import_parquet(path: str, result: ImportResult, dry_run: bool = False) -> Im
     for batch in pf.iter_batches(batch_size=CHUNK_SIZE):
         rows = batch.to_pydict()
         n = len(next(iter(rows.values())))
-        dicts = [{k: (rows[k][i] if rows[k][i] is not None else None) for k in rows} for i in range(n)]
+        dicts = [
+            {k: (rows[k][i] if rows[k][i] is not None else None) for k in rows}
+            for i in range(n)
+        ]
         _import_batch(dicts, contracts, result, dry_run)
+    return result
+
+
+def import_avro(path: str, result: ImportResult, dry_run: bool = False) -> ImportResult:
+    try:
+        import fastavro
+    except ImportError:
+        raise ImportError("fastavro is required for Avro import: pip install fastavro")
+
+    contracts: dict[str, TrackedContract] = {}
+    batch: list[dict] = []
+    with open(path, "rb") as src:
+        for record in fastavro.reader(src):
+            batch.append(dict(record))
+            if len(batch) >= CHUNK_SIZE:
+                _import_batch(batch, contracts, result, dry_run)
+                batch = []
+    if batch:
+        _import_batch(batch, contracts, result, dry_run)
     return result

@@ -14,7 +14,8 @@
     "rootDir": "src",
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "jsx": "react-jsx"
   },
   "include": ["src", "tsconfig.cjs.json"],
   "exclude": ["node_modules", "dist", "tests"]

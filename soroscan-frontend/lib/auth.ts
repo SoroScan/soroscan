@@ -79,9 +79,11 @@ export const refreshAccessToken = async (): Promise<string | null> => {
     );
 
     if (response.ok) {
-      const data: Tokens = await response.json();
-      setTokens(data);
-      return data.access;
+      const data: Partial<Tokens> & { access: string } = await response.json();
+      const newAccess = data.access;
+      const newRefresh = data.refresh || refresh;
+      setTokens({ access: newAccess, refresh: newRefresh });
+      return newAccess;
     } else {
       // If refresh fails, clear tokens as they are likely invalid/expired
       clearTokens();
@@ -91,4 +93,52 @@ export const refreshAccessToken = async (): Promise<string | null> => {
   }
   
   return null;
+};
+
+/**
+ * Wrapper around native fetch that automatically injects JWT access token,
+ * intercepts 401 Unauthorized errors, attempts token refresh via refreshAccessToken(),
+ * retries the request with new token, and redirects to /login if refresh fails.
+ */
+export const authenticatedFetch = async (
+  input: RequestInfo | URL,
+  init: RequestInit = {}
+): Promise<Response> => {
+  let token = getAccessToken();
+
+  const getHeaders = (authToken: string | null): HeadersInit => {
+    const headers = new Headers(init.headers || {});
+    if (authToken) {
+      headers.set('Authorization', `Bearer ${authToken}`);
+    }
+    return headers;
+  };
+
+  let response = await fetch(input, {
+    ...init,
+    headers: getHeaders(token),
+  });
+
+  // If unauthorized, attempt to refresh token and retry
+  if (response.status === 401) {
+    console.warn('Authentication 401 received. Attempting automatic token refresh...');
+    const newToken = await refreshAccessToken();
+
+    if (newToken) {
+      // Retry request with fresh access token
+      response = await fetch(input, {
+        ...init,
+        headers: getHeaders(newToken),
+      });
+    } else {
+      // Refresh failed — clear tokens and redirect user to /login
+      clearTokens();
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        const currentPath = encodeURIComponent(window.location.pathname + window.location.search);
+        window.location.href = `/login?callbackUrl=${currentPath}`;
+      }
+    }
+  }
+
+  return response;
 };

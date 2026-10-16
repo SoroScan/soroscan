@@ -1,0 +1,74 @@
+---
+id: api-ingest-record-create
+title: "api_ingest_record_create"
+description: "Record a new event by submitting a transaction to the SoroScan contract."
+sidebar_label: "api_ingest_record_create"
+hide_title: true
+hide_table_of_contents: true
+api: eJztV9tu2zgQ/RVinnYB+ZJsEmD1lgYptosCW8QO9iE2jLE4sZhKpEqOYruG/r0gKcdy4iQLtOguFnnTZTg6c+aQR7MBU5FFVkZ/kJACVmqm9IIczyxlxspZZgmZIAFJLrOq8qGQwlV4K1BoWgq6J81ivhaunpeKWemFQMEWtcPMLxBsBOckRsaaUYZaZEazxYz7Ez3RV/SlJsdibuQ6nejNRAshxAS2QTMlJ5CKCVycv7vo9/sTSLYh4cszXlcUI9wSq87rCteFQTnL0eUxAOfZ0fFvIYkQg4E4O+llOVqR00o4tkovJrqBBBgXDtIbTwhME7AR4jsj15BuAjLS7C+xqgqVBQYHd85zswGX5VSiv/LIIAUzv6OMn5A4IquwUF/JiltjhdKZKT13kc/YAH/fft31J/rakfRsRqb/IcttdkkrpRd9SKCyvu2syG2raXnuYI5sPME8Rrsg3qVGKS05BwmUuPpIesE5pKdnTdLpzetZL0PFPkZoLGk/29Fw2CR7vXw94eiP897x6Znw0cLcina1+CWn1a/76c9OmiZ2WFmSvuldQvbqeIRimgArLuhhP4QyWjmDz9pVx6q3XC57t8aWvdoWpDMjSb7J5U0uO7mUdcGqQsuDIBOJjG8CeRPIViB7adnW1CTgKKut4jWkNxu4W/J57THcTJvgWq4y2sWuHA+Pv8u69nvsGLl2T3lrEuDVM5z6dzt1zZ5N8Yi9Nu7g4t3XDnN3nmVUMclI3n5LPZ6T4fDnkELWGvvDKInZkhepOUzIe1TFS3Qc/UA6JDGq4vVq2rgO4GuNNefGqq8vYD3+/T+B9QqZPqpS8eUqI5LPAz79t7X2sogO6+UyBB2syPsVcW783FAZFyCiP3xggJUaxDFiEF1nALuTauQrjEU8nFcPWHPmyseGGEhhTmjJo4wX740tkSGFP/8eBwSetqvdz/nlCsuqoCcutDvWuy6ye7pvBh0ulb41AV5LzYMXnn/6AAnck3WRj6P+sD98OiZdjsY+VEiT1SVpDs0O/rnNlAgUI6aiwPhsjlq4Em3HE4PVku17QJ7pEoNUgrOFmU1EsluLF4dnto70/v/jW+wv04oHVYFKe+pqGzZ4FGkc7XyDPXPgt4anBBLwOyH3ek5vYLOZo6NrWzSNf/ylJuuddprAPVqFc6+Jm2mTQE4oyQYT/kxrSOEict0bR5+/x6KOzXptIGiSbYpoXs8sDueFN/mHPfjpr9HYb5R2Ri2N9Gs6mZPuTYSN+7vv0W4L5bSvUK87SDabGDE2n0k3nvEImf09NNOmab4BtNyxCg==
+sidebar_class_name: "post api-method"
+info_path: api-reference/soroscan-api
+custom_edit_url: null
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"api_ingest_record_create"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"post"}
+  path={"/api/ingest/record/"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+Record a new event by submitting a transaction to the SoroScan contract.
+
+Request body:
+\{
+    "contract_id": "CABC...",
+    "event_type": "swap",
+    "payload_hash": "abc123..."  // 64-char hex string
+\}
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./api-ingest-record-create.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./api-ingest-record-create.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      
