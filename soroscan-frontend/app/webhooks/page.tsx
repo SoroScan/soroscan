@@ -2,12 +2,11 @@
 
 import * as React from "react"
 import { Plus, Activity, CheckCircle2, AlertTriangle } from "lucide-react"
-import { Navbar } from "@/components/terminal/landing/Navbar"
-import { Footer } from "@/components/terminal/landing/Footer"
 import { Button } from "@/components/terminal/Button"
 import { Modal } from "@/components/terminal/Modal"
 import { WebhookTable } from "./components/WebhookTable"
 import { CreateWebhookModal } from "./components/CreateWebhookModal"
+import { useToast } from "@/context/ToastContext"
 import { MOCK_WEBHOOKS } from "./mock-data"
 import type { Webhook } from "./types"
 
@@ -21,7 +20,7 @@ export default function WebhooksPage() {
   const [deleteTarget, setDeleteTarget] = React.useState<string | null>(null)
   const [testingId, setTestingId] = React.useState<string | null>(null)
   const [testResult, setTestResult] = React.useState<{ id: string; ok: boolean; code: number } | null>(null)
-  const [toast, setToast] = React.useState<string | null>(null)
+  const { showToast } = useToast()
 
   // Stats
   const active  = webhooks.filter((w) => w.status === "ACTIVE").length
@@ -35,11 +34,6 @@ export default function WebhooksPage() {
     .sort()
     .at(-1)
 
-  const showToast = (msg: string) => {
-    setToast(msg)
-    setTimeout(() => setToast(null), 3000)
-  }
-
   const handleCreate = (data: Omit<Webhook, "id" | "createdAt" | "totalDeliveries" | "secret" | "successRate">) => {
     const newWh: Webhook = {
       ...data,
@@ -50,7 +44,7 @@ export default function WebhooksPage() {
       secret: `whsec_${Math.random().toString(36).slice(2, 14)}`,
     }
     setWebhooks((prev) => [newWh, ...prev])
-    showToast("WEBHOOK_CREATED — subscription is now active")
+    showToast("Subscription is now active.", "success", "WEBHOOK_CREATED")
   }
 
   const handleDelete = (id: string) => setDeleteTarget(id)
@@ -59,15 +53,15 @@ export default function WebhooksPage() {
     if (!deleteTarget) return
     setWebhooks((prev) => prev.filter((w) => w.id !== deleteTarget))
     setDeleteTarget(null)
-    showToast("WEBHOOK_DELETED — subscription removed")
+    showToast("Subscription removed.", "success", "WEBHOOK_DELETED")
   }
 
   const handleTest = (id: string) => {
     setTestingId(id)
     setTestResult(null)
     setTimeout(() => {
-      // Simulate: 80% success
-      const ok = Math.random() > 0.2
+      // Deterministic success for stable E2E / visual runs
+      const ok = true
       setTestResult({ id, ok, code: ok ? 200 : 503 })
       setTestingId(null)
       setTimeout(() => setTestResult(null), 4000)
@@ -77,10 +71,8 @@ export default function WebhooksPage() {
   const deleteWebhook = webhooks.find((w) => w.id === deleteTarget)
 
   return (
-    <div className="min-h-screen font-terminal-mono selection:bg-terminal-green selection:text-terminal-black">
-      <Navbar />
-
-      <main className="container mx-auto px-6 md:px-8 py-10 md:py-14 space-y-8 max-w-7xl">
+    <div className="p-6 md:p-8 space-y-8 max-w-7xl font-terminal-mono selection:bg-terminal-green selection:text-terminal-black">
+      <main className="space-y-8">
 
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -94,6 +86,8 @@ export default function WebhooksPage() {
             </p>
           </div>
           <Button
+            data-tour="create-webhook"
+            data-testid="create-webhook-btn"
             variant="primary"
             size="lg"
             onClick={() => setCreateOpen(true)}
@@ -150,17 +144,13 @@ export default function WebhooksPage() {
             webhooks={webhooks}
             onDelete={handleDelete}
             onTest={handleTest}
+            onCreate={() => setCreateOpen(true)}
             testingId={testingId}
             testResult={testResult}
           />
         </section>
 
       </main>
-
-      {/* Footer */}
-      <div className="container mx-auto px-6 md:px-8 max-w-7xl pb-12">
-        <Footer />
-      </div>
 
       {/* Background deco */}
       <div className="fixed inset-0 pointer-events-none z-[-1] overflow-hidden opacity-20">
@@ -187,23 +177,26 @@ export default function WebhooksPage() {
             </div>
           )}
           <div className="flex gap-3">
-            <Button variant="danger" onClick={confirmDelete} className="flex-1">
+            <Button
+              type="button"
+              variant="danger"
+              data-testid="confirm-delete-webhook-btn"
+              onClick={confirmDelete}
+              className="flex-1"
+            >
               DELETE_WEBHOOK
             </Button>
-            <Button variant="secondary" onClick={() => setDeleteTarget(null)}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setDeleteTarget(null)}
+              data-testid="cancel-delete-webhook-btn"
+            >
               CANCEL
             </Button>
           </div>
         </div>
       </Modal>
-
-      {/* Toast notification */}
-      {toast && (
-        <div className="fixed bottom-6 right-6 z-100 border border-terminal-green bg-terminal-black px-4 py-3 text-xs text-terminal-green font-terminal-mono shadow-glow-green animate-in slide-in-from-bottom-4 duration-300 max-w-sm">
-          <span className="mr-2 text-terminal-green">✓</span>
-          {toast}
-        </div>
-      )}
     </div>
   )
 }

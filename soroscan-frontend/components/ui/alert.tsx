@@ -1,10 +1,12 @@
+"use client"
+
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
-import { AlertCircle, CheckCircle2, Info, XCircle, X } from "lucide-react"
+import { AlertCircle, CheckCircle2, Info, XCircle, X, Copy } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const alertVariants = cva(
-  "relative w-full rounded-lg border px-4 py-3 text-sm grid grid-cols-[auto_1fr_auto] gap-3 items-start [&>svg]:size-5",
+  "relative w-full rounded-lg border px-4 py-3 text-sm grid grid-cols-[auto_1fr_auto_auto] gap-3 items-start [&>svg]:size-5 transition-all",
   {
     variants: {
       variant: {
@@ -30,12 +32,49 @@ const variantIcons = {
 interface AlertProps extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof alertVariants> {
   title?: string
   description?: string
+  dismissible?: boolean
   onDismiss?: () => void
+  copyable?: boolean
+  actions?: React.ReactNode
 }
 
 const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
-  ({ className, variant = "info", title, description, onDismiss, ...props }, ref) => {
+  ({ className, variant = "info", title, description, dismissible = false, onDismiss, copyable = true, actions, ...props }, ref) => {
+    const [isVisible, setIsVisible] = React.useState(true)
+    const [copied, setCopied] = React.useState(false)
+    const timeoutRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
     const Icon = variantIcons[variant || "info"]
+
+    const handleDismiss = () => {
+      setIsVisible(false)
+      if (onDismiss) onDismiss()
+    }
+
+    const handleCopy = React.useCallback(async () => {
+      const textToCopy = [title, description].filter(Boolean).join("\n")
+      if (!textToCopy) return
+
+      try {
+        await navigator.clipboard.writeText(textToCopy)
+      } catch {
+        // Fallback for environments without clipboard API
+        const textarea = document.createElement('textarea')
+        textarea.value = textToCopy
+        textarea.style.position = 'fixed'
+        textarea.style.opacity = '0'
+        document.body.appendChild(textarea)
+        textarea.focus()
+        textarea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textarea)
+      }
+
+      setCopied(true)
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+      timeoutRef.current = setTimeout(() => setCopied(false), 2000)
+    }, [title, description])
+
+    if (!isVisible) return null
 
     return (
       <div
@@ -44,15 +83,28 @@ const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
         className={cn(alertVariants({ variant }), className)}
         {...props}
       >
-        <Icon className="mt-0.5" aria-hidden="true" />
-        <div className="flex flex-col gap-1">
+        <Icon className="mt-0.5 shrink-0" aria-hidden="true" />
+        <div className="flex flex-col gap-1 flex-1">
           {title && <h5 className="font-semibold leading-none tracking-tight">{title}</h5>}
           {description && <div className="text-sm opacity-90">{description}</div>}
+          {actions && <div className="mt-2 flex gap-2 items-center">{actions}</div>}
         </div>
-        {onDismiss && (
+        {copyable && (title || description) && (
           <button
-            onClick={onDismiss}
-            className="p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer"
+            type="button"
+            onClick={handleCopy}
+            className="p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer shrink-0"
+            aria-label={copied ? "Copied!" : "Copy alert text"}
+            data-testid="copy-alert-button"
+          >
+            {copied ? <CheckCircle2 className="size-4" /> : <Copy className="size-4" />}
+          </button>
+        )}
+        {(dismissible || onDismiss) && (
+          <button
+            type="button"
+            onClick={handleDismiss}
+            className="p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer shrink-0"
             aria-label="Dismiss alert"
           >
             <X className="size-4" />

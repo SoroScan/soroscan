@@ -22,6 +22,11 @@ export function useWebSocket(contractId: string) {
   const connectRef = useRef<(() => void) | null>(null)
 
   const connect = useCallback(() => {
+    if (!contractId || !contractId.trim() || contractId === 'undefined') {
+      setStatus("DISCONNECTED")
+      return
+    }
+
     if (ws.current?.readyState === WebSocket.OPEN) return
 
     // Wrap in microtask to avoid synchronous setState warning during effect
@@ -31,7 +36,8 @@ export function useWebSocket(contractId: string) {
     
     // Using environment variable or default localhost
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000"
-    const socket = new WebSocket(`${wsUrl}/ws/events/${contractId}/`)
+    const targetUrl = `${wsUrl}/ws/events/${contractId.trim()}/`
+    const socket = new WebSocket(targetUrl)
 
     socket.onopen = () => {
       setStatus("CONNECTED")
@@ -60,8 +66,8 @@ export function useWebSocket(contractId: string) {
       }
     }
 
-    socket.onerror = (err) => {
-      console.error("WebSocket error:", err)
+    socket.onerror = (evt) => {
+      console.warn(`WebSocket connection to ${targetUrl} failed or was interrupted:`, evt.type || "error")
       setStatus("ERROR")
     }
 

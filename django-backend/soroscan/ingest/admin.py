@@ -3,12 +3,16 @@ Django Admin configuration for SoroScan models.
 """
 from django import forms
 from django.contrib import admin, messages
-from django.contrib.admin.helpers import ActionForm
+from django.contrib.admin.helpers import ActionForm, ACTION_CHECKBOX_NAME
 from django.db.models import Count
-from django.http import HttpResponse
-from django.urls import path
+from django.http import HttpResponse, StreamingHttpResponse
+from django.urls import path, reverse
+from django.utils.dateparse import parse_datetime
 from django.utils.html import format_html
+import csv
 import json
+from datetime import datetime, timedelta
+import requests as http_requests
 
 from .models import (
     AlertExecution,
@@ -17,33 +21,52 @@ from .models import (
     APIKey,
     ArchivalAuditLog,
     ArchivedEventBatch,
+    AuditLog,
     ContractABI,
+    ContractABIVersion,
+    ContractDependency,
+    ContractDeployment,
     ContractEvent,
+    ContractHealthCheck,
+    ContractSnapshot,
+    DependencyImpactAssessment,
     ContractMetadata,
+    CallGraph,
     ContractSigningKey,
     ContractQuota,
     ContractSource,
     ContractVerification,
+    DataDeletionRequest,
     DataRetentionPolicy,
+    EventAggregation,
     EventSchema,
     IndexerState,
     IngestError,
+    EventDeduplicationConfig,
     Organization,
+    OrganizationBudget,
+    Invoice,
+    OrganizationCostSnapshot,
     OrganizationMembership,
+    PIIField,
     RemediationIncident,
     RemediationRule,
+    StateChange,
     Team,
     TeamMembership,
     TrackedContract,
+    WebhookDeadLetter,
     WebhookDeliveryLog,
     WebhookSubscription,
 )
-from .tasks import backfill_contract_events
+from .tasks import backfill_contract_events, dispatch_webhook
 
 
 class BackfillActionForm(ActionForm):
     from_ledger = forms.IntegerField(min_value=1, required=False, label="From ledger")
     to_ledger = forms.IntegerField(min_value=1, required=False, label="To ledger")
+    pause_reason = forms.CharField(required=False, label="Pause reason")
+    resume_at = forms.DateTimeField(required=False, label="Resume at (optional)")
 
 
 class AdminAuditMixin:
@@ -116,9 +139,57 @@ class TeamMembershipAdmin(admin.ModelAdmin):
 
 @admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):
-    list_display = ["name", "slug", "owner", "quota", "created_at"]
+    list_display = ["name", "slug", "owner", "quota", "cors_origins_count", "created_at"]
     search_fields = ["name", "slug", "owner__username"]
     readonly_fields = ["created_at", "updated_at"]
+    fieldsets = (
+        (None, {
+            "fields": ("name", "slug", "owner", "quota", "settings"),
+        }),
+        ("CORS Configuration", {
+            "fields": ("cors_origins",),
+            "description": (
+                "Enter a JSON list of allowed origins for this organization, e.g. "
+                '<code>["https://app.example.com", "https://staging.example.com"]</code>. '
+                "Each entry must start with <code>http://</code> or <code>https://</code>. "
+                "Changes take effect within 60 seconds (cache TTL)."
+            ),
+        }),
+        ("Timestamps", {
+            "fields": ("created_at", "updated_at"),
+            "classes": ("collapse",),
+        }),
+    )
+
+    @admin.display(description="CORS Origins")
+    def cors_origins_count(self, obj):
+        origins = obj.cors_origins or []
+        count = len(origins)
+        if count == 0:
+            return format_html('<span style="color: #6c757d;">None</span>')
+        return format_html(
+            '<span title="{}">{} origin{}</span>',
+            ", ".join(origins[:10]),
+            count,
+            "s" if count != 1 else "",
+        )
+
+    def save_model(self, request, obj, form, change):
+        # Validate each origin before saving.
+        origins = obj.cors_origins or []
+        invalid = [
+            o for o in origins
+            if not isinstance(o, str) or not (o.startswith("http://") or o.startswith("https://"))
+        ]
+        if invalid:
+            self.message_user(
+                request,
+                f"Invalid CORS origin(s) removed (must start with http:// or https://): "
+                f"{', '.join(str(o) for o in invalid)}",
+                level=messages.WARNING,
+            )
+            obj.cors_origins = [o for o in origins if o not in invalid]
+        super().save_model(request, obj, form, change)
 
 
 @admin.register(OrganizationMembership)
@@ -128,6 +199,51 @@ class OrganizationMembershipAdmin(admin.ModelAdmin):
     search_fields = ["organization__name", "user__username"]
 
 
+@admin.register(OrganizationBudget)
+class OrganizationBudgetAdmin(admin.ModelAdmin):
+    list_display = [
+        "organization",
+        "monthly_budget_usd",
+        "warning_threshold_percent",
+        "critical_threshold_percent",
+        "is_active",
+        "updated_at",
+    ]
+    list_filter = ["is_active"]
+    search_fields = ["organization__name", "organization__slug"]
+
+
+@admin.register(OrganizationCostSnapshot)
+class OrganizationCostSnapshotAdmin(admin.ModelAdmin):
+    list_display = [
+        "organization",
+        "month",
+        "rpc_calls",
+        "storage_bytes",
+        "compute_units",
+        "actual_cost_usd",
+        "projected_monthly_cost_usd",
+    ]
+    list_filter = ["month"]
+    search_fields = ["organization__name", "organization__slug"]
+    readonly_fields = ["created_at", "updated_at"]
+
+
+@admin.register(Invoice)
+class InvoiceAdmin(admin.ModelAdmin):
+    list_display = [
+        "invoice_number",
+        "organization",
+        "billing_period",
+        "amount_usd",
+        "status",
+        "issued_at",
+        "created_at",
+    ]
+    list_filter = ["status", "billing_period"]
+    search_fields = ["invoice_number", "organization__name", "organization__slug"]
+    readonly_fields = ["invoice_number", "created_at", "updated_at"]
+
 
 @admin.register(TrackedContract)
 class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
@@ -135,9 +251,11 @@ class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
         "name",
         "alias",
         "contract_id_short",
+        "network",
         "owner",
         "team",
         "is_active",
+        "is_paused",
         "deprecation_status",
         "event_filter_type",
         "max_events_per_minute",
@@ -145,17 +263,33 @@ class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
         "event_count",
         "created_at",
     ]
-    list_filter = ["is_active", "deprecation_status", "event_filter_type", "created_at"]
+    list_filter = [
+        "is_active",
+        "is_paused",
+        "network",
+        "deprecation_status",
+        "event_filter_type",
+        "created_at",
+    ]
     search_fields = ["name", "alias", "contract_id"]
-    readonly_fields = ["created_at", "updated_at"]
-    ordering = ["-created_at"]
+    readonly_fields = ["created_at", "updated_at", "paused_at"]
+    ordering = ["-created_at", "name"]
     action_form = BackfillActionForm
-    actions = ["backfill_events"]
+    actions = ["backfill_events", "clear_cache", "pause_contracts", "resume_contracts"]
     fieldsets = (
         (None, {
             "fields": (
                 "contract_id", "name", "alias", "description",
-                "owner", "team", "is_active",
+                "owner", "team", "network", "is_active",
+            ),
+        }),
+        ("Pause / Suspension", {
+            "fields": ("is_paused", "paused_at", "pause_reason", "resume_at"),
+            "description": (
+                "Paused contracts stop receiving new events but keep all "
+                "historical data queryable. Use the 'Pause selected contracts' "
+                "/ 'Resume selected contracts' actions below to change this "
+                "(so webhook notifications and timestamps are set correctly)."
             ),
         }),
         ("Event Filtering", {
@@ -189,12 +323,63 @@ class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
         queryset = super().get_queryset(request)
         return queryset.annotate(
             _event_count=Count("events", distinct=True)
-        ).select_related("owner")
+        ).select_related("owner", "team")
 
     @admin.display(description="Events")
     def event_count(self, obj):
         """Use annotated count to avoid N+1 queries."""
         return getattr(obj, "_event_count", 0)
+
+    def get_urls(self):
+        extra = [
+            path(
+                "<path:object_id>/state-timeline/",
+                self.admin_site.admin_view(self.state_timeline_view),
+                name="ingest_trackedcontract_state_timeline",
+            ),
+        ]
+        return extra + super().get_urls()
+
+    def state_timeline_view(self, request, object_id):
+        contract = TrackedContract.objects.filter(pk=object_id).first()
+        if contract is None:
+            return HttpResponse("Contract not found", status=404)
+
+        snapshots = (
+            ContractSnapshot.objects.filter(contract=contract)
+            .prefetch_related("changes")
+            .order_by("-ledger_sequence")[:100]
+        )
+        rows = []
+        for snapshot in snapshots:
+            change_items = "".join(
+                f"<li><code>{change.change_type}</code> {change.field_name}: "
+                f"{change.old_value!r} → {change.new_value!r}</li>"
+                for change in snapshot.changes.all()
+            ) or "<li><em>No field changes recorded</em></li>"
+            rows.append(
+                f"<tr><td>{snapshot.ledger_sequence}</td>"
+                f"<td>{snapshot.captured_at.isoformat()}</td>"
+                f"<td><ul>{change_items}</ul></td></tr>"
+            )
+
+        body_rows = (
+            "".join(rows)
+            if rows
+            else "<tr><td colspan='3'>No snapshots yet.</td></tr>"
+        )
+        html = (
+            "<html><head><title>State Timeline</title>"
+            "<link rel='stylesheet' type='text/css' href='/static/admin/css/base.css'></head>"
+            "<body id='django-admin'><div id='content-main'>"
+            f"<h1>State timeline: {contract.name}</h1>"
+            f"<p>Contract ID: <code>{contract.contract_id}</code></p>"
+            "<table><thead><tr><th>Ledger</th><th>Captured</th><th>Changes</th></tr></thead>"
+            f"<tbody>{body_rows}</tbody></table>"
+            f"<p><a href='{reverse('admin:ingest_trackedcontract_change', args=[contract.pk])}'>Back to contract</a></p>"
+            "</div></body></html>"
+        )
+        return HttpResponse(html)
 
     @admin.action(description="Backfill events")
     def backfill_events(self, request, queryset):
@@ -240,6 +425,52 @@ class TrackedContractAdmin(AdminAuditMixin, admin.ModelAdmin):
                 f"Backfill started for {len(task_ids)} contract(s). Task IDs: {task_ids_text}",
                 level=messages.SUCCESS,
             )
+
+    @admin.action(description="Clear Redis cache for selected contracts")
+    def clear_cache(self, request, queryset):
+        from .cache_utils import invalidate_contract_query_cache, invalidate_event_count_cache
+
+        cleared = 0
+        for contract in queryset:
+            invalidate_contract_query_cache(contract.contract_id)
+            invalidate_event_count_cache(contract.contract_id)
+            cleared += 1
+
+        self.message_user(
+            request,
+            f"Cache cleared for {cleared} contract(s).",
+            level=messages.SUCCESS,
+        )
+
+    @admin.action(description="Pause selected contracts")
+    def pause_contracts(self, request, queryset):
+        reason = request.POST.get("pause_reason", "")
+        resume_at_raw = request.POST.get("resume_at")
+        resume_at = parse_datetime(resume_at_raw) if resume_at_raw else None
+
+        paused = 0
+        for contract in queryset:
+            contract.pause(reason=reason, resume_at=resume_at)
+            paused += 1
+
+        self.message_user(
+            request,
+            f"Paused {paused} contract(s).",
+            level=messages.SUCCESS,
+        )
+
+    @admin.action(description="Resume selected contracts")
+    def resume_contracts(self, request, queryset):
+        resumed = 0
+        for contract in queryset:
+            contract.resume()
+            resumed += 1
+
+        self.message_user(
+            request,
+            f"Resumed {resumed} contract(s).",
+            level=messages.SUCCESS,
+        )
 
 
 @admin.register(EventSchema)
@@ -323,7 +554,7 @@ class ContractEventAdmin(AdminAuditMixin, admin.ModelAdmin):
     ]
     ordering = ["timestamp"]
     date_hierarchy = "timestamp"
-    actions = ["trigger_reindex"]
+    actions = ["trigger_reindex", "export_events_csv"]
 
     def get_queryset(self, request):
         """Optimize queries with select_related to prevent N+1 issues."""
@@ -402,6 +633,38 @@ class ContractEventAdmin(AdminAuditMixin, admin.ModelAdmin):
                 level=messages.SUCCESS,
             )
 
+    @admin.action(description="Export selected events to CSV")
+    def export_events_csv(self, request, queryset):
+        """
+        Export selected ContractEvent records to CSV using a streaming response.
+        Streams the file to handle large selections efficiently.
+        """
+        class Echo:
+            """An object that implements just the write method of the file-like interface."""
+            def write(self, value):
+                return value
+
+        def stream_csv():
+            pseudo_buffer = Echo()
+            writer = csv.writer(pseudo_buffer)
+            # Yield header
+            yield writer.writerow(["ID", "Contract Address", "Event Type", "Timestamp"])
+            
+            # Fetch events efficiently
+            events = queryset.select_related("contract").iterator(chunk_size=2000)
+            for event in events:
+                yield writer.writerow([
+                    event.id,
+                    event.contract.contract_id,
+                    event.event_type,
+                    event.timestamp.isoformat() if event.timestamp else "",
+                ])
+
+        filename = f"contract_events_{datetime.now().strftime('%Y%m%d')}.csv"
+        response = StreamingHttpResponse(stream_csv(), content_type="text/csv")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
     # ------------------------------------------------------------------
     # Slow query report — accessible at /admin/ingest/contractevent/slow-query-report/
     # ------------------------------------------------------------------
@@ -456,6 +719,7 @@ class ContractEventAdmin(AdminAuditMixin, admin.ModelAdmin):
 @admin.register(WebhookSubscription)
 class WebhookSubscriptionAdmin(AdminAuditMixin, admin.ModelAdmin):
     """Admin interface for webhook subscriptions with delivery status display."""
+    change_form_template = "admin/ingest/webhooksubscription/change_form.html"
     list_display = [
         "target_url",
         "contract_name",
@@ -474,7 +738,15 @@ class WebhookSubscriptionAdmin(AdminAuditMixin, admin.ModelAdmin):
             "fields": ("contract", "target_url", "event_type", "is_active"),
         }),
         ("Configuration", {
-            "fields": ("timeout_seconds", "signature_algorithm", "filter_condition"),
+            "fields": (
+                "timeout_seconds",
+                "signature_algorithm",
+                "ack_header_name",
+                "ack_header_value",
+                "delivery_sla_seconds",
+                "escalation_policy",
+                "filter_condition",
+            ),
         }),
         ("Retry Configuration", {
             "fields": ("retry_backoff_strategy", "retry_backoff_seconds"),
@@ -496,7 +768,6 @@ class WebhookSubscriptionAdmin(AdminAuditMixin, admin.ModelAdmin):
         js = ("ingest/admin_event_type_autocomplete.js",)
 
     def get_urls(self):
-        from django.urls import path
         urls = super().get_urls()
         custom_urls = [
             path(
@@ -504,8 +775,63 @@ class WebhookSubscriptionAdmin(AdminAuditMixin, admin.ModelAdmin):
                 self.admin_site.admin_view(self.event_types_api),
                 name="webhooksubscription_event_types",
             ),
+            path(
+                "<int:pk>/ping/",
+                self.admin_site.admin_view(self.ping_webhook),
+                name="webhooksubscription_ping",
+            ),
         ]
         return custom_urls + urls
+
+    def ping_webhook(self, request, pk):
+        import hashlib
+        import hmac
+        from django.shortcuts import redirect
+        from django.utils import timezone
+
+        webhook = WebhookSubscription.objects.get(pk=pk)
+        test_payload = {
+            "event_type": "ping",
+            "payload": {"message": "This is a test ping from SoroScan admin"},
+            "contract_id": webhook.contract.contract_id,
+            "timestamp": timezone.now().isoformat(),
+        }
+        payload_bytes = json.dumps(test_payload, sort_keys=True).encode("utf-8")
+        algorithm = (webhook.signature_algorithm or WebhookSubscription.SIGNATURE_SHA256).lower()
+        digestmod = hashlib.sha1 if algorithm == WebhookSubscription.SIGNATURE_SHA1 else hashlib.sha256
+        prefix = "sha1" if algorithm == WebhookSubscription.SIGNATURE_SHA1 else "sha256"
+        sig_hex = hmac.new(
+            webhook.secret.encode("utf-8"),
+            msg=payload_bytes,
+            digestmod=digestmod,
+        ).hexdigest()
+        headers = {
+            "Content-Type": "application/json",
+            "X-SoroScan-Signature": f"{prefix}={sig_hex}",
+            "X-SoroScan-Timestamp": timezone.now().isoformat(),
+        }
+        try:
+            response = http_requests.post(
+                webhook.target_url,
+                data=payload_bytes,
+                headers=headers,
+                timeout=10,
+            )
+            response.raise_for_status()
+            self.message_user(
+                request,
+                f"Test ping sent successfully to {webhook.target_url} (HTTP {response.status_code}).",
+                messages.SUCCESS,
+            )
+        except http_requests.RequestException as exc:
+            self.message_user(
+                request,
+                f"Test ping to {webhook.target_url} failed: {exc}",
+                messages.ERROR,
+            )
+        return redirect(
+            reverse("admin:ingest_webhooksubscription_change", args=[pk])
+        )
 
     def event_types_api(self, request):
         from django.http import JsonResponse
@@ -593,10 +919,13 @@ class WebhookDeliveryLogAdmin(AdminAuditMixin, admin.ModelAdmin):
         "subscription_url",
         "attempt_number",
         "status_code_display",
+        "acknowledged",
+        "within_sla",
+        "latency_ms",
         "success_display",
         "timestamp",
     ]
-    list_filter = ["success", "timestamp"]
+    list_filter = ["success", "acknowledged", "within_sla", "timestamp"]
     search_fields = ["subscription__target_url", "error"]
     readonly_fields = [
         "subscription",
@@ -604,6 +933,9 @@ class WebhookDeliveryLogAdmin(AdminAuditMixin, admin.ModelAdmin):
         "attempt_number",
         "status_code",
         "success",
+        "acknowledged",
+        "latency_ms",
+        "within_sla",
         "error",
         "timestamp",
     ]
@@ -641,6 +973,89 @@ class WebhookDeliveryLogAdmin(AdminAuditMixin, admin.ModelAdmin):
     @admin.display(description="Success", boolean=True)
     def success_display(self, obj):
         return obj.success
+
+    @admin.action(description="Retry selected webhook deliveries")
+    def retry_webhook_delivery(self, request, queryset):
+        """
+        Manually retry selected webhook deliveries by requeueing the Celery task.
+        Shows a confirmation page before proceeding.
+        """
+        from django.template.response import TemplateResponse
+
+        if request.POST.get("post"):
+            # Process the retry
+            count = 0
+            for obj in queryset:
+                dispatch_webhook.delay(obj.subscription_id, obj.event_id)
+                count += 1
+
+            self.message_user(
+                request,
+                f"Successfully requeued {count} webhook delivery/deliveries.",
+                messages.SUCCESS,
+            )
+            return None
+
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Are you sure?",
+            "queryset": queryset,
+            "opts": self.model._meta,
+            "action_checkbox_name": ACTION_CHECKBOX_NAME,
+            "media": self.media,
+        }
+
+        return TemplateResponse(
+            request,
+            "admin/ingest/webhookdeliverylog/webhook_retry_confirmation.html",
+            context,
+        )
+
+    actions = ["retry_webhook_delivery"]
+
+
+@admin.register(WebhookDeadLetter)
+class WebhookDeadLetterAdmin(AdminAuditMixin, admin.ModelAdmin):
+    """Manual review queue for webhook deliveries that exhausted retries."""
+
+    list_display = [
+        "id",
+        "subscription",
+        "status_code",
+        "retries_exhausted",
+        "resolved",
+        "created_at",
+    ]
+    list_filter = ["resolved", "created_at", "status_code"]
+    search_fields = ["subscription__target_url", "error"]
+    readonly_fields = [
+        "subscription",
+        "event",
+        "payload",
+        "status_code",
+        "error",
+        "retries_exhausted",
+        "created_at",
+    ]
+    ordering = ["-created_at"]
+    actions = ["replay_dead_letters", "mark_resolved"]
+
+    @admin.action(description="Replay selected dead-lettered deliveries")
+    def replay_dead_letters(self, request, queryset):
+        from soroscan.ingest.tasks import replay_dead_letter
+
+        queued = 0
+        for dlq_entry in queryset.filter(resolved=False).select_related("subscription", "event"):
+            if dlq_entry.event is None:
+                continue
+            replay_dead_letter.delay(dlq_entry.id)
+            queued += 1
+        self.message_user(request, f"Queued {queued} dead-letter replays.")
+
+    @admin.action(description="Mark selected entries as resolved")
+    def mark_resolved(self, request, queryset):
+        updated = queryset.update(resolved=True)
+        self.message_user(request, f"Marked {updated} entries as resolved.")
 
 
 # ---------------------------------------------------------------------------
@@ -688,6 +1103,34 @@ class APIKeyAdmin(AdminAuditMixin, admin.ModelAdmin):
             quota = APIKey.TIER_QUOTAS.get(obj.tier, 50)
             obj.quota_per_hour = quota if quota is not None else APIKey.UNLIMITED_QUOTA
         super().save_model(request, obj, form, change)
+
+
+@admin.register(ContractDependency)
+class ContractDependencyAdmin(AdminAuditMixin, admin.ModelAdmin):
+    list_display = ["caller", "callee", "call_count", "risk_score", "last_call"]
+    list_filter = ["last_call"]
+    search_fields = ["caller__contract_id", "callee__contract_id"]
+
+
+@admin.register(CallGraph)
+class CallGraphAdmin(AdminAuditMixin, admin.ModelAdmin):
+    list_display = ["contract", "has_cycles", "computed_at"]
+    list_filter = ["has_cycles", "computed_at"]
+    readonly_fields = ["computed_at"]
+
+
+@admin.register(DependencyImpactAssessment)
+class DependencyImpactAssessmentAdmin(AdminAuditMixin, admin.ModelAdmin):
+    list_display = [
+        "root_contract",
+        "impacted_count",
+        "risk_score",
+        "impact_level",
+        "has_cycles",
+        "computed_at",
+    ]
+    list_filter = ["impact_level", "has_cycles", "computed_at"]
+    search_fields = ["root_contract__contract_id", "root_contract__name"]
 
 
 @admin.register(ContractQuota)
@@ -979,6 +1422,63 @@ class ContractMetadataAdmin(AdminAuditMixin, admin.ModelAdmin):
     search_fields = ["name", "description", "tags"]
     list_filter = [TagListFilter]
     readonly_fields = ["created_at", "updated_at"]
+    change_list_template = "admin/ingest/contractmetadata/change_list.html"
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "bulk-import/",
+                self.admin_site.admin_view(self.bulk_import_view),
+                name="soroscan_contractmetadata_bulk_import",
+            ),
+        ]
+        return custom + urls
+
+    def bulk_import_view(self, request):
+        from django.contrib import messages
+        from django.shortcuts import render
+        from soroscan.ingest.services.metadata_bulk_import import (
+            BulkImportError,
+            detect_format,
+            import_metadata_rows,
+            parse_rows,
+        )
+
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Bulk import contract metadata",
+            "opts": self.model._meta,
+        }
+
+        if request.method == "POST":
+            upload = request.FILES.get("file")
+            fmt = request.POST.get("format") or None
+            dry_run = request.POST.get("dry_run") == "on"
+            on_error = request.POST.get("on_error") or "rollback"
+            if not upload:
+                messages.error(request, "Upload a CSV or JSON file.")
+                return render(request, "admin/ingest/contractmetadata/bulk_import.html", context)
+
+            raw = upload.read().decode("utf-8")
+            try:
+                detected = detect_format(upload.name, fmt)
+                rows = parse_rows(raw, detected)
+                report = import_metadata_rows(rows, dry_run=dry_run, on_error=on_error)
+                context["report"] = report
+                messages.success(
+                    request,
+                    f"Import finished ({report['mode']}): "
+                    f"created={report['created']} updated={report['updated']} errors={report['errors']}",
+                )
+            except (BulkImportError, ValueError) as exc:
+                report = getattr(exc, "report", None)
+                context["report"] = report
+                messages.error(request, str(exc))
+
+            return render(request, "admin/ingest/contractmetadata/bulk_import.html", context)
+
+        return render(request, "admin/ingest/contractmetadata/bulk_import.html", context)
 
 
 @admin.register(ContractSource)
@@ -1001,3 +1501,469 @@ class ContractVerificationAdmin(AdminAuditMixin, admin.ModelAdmin):
     list_filter = ["status", "verified_at"]
     search_fields = ["contract__name", "contract__contract_id"]
     readonly_fields = ["verified_at"]
+
+
+# ---------------------------------------------------------------------------
+# Issue #280: GDPR Data Governance
+# ---------------------------------------------------------------------------
+
+@admin.register(AuditLog)
+class AuditLogAdmin(admin.ModelAdmin):
+    list_display = ["timestamp", "action", "model_name", "object_id", "user", "ip_address"]
+    list_filter = ["action", "model_name", "timestamp"]
+    search_fields = ["object_id", "user__username", "model_name"]
+    readonly_fields = ["timestamp", "action", "model_name", "object_id", "user", "ip_address", "changes"]
+    ordering = ["-timestamp"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(PIIField)
+class PIIFieldAdmin(admin.ModelAdmin):
+    list_display = ["contract", "event_type", "field_path", "description", "created_at"]
+    list_filter = ["created_at"]
+    search_fields = ["contract__contract_id", "contract__name", "field_path"]
+    readonly_fields = ["created_at"]
+
+
+@admin.register(DataDeletionRequest)
+class DataDeletionRequestAdmin(admin.ModelAdmin):
+    list_display = ["subject_identifier", "status", "requested_by", "events_deleted", "requested_at", "completed_at"]
+    list_filter = ["status", "requested_at"]
+    search_fields = ["subject_identifier", "requested_by__username"]
+    readonly_fields = ["requested_at", "completed_at", "events_deleted", "error_message"]
+    filter_horizontal = ["contracts"]
+
+
+# ---------------------------------------------------------------------------
+# Issue #284: Contract Deployment Tracking
+# ---------------------------------------------------------------------------
+
+@admin.register(ContractDeployment)
+class ContractDeploymentAdmin(admin.ModelAdmin):
+    list_display = ["contract", "bytecode_hash_short", "ledger_deployed", "deployer_address", "is_upgrade", "detected_at"]
+    list_filter = ["is_upgrade", "detected_at"]
+    search_fields = ["contract__contract_id", "contract__name", "bytecode_hash", "deployer_address"]
+    readonly_fields = ["detected_at"]
+
+    def bytecode_hash_short(self, obj):
+        return obj.bytecode_hash[:16] + "..."
+    bytecode_hash_short.short_description = "Bytecode Hash"
+
+
+@admin.register(ContractABIVersion)
+class ContractABIVersionAdmin(admin.ModelAdmin):
+    list_display = ["contract", "version_number", "valid_from_ledger", "valid_to_ledger", "has_breaking_changes", "created_at"]
+    list_filter = ["has_breaking_changes", "created_at"]
+    search_fields = ["contract__contract_id", "contract__name"]
+    readonly_fields = ["created_at"]
+
+
+@admin.register(EventDeduplicationConfig)
+class EventDeduplicationConfigAdmin(AdminAuditMixin, admin.ModelAdmin):
+    list_display = ["contract", "enabled", "fields_preview", "updated_at"]
+    search_fields = ["contract__name", "contract__contract_id"]
+    readonly_fields = ["created_at", "updated_at", "test_panel"]
+    fields = ["contract", "enabled", "fields", "test_panel", "created_at", "updated_at"]
+    change_form_template = "admin/ingest/eventdeduplicationconfig/change_form.html"
+
+    def fields_preview(self, obj):
+        fields = obj.fields or []
+        preview = ", ".join(fields[:6])
+        if len(fields) > 6:
+            preview += "…"
+        return preview or "—"
+
+    fields_preview.short_description = "Fields"
+
+    def test_panel(self, obj):
+        if not obj or not obj.pk:
+            return "Save the config before testing."
+        return (
+            f"POST JSON sample events to "
+            f"/admin/ingest/eventdeduplicationconfig/test/{obj.contract_id}/ "
+            f"or use the REST endpoint "
+            f"/api/ingest/contracts/{obj.contract_id}/dedup-test/"
+        )
+
+    test_panel.short_description = "Testing"
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "test/<int:contract_id>/",
+                self.admin_site.admin_view(self.test_dedup_view),
+                name="soroscan_dedup_test",
+            ),
+        ]
+        return custom + urls
+
+    def test_dedup_view(self, request, contract_id):
+        from soroscan.ingest.services.event_dedup import fingerprint_event
+
+        try:
+            contract = TrackedContract.objects.get(pk=contract_id)
+        except TrackedContract.DoesNotExist:
+            return HttpResponse(
+                json.dumps({"error": "contract not found"}),
+                content_type="application/json",
+                status=404,
+            )
+
+        try:
+            body = request.body.decode("utf-8") if request.body else "{}"
+            payload = json.loads(body)
+        except Exception:
+            payload = {}
+
+        config = getattr(contract, "dedup_config", None)
+        if not config or not config.enabled:
+            return HttpResponse(
+                json.dumps({"dedup_enabled": False}),
+                content_type="application/json",
+            )
+
+        dedup_hash, material = fingerprint_event(
+            config.fields or [],
+            event_type=payload.get("event_type"),
+            ledger=payload.get("ledger"),
+            event_index=payload.get("event_index"),
+            tx_hash=payload.get("tx_hash"),
+            payload=payload.get("payload") if isinstance(payload.get("payload"), dict) else {},
+            raw=payload if isinstance(payload, dict) else {},
+        )
+
+        return HttpResponse(
+            json.dumps({"dedup_hash": dedup_hash, "material": material}),
+            content_type="application/json",
+        )
+
+
+class StateChangeInline(admin.TabularInline):
+    model = StateChange
+    fk_name = "snapshot"
+    extra = 0
+    readonly_fields = ["field_name", "old_value", "new_value", "change_type", "created_at"]
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ContractSnapshot)
+class ContractSnapshotAdmin(admin.ModelAdmin):
+    list_display = ["contract", "ledger_sequence", "captured_at"]
+    list_filter = ["captured_at"]
+    search_fields = ["contract__contract_id", "contract__name"]
+    readonly_fields = ["contract", "ledger_sequence", "state_data", "captured_at"]
+    inlines = [StateChangeInline]
+    ordering = ["-ledger_sequence"]
+
+
+@admin.register(StateChange)
+class StateChangeAdmin(admin.ModelAdmin):
+    list_display = ["snapshot", "field_name", "change_type", "created_at"]
+    list_filter = ["change_type", "created_at"]
+    search_fields = ["field_name", "snapshot__contract__contract_id"]
+    readonly_fields = [
+        "snapshot",
+        "previous_snapshot",
+        "field_name",
+        "old_value",
+        "new_value",
+        "change_type",
+        "created_at",
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Contract Health Checks
+# ---------------------------------------------------------------------------
+
+@admin.register(ContractHealthCheck)
+class ContractHealthCheckAdmin(AdminAuditMixin, admin.ModelAdmin):
+    """
+    Read-only view of contract indexing health.
+    Records are written by the ``check_contract_health`` Celery task every 5 minutes.
+    """
+
+    list_display = [
+        "contract_name",
+        "contract_id_short",
+        "network",
+        "status_colored",
+        "last_event_time",
+        "minutes_since_last_event",
+        "abi_decode_errors_1h",
+        "consecutive_failures",
+        "checked_at",
+    ]
+    list_filter = ["status", "contract__network", "checked_at"]
+    search_fields = ["contract__name", "contract__contract_id", "error_message"]
+    readonly_fields = [
+        "contract",
+        "status",
+        "last_event_time",
+        "minutes_since_last_event",
+        "abi_decode_errors_1h",
+        "consecutive_failures",
+        "error_message",
+        "checked_at",
+    ]
+    ordering = ["status", "-checked_at"]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("contract")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description="Contract")
+    def contract_name(self, obj):
+        return obj.contract.name
+
+    @admin.display(description="Contract ID")
+    def contract_id_short(self, obj):
+        cid = obj.contract.contract_id
+        return f"{cid[:8]}…{cid[-4:]}"
+
+    @admin.display(description="Network")
+    def network(self, obj):
+        return obj.contract.network
+
+    @admin.display(description="Status")
+    def status_colored(self, obj):
+        colors = {
+            "healthy": "#28a745",
+            "degraded": "#ffc107",
+            "failed": "#dc3545",
+        }
+        icons = {"healthy": "✓", "degraded": "⚠", "failed": "✗"}
+        color = colors.get(obj.status, "#6c757d")
+        icon = icons.get(obj.status, "?")
+        return format_html(
+            '<span style="color:{};font-weight:bold">{} {}</span>',
+            color,
+            icon,
+            obj.status.upper(),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Analytics — EventAggregation admin with custom dashboard view
+# ---------------------------------------------------------------------------
+
+@admin.register(EventAggregation)
+class EventAggregationAdmin(AdminAuditMixin, admin.ModelAdmin):
+    """
+    Read-only admin for pre-computed event aggregation buckets.
+
+    Includes a custom analytics dashboard page at
+    ``/admin/ingest/eventaggregation/dashboard/`` with top-10 contracts,
+    event-type breakdown, and a 7-day trend summary table.
+    """
+
+    list_display = [
+        "timestamp",
+        "contract_name",
+        "event_type_display",
+        "event_count",
+        "is_anomaly_badge",
+    ]
+    list_filter = ["is_anomaly", "contract__network", "timestamp"]
+    search_fields = ["contract__name", "contract__contract_id", "event_type"]
+    readonly_fields = ["contract", "event_type", "timestamp", "event_count", "is_anomaly"]
+    ordering = ["-timestamp"]
+    date_hierarchy = "timestamp"
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("contract")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description="Contract")
+    def contract_name(self, obj):
+        return obj.contract.name
+
+    @admin.display(description="Event Type")
+    def event_type_display(self, obj):
+        return obj.event_type or format_html('<span style="color:#6c757d;font-style:italic">total</span>')
+
+    @admin.display(description="Anomaly")
+    def is_anomaly_badge(self, obj):
+        if obj.is_anomaly:
+            return format_html('<span style="color:#dc3545;font-weight:bold">⚠ YES</span>')
+        return format_html('<span style="color:#28a745">✓ no</span>')
+
+    # ── Custom dashboard view ─────────────────────────────────────────────────
+
+    def get_urls(self):
+        extra = [
+            path(
+                "dashboard/",
+                self.admin_site.admin_view(self._dashboard_view),
+                name="ingest_eventaggregation_dashboard",
+            ),
+        ]
+        return extra + super().get_urls()
+
+    def _dashboard_view(self, request):
+        """
+        Analytics dashboard at /admin/ingest/eventaggregation/dashboard/.
+
+        Renders stat widgets, a 7-day daily trend table, top-10 contracts,
+        and event-type breakdown — all from EventAggregation rows.
+        """
+        from django.utils import timezone as tz
+        from django.db.models import Sum
+
+        now = tz.now()
+        cutoff_24h = now - timedelta(hours=24)
+        cutoff_7d = now - timedelta(days=7)
+
+        # Stat widgets
+        total_events = EventAggregation.objects.filter(event_type="").aggregate(
+            t=Sum("event_count")
+        )["t"] or 0
+
+        events_24h = EventAggregation.objects.filter(
+            event_type="", timestamp__gte=cutoff_24h
+        ).aggregate(t=Sum("event_count"))["t"] or 0
+
+        events_7d = EventAggregation.objects.filter(
+            event_type="", timestamp__gte=cutoff_7d
+        ).aggregate(t=Sum("event_count"))["t"] or 0
+
+        anomalies_7d = EventAggregation.objects.filter(
+            is_anomaly=True, event_type="", timestamp__gte=cutoff_7d
+        ).count()
+
+        active_contracts = TrackedContract.objects.filter(is_active=True).count()
+
+        # 7-day daily trend (day → total events)
+        from django.db.models.functions import TruncDay
+        daily_trend = list(
+            EventAggregation.objects.filter(event_type="", timestamp__gte=cutoff_7d)
+            .annotate(day=TruncDay("timestamp"))
+            .values("day")
+            .annotate(count=Sum("event_count"))
+            .order_by("day")
+        )
+
+        # Top-10 contracts
+        top_contracts = list(
+            EventAggregation.objects.filter(event_type="", timestamp__gte=cutoff_7d)
+            .values("contract__name", "contract__contract_id")
+            .annotate(total=Sum("event_count"))
+            .order_by("-total")[:10]
+        )
+
+        # Event type breakdown (top 15)
+        type_breakdown = list(
+            EventAggregation.objects.exclude(event_type="")
+            .filter(timestamp__gte=cutoff_7d)
+            .values("event_type")
+            .annotate(total=Sum("event_count"))
+            .order_by("-total")[:15]
+        )
+
+        # Build the HTML response
+        def _stat_box(label, value, color="#212529"):
+            return (
+                f'<div style="display:inline-block;background:#f8f9fa;border:1px solid #dee2e6;'
+                f'border-radius:6px;padding:16px 24px;margin:8px;min-width:160px;text-align:center">'
+                f'<div style="font-size:28px;font-weight:bold;color:{color}">{value}</div>'
+                f'<div style="font-size:12px;color:#6c757d;margin-top:4px">{label}</div>'
+                f'</div>'
+            )
+
+        def _table_rows(rows, cols, col_labels):
+            ths = "".join(f"<th>{label}</th>" for label in col_labels)
+            trs = ""
+            for r in rows:
+                tds = "".join(f"<td>{r.get(c, '')}</td>" for c in cols)
+                trs += f"<tr>{tds}</tr>"
+            return f"<table><thead><tr>{ths}</tr></thead><tbody>{trs}</tbody></table>"
+
+        trend_html = _table_rows(
+            [{"Day": d["day"].strftime("%Y-%m-%d"), "Events": d["count"]} for d in daily_trend],
+            ["Day", "Events"],
+            ["Day", "Events"],
+        )
+
+        top_html = _table_rows(
+            [{"Contract": r["contract__name"], "ID": r["contract__contract_id"][:12] + "…", "Events (7d)": r["total"]} for r in top_contracts],
+            ["Contract", "ID", "Events (7d)"],
+            ["Contract", "Contract ID", "Events (7d)"],
+        )
+
+        type_html = _table_rows(
+            [{"Event Type": r["event_type"], "Count (7d)": r["total"]} for r in type_breakdown],
+            ["Event Type", "Count (7d)"],
+            ["Event Type", "Count (7d)"],
+        )
+
+        html = f"""
+<html><head>
+<title>Analytics Dashboard — SoroScan Admin</title>
+<link rel="stylesheet" type="text/css" href="/static/admin/css/base.css">
+<style>
+  table {{ border-collapse: collapse; width: 100%; margin-bottom: 24px; }}
+  th, td {{ border: 1px solid #dee2e6; padding: 8px 12px; text-align: left; }}
+  th {{ background: #f8f9fa; font-weight: 600; }}
+  tr:nth-child(even) td {{ background: #f8f9fa; }}
+  h2 {{ margin-top: 32px; }}
+</style>
+</head>
+<body id="django-admin">
+<div id="content-main">
+<h1>Analytics Dashboard</h1>
+<p>Pre-computed from <strong>EventAggregation</strong> hourly buckets.
+   <a href="../">← Back to list</a></p>
+
+<h2>Summary</h2>
+<div>
+{_stat_box("Total Events (all time)", "{:,}".format(total_events))}
+{_stat_box("Events (last 24 h)", "{:,}".format(events_24h), "#007bff")}
+{_stat_box("Events (last 7 d)", "{:,}".format(events_7d), "#6f42c1")}
+{_stat_box("Active Contracts", active_contracts, "#28a745")}
+{_stat_box("Anomalies (7 d)", anomalies_7d, "#dc3545" if anomalies_7d else "#28a745")}
+</div>
+
+<h2>7-Day Daily Trend</h2>
+{trend_html}
+
+<h2>Top 10 Contracts (7 d)</h2>
+{top_html}
+
+<h2>Event Type Breakdown (7 d)</h2>
+{type_html}
+
+<p style="color:#6c757d;font-size:12px;margin-top:32px">
+  Aggregations are updated hourly by the <code>aggregate_event_statistics</code> Celery task.
+  Export raw data via <code>GET /api/ingest/analytics/export/?format=csv</code>.
+</p>
+</div></body></html>
+"""
+        return HttpResponse(html)

@@ -30,6 +30,7 @@ spec:
             - --concurrency=8
             - --queues=high_priority
             - --max-tasks-per-child=1000
+            - --stop-timeout=30
           workingDir: /app
           envFrom:
             - configMapRef:
@@ -85,6 +86,7 @@ spec:
             - --concurrency=4
             - --queues=default
             - --max-tasks-per-child=1000
+            - --stop-timeout=30
           workingDir: /app
           envFrom:
             - configMapRef:
@@ -140,6 +142,7 @@ spec:
             - --concurrency=4
             - --queues=low_priority
             - --max-tasks-per-child=1000
+            - --stop-timeout=30
           workingDir: /app
           envFrom:
             - configMapRef:
@@ -195,12 +198,20 @@ spec:
             - --concurrency=2
             - --queues=backfill
             - --max-tasks-per-child=100
+            - --stop-timeout=30
           workingDir: /app
           envFrom:
             - configMapRef:
                 name: soroscan-config
             - secretRef:
                 name: soroscan-secrets
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
           securityContext:
             allowPrivilegeEscalation: false
             runAsNonRoot: true

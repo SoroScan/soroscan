@@ -1,0 +1,75 @@
+---
+id: api-ingest-api-keys-destroy
+title: "api_ingest_api_keys_destroy"
+description: "ViewSet for managing API keys with tiered rate limiting."
+sidebar_label: "api_ingest_api_keys_destroy"
+hide_title: true
+hide_table_of_contents: true
+api: eJztU11v2zAM/CsEn1pATbphT34rtqzoUGxFk20PaVAwFhtrtSVXopMGhv/7QDvJ1q/9gj1ZFk5HHnnXYqg5krjgLyxmSLW7dX7FSW71eM/bdGs5SQxbNGg55dHVisYMfzjeTFngLkSoyNPK+RWcXV2AvoKNkwLEcWQLkYShdJUT51ejG3/jJ97WwXlJ2Y0/gfPJDMZUuxN9OYYTuHRJYBuaeOBT2NW36TPcx8hKTeB5s4e+JGyd7RR9zqIAsCzkygRH+rOmsmFIRdh4CL7cQvCQK60L/li5Pk0uJ7PJK3TXvA73DOT3ldFgTZEqFo4Js3mLTudUkxRo0FPFmKGzaDDlBVeEWYuyrfU2SXR+hZ3ByA+Ni2wxk9hwtzAotFI23Q0uDCbOm+hk2xf4tZGzRgrM5guFRk518ImTUr8//aCfp0v7GmAPgmWwW+w6gxVLEXT9lksW7nUoKaro8eCHZ/rxTyNTFTOUPLRzEFaI1HvB+r9kihzR7A6fQ6xIMMMvP2d9K87fhf65k1Lx0xDDNB9mjAbXHNMg5N3odHT6wpPXk+msX4cNeVOxl36PvUX3TAYIpsJlScPdkjykiqJAHrxEygWct/zIcaT7qEOSirz2tNsg1Q6GmYAee7e/kZEWlZO9/I/Lq3HZmUT4UcZ1Sc7rxJtY6uQGCw62V1/owNHgnhcNZn2WNBNFSKLYtl1S4u+x7Dq9fmg4ak4WBtcUHS3VUvMWrUt6tpjdUZn4H0s7ut7F8Rjeand3SV4F9ePBDNGgKuzj3i3+jtgwHxXyNCjPgtH3+Sp12w6IWbhn33WHSqL/WqzrfgOwjPfv
+sidebar_class_name: "delete api-method"
+info_path: api-reference/soroscan-api
+custom_edit_url: null
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"api_ingest_api_keys_destroy"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"delete"}
+  path={"/api/ingest/api-keys/{id}/"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+ViewSet for managing API keys with tiered rate limiting.
+
+Endpoints:
+- GET /api-keys/ - List your API keys
+- POST /api-keys/ - Create a new API key
+- GET /api-keys/\{id\}/ - Get key details (key value shown only on creation)
+- DELETE /api-keys/\{id\}/ - Revoke an API key
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./api-ingest-api-keys-destroy.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./api-ingest-api-keys-destroy.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./api-ingest-api-keys-destroy.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

@@ -1,0 +1,74 @@
+---
+id: api-ingest-webhooks-test-create
+title: "api_ingest_webhooks_test_create"
+description: "Send a test delivery directly to the webhook endpoint."
+sidebar_label: "api_ingest_webhooks_test_create"
+hide_title: true
+hide_table_of_contents: true
+api: eJztVMGK40YQ/ZWiTgkotjOQHHQzIctuINll7LAH2wyl7rLVM1K3prvkWSEE+Yh84X5JKEl2ZneGQMg1J3eXq0uvXr1XPYaGI4kL/p3FHKlxd86fOMndExdlCA/pTvRmIpMwZmg5megafYE5bthbINAUsFy5M8cOrItspOpAAkjJMFcC9rYJzsti7/d+WzJEfmz1pUuQ2AukzpsyBh/aVHXw5KQEgiYqRHj76/qn7zZv1zc//AjJnTxJG3nv0/SJ1BYKq+AIhjycObpjB9RKyV6ccdItANZws1pB5NQEnxiOMdQgpUt7f0EGNnCC395voWbyY+VrV6k1htmyhc9//AmmZPMwJlzrFcF2e38McQyTkZYqCK2YUPMCM2woUs3CMWG+69Epfw1JiRl6qhlzdBYzTKbkmjDvUbpmjHrhE0ccviZ/Da13jy3DnAFnqvRmtedj5/xpbO/K/0zS+FwBKf0ussVcYsvDIUOhk4JTGeAhw8SmjU66Ee/9k6xbKTHfHTT10nZSpDerlf6Y4IW96JGapnJmFNbyPinc/mVnobhnI0rNOGNxU7UkJG16lpckOn/CYXiOeXfJU9xOKk3ccpKPU7e3Mz4chhfEjZVqljKo5puQRgw6ihyX1LjlZIHlxQLL3tlhqSJf4t+sbLSdCfGVmyvkUqS5DFPvBVPkiNl8eBNiTYI5/vJxO6Jx/hjG53MnmxDDRqW8/vAOMzxzTBP27xerxeqFD29/3mw1FWwwbc1eRuZBxXiplAHBRriqaIoV5CHVFAV0bJGMgPOWP3FcqNSUlZrGuc3qpMbBRMxFUWky/uu74Zkc/l8T/2JNzAIS/iTLpiLndRptrJTRSaOTP1UzOgzM8DIOzDAfd4hMcbVGqerOd9j3BSX+PVbDoOHHlqP6+pDhmaKjQlW369G6pGeL+ZGqxP8w029uZyt+C/91Eb3a8hwk36n+taA6N8MH7qZVORyGDEsmy3GEPv2xNoYbefbkxSbS7XU1/4f3my1mSF+69yu3juVfxdP3U8Y2PLAfhis80bsiHIa/AHwtmdU=
+sidebar_class_name: "post api-method"
+info_path: api-reference/soroscan-api
+custom_edit_url: null
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"api_ingest_webhooks_test_create"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"post"}
+  path={"/api/ingest/webhooks/{id}/test/"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+Send a test delivery directly to the webhook endpoint.
+
+The request is sent synchronously with a proper HMAC-SHA256 signature
+so the subscriber can verify authenticity.  A 200 response from this
+endpoint does NOT mean the delivery succeeded — check the response body
+for the actual outcome.
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./api-ingest-webhooks-test-create.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./api-ingest-webhooks-test-create.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./api-ingest-webhooks-test-create.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      
