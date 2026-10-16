@@ -1,0 +1,90 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /django-backend
+    schedule:
+      interval: weekly
+    groups:
+      python-dependencies:
+        patterns:
+          - '*'
+  - package-ecosystem: pip
+    directory: /sdk/python
+    schedule:
+      interval: weekly
+    groups:
+      python-dependencies:
+        patterns:
+          - '*'
+  - package-ecosystem: pip
+    directory: /tools/webhook-simulator
+    schedule:
+      interval: weekly
+    groups:
+      python-dependencies:
+        patterns:
+          - '*'
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      npm-dependencies:
+        patterns:
+          - '*'
+  - package-ecosystem: npm
+    directory: /admin
+    schedule:
+      interval: weekly
+    groups:
+      npm-dependencies:
+        patterns:
+          - '*'
+  - package-ecosystem: npm
+    directory: /sdk/typescript
+    schedule:
+      interval: weekly
+    groups:
+      npm-dependencies:
+        patterns:
+          - '*'
+  - package-ecosystem: npm
+    directory: /soroscan-frontend
+    schedule:
+      interval: weekly
+    groups:
+      npm-dependencies:
+        patterns:
+          - '*'
+  - package-ecosystem: npm
+    directory: /soroscan-docs
+    schedule:
+      interval: weekly
+    groups:
+      npm-dependencies:
+        patterns:
+          - '*'
+  - package-ecosystem: cargo
+    directory: /soroban-contracts/soroscan_core
+    schedule:
+      interval: weekly
+    groups:
+      rust-dependencies:
+        patterns:
+          - '*'
+  - package-ecosystem: cargo
+    directory: /soroban-contracts/soroscan_macros
+    schedule:
+      interval: weekly
+    groups:
+      rust-dependencies:
+        patterns:
+          - '*'
+  - package-ecosystem: github-actions
+    directory: /.github
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - '*'
