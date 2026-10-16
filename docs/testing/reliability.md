@@ -17,5 +17,5 @@ See:
 
 - [Failover](failover.md)
 - [Migrations](migrations.md)
-- [Load testing](../load-testing.md) and `load-tests/README.md`
+- [Load testing](../../load-tests/README.md)
 - [Chaos engineering](chaos-engineering.md)

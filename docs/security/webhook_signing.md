@@ -1001,9 +1001,9 @@ def monitored_verification(payload: bytes, signature_header: str) -> bool:
 ## Additional Resources
 
 - [Ed25519 RFC 8032](https://tools.ietf.org/html/rfc8032)
-- [SoroScan Webhook API Documentation](../api-reference/webhooks.md)
+- [SoroScan Webhook API Documentation](../cookbook/webhooks.md)
 - [Security Best Practices Guide](./index.md)
-- [Incident Response Playbook](../troubleshooting/security-incidents.md)
+- [Incident Response Playbook](../troubleshooting/guide.md#93-security-incident-response)
 
 ---
 
