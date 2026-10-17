@@ -39,6 +39,9 @@ dev = [
 Homepage = "https://github.com/SoroScan/soroscan"
 Repository = "https://github.com/SoroScan/soroscan"
 
+[project.scripts]
+soroscan = "soroscan.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["soroscan*"]

@@ -428,6 +428,10 @@ impl SoroScanCore {
         schema_version: u32,
         correlation_id: BytesN<32>,
     ) -> Result<u64, ContractError> {
+        if Self::is_paused(env.clone()) {
+            return Err(ContractError::ContractPaused);
+        }
+
         indexer.require_auth();
 
         if schema_version == 0 {
