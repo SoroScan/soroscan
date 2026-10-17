@@ -49,6 +49,10 @@ __all__ = [
     "celery_tasks_total",
     "celery_tasks_active",
     "celery_task_duration_seconds",
+    # re-org detection metrics
+    "reorg_detected_total",
+    "reorg_rolled_back_events_total",
+    "last_reorg_ledger",
 ]
 
 
@@ -345,4 +349,22 @@ celery_task_duration_seconds = _get_or_create(
     "soroscan_celery_task_duration_seconds",
     "Celery task execution duration",
     ["task_name"],
+)
+
+reorg_detected_total = _get_or_create(
+    Counter,
+    "soroscan_reorg_detected_total",
+    "Total number of ledger re-orgs detected",
+)
+
+reorg_rolled_back_events_total = _get_or_create(
+    Counter,
+    "soroscan_reorg_rolled_back_events_total",
+    "Total number of events rolled back due to ledger re-orgs",
+)
+
+last_reorg_ledger = _get_or_create(
+    Gauge,
+    "soroscan_last_reorg_ledger",
+    "Ledger sequence of the most recent detected re-org fork",
 )
