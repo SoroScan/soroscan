@@ -696,3 +696,45 @@ fn soroscan_events_share_the_namespace_topic_and_name_their_family() {
     assert!(saw_sc24, "tagged events are namespaced under sc24");
     assert!(saw_batch, "batches emit a (soroscan, batch) summary");
 }
+
+#[test]
+fn paused_contract_cannot_record_structured_events() {
+    let env = Env::default();
+    let (contract_id, admin, indexer) = setup(&env);
+    let client = SoroScanCoreClient::new(&env, &contract_id);
+
+    let target = Address::generate(&env);
+    let payload_hash = BytesN::from_array(&env, &[0x22; 32]);
+    let correlation_id = BytesN::from_array(&env, &[0x33; 32]);
+
+    client.pause(&admin);
+
+    assert_eq!(
+        client.try_record_structured_event(
+            &indexer,
+            &target,
+            &symbol_short!("escrow"),
+            &payload_hash,
+            &1,
+            &correlation_id,
+        ),
+        Err(Ok(ContractError::ContractPaused)),
+        "a paused contract must reject structured events"
+    );
+
+    client.unpause(&admin);
+
+    client.record_structured_event(
+        &indexer,
+        &target,
+        &symbol_short!("escrow"),
+        &payload_hash,
+        &1,
+        &correlation_id,
+    );
+
+    assert!(
+        client.is_paused() == false,
+        "the contract is recording again after unpause"
+    );
+}

@@ -35,8 +35,8 @@ dev = [
     "responses>=0.23.0",
 ]
 
-[project.urls]
-Homepage = "https://github.com/SoroScan/soroscan"
+[project.scripts]
+soroscan = "soroscan.cli:main"
 Repository = "https://github.com/SoroScan/soroscan"
 
 [tool.setuptools.packages.find]
