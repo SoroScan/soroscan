@@ -27,6 +27,7 @@ from .models import (
     TrackedContract,
     WebhookSubscription,
 )
+from .services.event_dedup import ALLOWED_DEDUP_FIELDS
 
 _CONTRACT_ID_RE = re.compile(r"^C[A-Z2-7]{55}$")
 _VALID_NETWORKS = {choice[0] for choice in TrackedContract.Network.choices}
@@ -866,9 +867,14 @@ class EventDeduplicationConfigSerializer(serializers.Serializer):
         for item in value:
             name = str(item).strip()
             if not name:
-                continue
+                raise serializers.ValidationError("Deduplication field cannot be blank.")
             if len(name) > 128:
                 raise serializers.ValidationError(f"Field name too long: {name}")
+            if name not in ALLOWED_DEDUP_FIELDS:
+                raise serializers.ValidationError(
+                    f"Unknown deduplication field '{name}'. Allowed fields: "
+                    f"{', '.join(ALLOWED_DEDUP_FIELDS)}"
+                )
             cleaned.append(name)
         return cleaned
 
