@@ -734,7 +734,7 @@ fn paused_contract_cannot_record_structured_events() {
     );
 
     assert!(
-        client.is_paused() == false,
+        !client.is_paused(),
         "the contract is recording again after unpause"
     );
 }
