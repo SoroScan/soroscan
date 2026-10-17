@@ -329,6 +329,33 @@ export class SoroScanClient {
   }
 
   /**
+   * Get the most recent events for a specific contract, newest first (SC-30).
+   *
+   * The limit is clamped to the server-side maximum so callers never receive
+   * a 400 for an out-of-range value.
+   *
+   * @example
+   * const events = await client.getContractRecentEvents('CCAAA...', 20);
+   * for (const event of events) {
+   *   console.log(event.event_type, event.timestamp);
+   * }
+   */
+  async getContractRecentEvents(
+    contractId: string,
+    limit: number = 10
+  ): Promise<import("./types.js").ContractEvent[]> {
+    const safeLimit = Math.min(
+      MAX_RECENT_EVENTS_LIMIT,
+      Math.max(1, Math.trunc(limit))
+    );
+    return this.#request<import("./types.js").ContractEvent[]>(
+      "GET",
+      `/api/ingest/contracts/${encodeURIComponent(contractId)}/recent-events/`,
+      { query: { limit: safeLimit } }
+    );
+  }
+
+  /**
    * Get health status for a tracked contract (SC-16).
    *
    * @example
