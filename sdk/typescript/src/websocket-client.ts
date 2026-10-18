@@ -3,7 +3,7 @@
  * Includes exponential backoff reconnection logic and event buffering.
  */
 
-import type { ContractEvent, ContractEventTopic, EventType } from "./types";
+import type { ContractEvent, ContractEventTopic, EventType } from "./types.js";
 
 /**
  * Configuration for WebSocket connection and reconnection behavior.
@@ -283,7 +283,11 @@ export class WebSocketClient {
    */
   private handleMessage(data: string): void {
     try {
-      const message = JSON.parse(data);
+      const message = JSON.parse(data) as {
+        type?: string;
+        data?: ContractEvent;
+        message?: string;
+      };
 
       if (message.type === "event") {
         const event = message.data as ContractEvent;

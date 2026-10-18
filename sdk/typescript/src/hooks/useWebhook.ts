@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useState,
+  type ReactElement,
   type ReactNode,
 } from "react";
 
@@ -23,7 +24,7 @@ export interface SoroScanHooksProviderProps {
 export function SoroScanHooksProvider({
   client,
   children,
-}: SoroScanHooksProviderProps): JSX.Element {
+}: SoroScanHooksProviderProps): ReactElement {
   return createElement(SoroScanClientContext.Provider, { value: client }, children);
 }
 
