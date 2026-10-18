@@ -3,7 +3,7 @@
  * Includes exponential backoff reconnection logic and event buffering.
  */
 
-import type { ContractEvent, ContractEventTopic, EventType } from "./types";
+import type { ContractEvent, ContractEventTopic, EventType } from "./types.js";
 
 /**
  * Configuration for WebSocket connection and reconnection behavior.
@@ -379,7 +379,7 @@ export class WebSocketClient {
       try {
         await this.connect();
         this.reconnectedCallbacks.forEach((cb) => cb());
-      } catch (error) {
+      } catch (error: unknown) {
         // Error handled in connect() - continue scheduling reconnects
         this.handleConnectionClose();
       }
