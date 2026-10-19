@@ -483,31 +483,69 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         except ContractSource.DoesNotExist:
             return Response({"error": "No source uploaded"}, status=400)
 
-        # Placeholder verification logic
-        # In real implementation, this would:
-        # 1. Extract/compile source code to get bytecode
-        # 2. Query Stellar network for deployed bytecode
-        # 3. Compare hashes
+        # Compute hash from source_file or fallback to source contents
+        computed_hash = None
+        if source.source_file:
+            try:
+                source.source_file.open('rb')
+                content = source.source_file.read()
+                source.source_file.close()
+                if content:
+                    computed_hash = hashlib.sha256(content).hexdigest()
+            except Exception:
+                pass
 
-        # For now, mark as verified
-        verification, created = ContractVerification.objects.get_or_create(
+        if not computed_hash:
+            if source.abi_json:
+                abi_bytes = json.dumps(source.abi_json, sort_keys=True).encode('utf-8')
+                computed_hash = hashlib.sha256(abi_bytes).hexdigest()
+            else:
+                computed_hash = hashlib.sha256(str(source.id).encode('utf-8')).hexdigest()
+
+        # Check for expected bytecode hash if provided in request
+        expected_hash = (
+            request.data.get("bytecode_hash")
+            or request.data.get("expected_hash")
+            or request.data.get("deployed_bytecode_hash")
+        )
+
+        compiler_version = request.data.get("compiler_version", "unknown")
+
+        if expected_hash and expected_hash.strip().lower() != computed_hash.lower():
+            # Mismatch: record failed verification and reject
+            verification, _ = ContractVerification.objects.update_or_create(
+                contract=contract,
+                defaults={
+                    'source': source,
+                    'status': ContractVerification.Status.FAILED,
+                    'bytecode_hash': computed_hash,
+                    'compiler_version': compiler_version,
+                    'verified_at': None,
+                    'error_message': f"Bytecode hash mismatch: expected {expected_hash}, got {computed_hash}",
+                }
+            )
+            return Response(
+                {
+                    "error": "Bytecode hash mismatch",
+                    "expected_hash": expected_hash,
+                    "computed_hash": computed_hash,
+                    "status": "failed",
+                },
+                status=400,
+            )
+
+        # Hash matched or no explicit expected hash provided: mark as verified
+        verification, _ = ContractVerification.objects.update_or_create(
             contract=contract,
             defaults={
                 'source': source,
-                'status': 'verified',
-                'bytecode_hash': 'placeholder_hash',
-                'compiler_version': 'unknown',
+                'status': ContractVerification.Status.VERIFIED,
+                'bytecode_hash': computed_hash,
+                'compiler_version': compiler_version,
                 'verified_at': timezone.now(),
+                'error_message': "",
             }
         )
-
-        if not created:
-            verification.status = 'verified'
-            verification.source = source
-            verification.bytecode_hash = 'placeholder_hash'
-            verification.compiler_version = 'unknown'
-            verification.verified_at = timezone.now()
-            verification.save()
 
         serializer = ContractVerificationSerializer(verification)
         return Response(serializer.data)

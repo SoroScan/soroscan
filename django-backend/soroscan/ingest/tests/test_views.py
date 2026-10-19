@@ -899,3 +899,76 @@ class TestEventCountCaching:
         with patch.object(cache, 'set') as mock_set:
             get_event_count(contract.contract_id)
             mock_set.assert_called_once_with(f"event_count:{contract.contract_id}", 2, 300)
+
+
+@pytest.mark.django_db
+class TestVerifySourceEndpoint:
+    """Tests for TrackedContractViewSet.verify_source endpoint (Issue #1703)."""
+
+    def test_verify_source_no_source_uploaded_returns_400(self, authenticated_client, user):
+        contract = TrackedContractFactory(owner=user)
+        url = reverse("tracked-contract-verify-source", kwargs={"pk": contract.pk})
+        response = authenticated_client.post(url, {})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data == {"error": "No source uploaded"}
+
+    def test_verify_source_computes_real_hash_and_marks_verified(self, authenticated_client, user):
+        import hashlib
+        from django.core.files.base import ContentFile
+        from soroscan.ingest.models import ContractSource, ContractVerification
+
+        contract = TrackedContractFactory(owner=user)
+        source_code = b"pub fn add(a: u64, b: u64) -> u64 { a + b }"
+        expected_sha = hashlib.sha256(source_code).hexdigest()
+
+        source = ContractSource.objects.create(
+            contract=contract,
+            uploaded_by=user,
+            source_file=ContentFile(source_code, name="contract.rs"),
+        )
+
+        url = reverse("tracked-contract-verify-source", kwargs={"pk": contract.pk})
+        response = authenticated_client.post(url, {})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["status"] == "verified"
+        assert response.data["bytecode_hash"] == expected_sha
+        assert response.data["bytecode_hash"] != "placeholder_hash"
+
+        # Verify database record updated
+        verification = ContractVerification.objects.get(contract=contract)
+        assert verification.status == ContractVerification.Status.VERIFIED
+        assert verification.bytecode_hash == expected_sha
+        assert verification.verified_at is not None
+
+    def test_verify_source_rejects_bytecode_hash_mismatch(self, authenticated_client, user):
+        import hashlib
+        from django.core.files.base import ContentFile
+        from soroscan.ingest.models import ContractSource, ContractVerification
+
+        contract = TrackedContractFactory(owner=user)
+        source_code = b"pub fn subtract(a: u64, b: u64) -> u64 { a - b }"
+        actual_sha = hashlib.sha256(source_code).hexdigest()
+        tampered_sha = "e" * 64
+
+        source = ContractSource.objects.create(
+            contract=contract,
+            uploaded_by=user,
+            source_file=ContentFile(source_code, name="contract.rs"),
+        )
+
+        url = reverse("tracked-contract-verify-source", kwargs={"pk": contract.pk})
+        response = authenticated_client.post(url, {"bytecode_hash": tampered_sha})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data["error"] == "Bytecode hash mismatch"
+        assert response.data["computed_hash"] == actual_sha
+        assert response.data["expected_hash"] == tampered_sha
+
+        # Verify database record reflects failed status
+        verification = ContractVerification.objects.get(contract=contract)
+        assert verification.status == ContractVerification.Status.FAILED
+        assert verification.bytecode_hash == actual_sha
+        assert "Bytecode hash mismatch" in verification.error_message
+        assert verification.verified_at is None
+
