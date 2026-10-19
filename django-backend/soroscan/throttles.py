@@ -98,9 +98,11 @@ class APIKeyThrottle(BaseThrottle):
     """
     Per-API-key tiered rate limiting with Redis counters.
 
-    Reads the ``Authorization: ApiKey <token>`` header or the ``?api_key=``
-    query parameter.  Falls through transparently (allow) when no API key is
-    present so that the standard anon/user throttles still apply.
+    Reads exclusively from the ``Authorization: ApiKey <token>`` header.
+    Query parameters (?api_key=) and request body parameters are ignored to
+    prevent sensitive API keys from leaking in server access logs and URLs.
+    Falls through transparently (allow) when no API key is present so that the
+    standard anon/user throttles still apply.
 
     Sets ``request._api_key_headers`` dict so middleware can
     populate RateLimit-* response headers.
@@ -112,7 +114,7 @@ class APIKeyThrottle(BaseThrottle):
         auth = request.META.get("HTTP_AUTHORIZATION", "")
         if auth.lower().startswith("apikey "):
             return auth[7:].strip()
-        return request.GET.get("api_key") or request.POST.get("api_key")
+        return None
 
     def _cache_key(self, api_key_id: int) -> str:
         # Bucket resets at the start of every calendar hour

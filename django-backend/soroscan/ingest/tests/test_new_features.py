@@ -377,16 +377,54 @@ class APIKeyThrottleTests(TestCase):
         self.assertIn("RateLimit-Remaining", headers)
         self.assertIn("RateLimit-Reset", headers)
 
-    def test_key_from_query_param(self):
+    def test_query_string_and_body_keys_ignored(self):
         from soroscan.throttles import APIKeyThrottle
 
         throttle = APIKeyThrottle()
         factory = APIRequestFactory()
-        request = factory.get(f"/api/ingest/events/?api_key={self.api_key.key}")
-        request.user = self.user
-        view = MagicMock()
-        view.kwargs = {}
-        self.assertTrue(throttle.allow_request(request, view))
+
+        # Query parameter must be ignored (get_ident returns None)
+        request_get = factory.get(f"/api/ingest/events/?api_key={self.api_key.key}")
+        request_get.user = self.user
+        self.assertIsNone(throttle.get_ident(request_get))
+
+        # Even with an invalid query param, it is ignored (falls through rather than rejected)
+        request_bad_get = factory.get("/api/ingest/events/?api_key=BADKEY")
+        request_bad_get.user = self.user
+        self.assertIsNone(throttle.get_ident(request_bad_get))
+        self.assertTrue(throttle.allow_request(request_bad_get, MagicMock()))
+
+        # POST body key must also be ignored
+        request_post = factory.post("/api/ingest/events/", {"api_key": self.api_key.key})
+        request_post.user = self.user
+        self.assertIsNone(throttle.get_ident(request_post))
+
+    def test_key_from_authorization_header(self):
+        from soroscan.throttles import APIKeyThrottle
+
+        throttle = APIKeyThrottle()
+        factory = APIRequestFactory()
+
+        # Valid ApiKey header
+        request = factory.get(
+            "/api/ingest/events/",
+            HTTP_AUTHORIZATION=f"ApiKey {self.api_key.key}",
+        )
+        self.assertEqual(throttle.get_ident(request), self.api_key.key)
+
+        # Case-insensitive scheme prefix
+        request_lower = factory.get(
+            "/api/ingest/events/",
+            HTTP_AUTHORIZATION=f"apikey {self.api_key.key}",
+        )
+        self.assertEqual(throttle.get_ident(request_lower), self.api_key.key)
+
+        # Non-matching authorization schemes (e.g. Bearer) return None
+        request_bearer = factory.get(
+            "/api/ingest/events/",
+            HTTP_AUTHORIZATION=f"Bearer {self.api_key.key}",
+        )
+        self.assertIsNone(throttle.get_ident(request_bearer))
 
     def test_wait(self):
         from soroscan.throttles import APIKeyThrottle
