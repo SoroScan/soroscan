@@ -43,3 +43,7 @@ pytest soroscan/pact_tests/test_provider_verification.py -v
 Producer verification uses `POST /_pact/provider-states` (enabled only when
 `PACT_PROVIDER_STATES_ENABLED=1`) to seed database fixtures before each
 interaction.
+
+## Full Guide
+
+For comprehensive documentation on writing consumer/provider tests, CI pipelines, and troubleshooting mismatches, see the [Pact Contract Testing Guide](../docs/testing/pact-contract-testing.md).
