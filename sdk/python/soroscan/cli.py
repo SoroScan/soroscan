@@ -35,6 +35,10 @@ HEALTH_COLUMNS = [
     "consecutive_failures",
     "checked_at",
 ]
+INDEXER_CHECK_COLUMNS = ["is_indexer"]
+ADMIN_COLUMNS = ["admin_address"]
+CONTRACT_STATUS_COLUMNS = ["paused", "admin", "total_events"]
+INDEXER_STATS_COLUMNS = ["indexer", "events_recorded"]
 
 
 def _model_to_dict(value: Any) -> dict[str, Any]:
@@ -142,8 +146,44 @@ def _handle_contracts(args: argparse.Namespace) -> int:
 
 def _handle_indexers(args: argparse.Namespace) -> int:
     with _build_client(args) as client:
+        if getattr(args, "indexer_command", None) == "check":
+            result = client.is_indexer(args.indexer_address)
+            _emit(result, args.output, INDEXER_CHECK_COLUMNS)
+            return 0
+        if getattr(args, "indexer_command", None) == "stats":
+            result = client.get_indexer_stats(args.indexer_address)
+            _emit(result, args.output, INDEXER_STATS_COLUMNS)
+            return 0
         result = client.add_indexer(args.indexer_address)
     _emit(result, args.output, TX_COLUMNS)
+    return 0
+
+
+def _handle_indexer_check(args: argparse.Namespace) -> int:
+    with _build_client(args) as client:
+        result = client.is_indexer(args.indexer_address)
+    _emit(result, args.output, INDEXER_CHECK_COLUMNS)
+    return 0
+
+
+def _handle_admin(args: argparse.Namespace) -> int:
+    with _build_client(args) as client:
+        result = client.get_admin()
+    _emit(result, args.output, ADMIN_COLUMNS)
+    return 0
+
+
+def _handle_contract_status(args: argparse.Namespace) -> int:
+    with _build_client(args) as client:
+        result = client.get_contract_status()
+    _emit(result, args.output, CONTRACT_STATUS_COLUMNS)
+    return 0
+
+
+def _handle_indexer_stats(args: argparse.Namespace) -> int:
+    with _build_client(args) as client:
+        result = client.get_indexer_stats(args.indexer_address)
+    _emit(result, args.output, INDEXER_STATS_COLUMNS)
     return 0
 
 
@@ -275,6 +315,48 @@ def build_parser() -> argparse.ArgumentParser:
     indexers_add.add_argument("indexer_address", help="Stellar address of the indexer")
     _add_output_flag(indexers_add)
     indexers_add.set_defaults(func=_handle_indexers)
+    indexers_check = indexer_subcommands.add_parser(
+        "check", help="Check whether an address is an authorized indexer (SC-15)"
+    )
+    indexers_check.add_argument("indexer_address", help="Stellar address of the indexer")
+    _add_output_flag(indexers_check)
+    indexers_check.set_defaults(func=_handle_indexers)
+    indexers_stats = indexer_subcommands.add_parser(
+        "stats", help="Get event recording statistics for an indexer (SC-13)"
+    )
+    indexers_stats.add_argument("indexer_address", help="The indexer's Stellar address")
+    _add_output_flag(indexers_stats)
+    indexers_stats.set_defaults(func=_handle_indexers)
+
+    indexer_check = subcommands.add_parser(
+        "indexer-check",
+        help="Check whether an address is an authorized indexer (SC-15)",
+    )
+    indexer_check.add_argument("indexer_address", help="Stellar address of the indexer to check")
+    _add_output_flag(indexer_check)
+    indexer_check.set_defaults(func=_handle_indexer_check)
+
+    admin = subcommands.add_parser(
+        "admin",
+        help="Get the current SoroScan contract admin address (SC-15)",
+    )
+    _add_output_flag(admin)
+    admin.set_defaults(func=_handle_admin)
+
+    contract_status = subcommands.add_parser(
+        "contract-status",
+        help="Get the contract's current pause and indexing status (SC-28)",
+    )
+    _add_output_flag(contract_status)
+    contract_status.set_defaults(func=_handle_contract_status)
+
+    indexer_stats = subcommands.add_parser(
+        "indexer-stats",
+        help="Get event recording statistics for a specific indexer (SC-13)",
+    )
+    indexer_stats.add_argument("indexer_address", help="The indexer's Stellar address")
+    _add_output_flag(indexer_stats)
+    indexer_stats.set_defaults(func=_handle_indexer_stats)
 
     record_event = subcommands.add_parser(
         "record-event",

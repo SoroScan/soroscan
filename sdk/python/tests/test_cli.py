@@ -309,3 +309,7 @@ def test_cli_help_lists_core_commands() -> None:
     assert "events" in help_text
     assert "webhooks" in help_text
     assert "contracts" in help_text
+    assert "indexer-check" in help_text
+    assert "admin" in help_text
+    assert "contract-status" in help_text
+    assert "indexer-stats" in help_text
