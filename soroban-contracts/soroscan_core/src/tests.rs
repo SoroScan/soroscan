@@ -696,3 +696,107 @@ fn soroscan_events_share_the_namespace_topic_and_name_their_family() {
     assert!(saw_sc24, "tagged events are namespaced under sc24");
     assert!(saw_batch, "batches emit a (soroscan, batch) summary");
 }
+
+// ---------------------------------------------------------------------------
+// Counter saturation at u64::MAX (Issue #1705)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_event_counter_saturation_at_u64_max() {
+    let env = Env::default();
+    let (contract_id, _admin, indexer) = setup(&env);
+    let client = SoroScanCoreClient::new(&env, &contract_id);
+    let target = Address::generate(&env);
+    let payload_hash = BytesN::from_array(&env, &[1u8; 32]);
+
+    // Seed the global event counter (COUNTER_KEY) to u64::MAX
+    env.as_contract(&contract_id, || {
+        env.storage().instance().set(&COUNTER_KEY, &u64::MAX);
+    });
+
+    assert_eq!(client.total_events(), u64::MAX);
+
+    // Recording an event must not panic or overflow, and must saturate at u64::MAX
+    client.record_event(&indexer, &target, &symbol_short!("ev"), &payload_hash);
+    assert_eq!(client.total_events(), u64::MAX);
+
+    // Recording structured event must also saturate at u64::MAX
+    client.record_structured_event(
+        &indexer,
+        &target,
+        &symbol_short!("struct"),
+        &payload_hash,
+        &1,
+        &BytesN::from_array(&env, &[2u8; 32]),
+    );
+    assert_eq!(client.total_events(), u64::MAX);
+
+    // Recording a batch of events must also saturate at u64::MAX
+    let mut entries = Vec::new(&env);
+    for _ in 0..3 {
+        entries.push_back(EventEntry {
+            contract_id: target.clone(),
+            event_type: symbol_short!("batch"),
+            payload_hash: BytesN::from_array(&env, &[3u8; 32]),
+        });
+    }
+    client.record_events_batch(&indexer, &entries);
+    assert_eq!(client.total_events(), u64::MAX);
+}
+
+#[test]
+fn test_indexer_counter_saturation_at_u64_max() {
+    let env = Env::default();
+    let (contract_id, _admin, indexer) = setup(&env);
+    let client = SoroScanCoreClient::new(&env, &contract_id);
+    let target = Address::generate(&env);
+    let payload_hash = BytesN::from_array(&env, &[1u8; 32]);
+
+    // Seed the indexer count in INDEXER_COUNTS_KEY map to u64::MAX
+    env.as_contract(&contract_id, || {
+        let mut counts = Map::<Address, u64>::new(&env);
+        counts.set(indexer.clone(), u64::MAX);
+        env.storage().instance().set(&INDEXER_COUNTS_KEY, &counts);
+    });
+
+    assert_eq!(client.events_recorded_by(&indexer), u64::MAX);
+
+    // Single record_event bumps by 1 -> saturates at u64::MAX
+    client.record_event(&indexer, &target, &symbol_short!("ev"), &payload_hash);
+    assert_eq!(client.events_recorded_by(&indexer), u64::MAX);
+
+    // Batch record_events bumps by batch length -> saturates at u64::MAX
+    let mut entries = Vec::new(&env);
+    for _ in 0..5 {
+        entries.push_back(EventEntry {
+            contract_id: target.clone(),
+            event_type: symbol_short!("batch"),
+            payload_hash: BytesN::from_array(&env, &[4u8; 32]),
+        });
+    }
+    client.record_events_batch(&indexer, &entries);
+    assert_eq!(client.events_recorded_by(&indexer), u64::MAX);
+}
+
+#[test]
+fn test_contract_event_count_saturation_at_u64_max() {
+    let env = Env::default();
+    let (contract_id, _admin, indexer) = setup(&env);
+    let client = SoroScanCoreClient::new(&env, &contract_id);
+    let target = Address::generate(&env);
+    let payload_hash = BytesN::from_array(&env, &[1u8; 32]);
+
+    // Seed per-contract event count in CONTRACT_STATS_KEY map to u64::MAX
+    env.as_contract(&contract_id, || {
+        let mut contract_stats = Map::<Address, ContractStats>::new(&env);
+        contract_stats.set(target.clone(), ContractStats { event_count: u64::MAX });
+        env.storage().instance().set(&CONTRACT_STATS_KEY, &contract_stats);
+    });
+
+    assert_eq!(client.contract_event_count(&target), u64::MAX);
+
+    // Record an event targeting this contract -> saturates at u64::MAX
+    client.record_event(&indexer, &target, &symbol_short!("ev"), &payload_hash);
+    assert_eq!(client.contract_event_count(&target), u64::MAX);
+}
+

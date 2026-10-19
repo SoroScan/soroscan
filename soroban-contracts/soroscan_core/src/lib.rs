@@ -2336,4 +2336,77 @@ mod tests {
         );
         assert_eq!(u32::try_from_val(&env, &data).unwrap(), 42);
     }
+
+    #[test]
+    fn test_event_counter_saturation_at_u64_max() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer) = setup_contract(&env);
+        client.add_indexer(&admin, &indexer);
+
+        let target = Address::generate(&env);
+        let payload_hash = BytesN::from_array(&env, &[0u8; 32]);
+
+        // Seed COUNTER_KEY to u64::MAX
+        env.as_contract(&client.address, || {
+            env.storage().instance().set(&COUNTER_KEY, &u64::MAX);
+        });
+
+        assert_eq!(client.total_events(), u64::MAX);
+
+        // Recording event must not panic, and counter stays at u64::MAX
+        client.record_event(&indexer, &target, &symbol_short!("swap"), &payload_hash);
+        assert_eq!(client.total_events(), u64::MAX);
+
+        // Batch recording also stays saturated at u64::MAX
+        let mut entries = Vec::new(&env);
+        for _ in 0..4 {
+            entries.push_back(EventEntry {
+                contract_id: target.clone(),
+                event_type: symbol_short!("ev"),
+                payload_hash: BytesN::from_array(&env, &[1u8; 32]),
+            });
+        }
+        client.record_events_batch(&indexer, &entries);
+        assert_eq!(client.total_events(), u64::MAX);
+    }
+
+    #[test]
+    fn test_indexer_counter_saturation_at_u64_max() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer) = setup_contract(&env);
+        client.add_indexer(&admin, &indexer);
+
+        let target = Address::generate(&env);
+        let payload_hash = BytesN::from_array(&env, &[0u8; 32]);
+
+        // Seed INDEXER_COUNTS_KEY to u64::MAX
+        env.as_contract(&client.address, || {
+            let mut counts = Map::<Address, u64>::new(&env);
+            counts.set(indexer.clone(), u64::MAX);
+            env.storage().instance().set(&INDEXER_COUNTS_KEY, &counts);
+        });
+
+        assert_eq!(client.events_recorded_by(&indexer), u64::MAX);
+
+        // Record single event: increments by 1, saturates at u64::MAX
+        client.record_event(&indexer, &target, &symbol_short!("swap"), &payload_hash);
+        assert_eq!(client.events_recorded_by(&indexer), u64::MAX);
+
+        // Record batch events: increments by 3, saturates at u64::MAX
+        let mut entries = Vec::new(&env);
+        for _ in 0..3 {
+            entries.push_back(EventEntry {
+                contract_id: target.clone(),
+                event_type: symbol_short!("batch_ev"),
+                payload_hash: BytesN::from_array(&env, &[2u8; 32]),
+            });
+        }
+        client.record_events_batch(&indexer, &entries);
+        assert_eq!(client.events_recorded_by(&indexer), u64::MAX);
+    }
 }
+
