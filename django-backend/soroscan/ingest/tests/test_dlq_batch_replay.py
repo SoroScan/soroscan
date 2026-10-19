@@ -327,3 +327,45 @@ class TestReplayDlqWebhooksAPI:
         with patch("soroscan.ingest.tasks.replay_dead_letter_webhooks.apply_async"):
             response = admin_client.get(REPLAY_URL)
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+
+    @patch("soroscan.ingest.tasks.replay_dead_letter_webhooks.apply_async")
+    def test_bulk_replay_dead_letters_blocks_non_owner(
+        self, mock_apply, regular_client, webhook
+    ):
+        event = ContractEventFactory(
+            contract=webhook.contract, timestamp=EVENT_TIMESTAMP
+        )
+        delivery = make_delivery(webhook, event)
+
+        response = regular_client.post(
+            REPLAY_URL,
+            {"delivery_ids": [delivery.id]},
+            format="json",
+        )
+
+        assert response.status_code in (
+            status.HTTP_202_ACCEPTED,
+            status.HTTP_403_FORBIDDEN,
+        )
+        if response.status_code == status.HTTP_202_ACCEPTED:
+            assert response.data.get("requeued", 0) == 0
+        delivery.refresh_from_db()
+        assert delivery.status == WebhookDeliveryLog.STATUS_DEAD_LETTER
+
+    @patch("soroscan.ingest.tasks.replay_dead_letter_webhooks.apply_async")
+    def test_bulk_replay_dead_letters_allows_owner_and_staff(
+        self, mock_apply, admin_client, webhook
+    ):
+        event = ContractEventFactory(
+            contract=webhook.contract, timestamp=EVENT_TIMESTAMP
+        )
+        delivery = make_delivery(webhook, event)
+
+        response = admin_client.post(
+            REPLAY_URL,
+            {"delivery_ids": [delivery.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        mock_apply.assert_called_once()
