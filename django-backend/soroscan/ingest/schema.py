@@ -5,15 +5,38 @@ from __future__ import annotations
 import base64
 from datetime import datetime
 from enum import Enum
+import re
 from typing import AsyncGenerator, List, Optional
 
 import strawberry
 import strawberry_django
 from channels.layers import get_channel_layer
+from django.db import IntegrityError
 from django.db.models import Case, Count, IntegerField, Q, Value, When
 from django.utils import timezone
 from strawberry import auto
 from strawberry.types import Info
+
+_CONTRACT_ID_RE = re.compile(r"^C[A-Z2-7]{55}$")
+
+
+def _validate_contract_id(contract_id: str) -> str:
+    """Validate that the contract ID is a valid Stellar/Soroban contract address format."""
+    if not isinstance(contract_id, str):
+        raise Exception("Invalid contract ID: must be a string")
+
+    cid = contract_id.strip()
+    if not cid:
+        raise Exception("Contract ID cannot be empty")
+
+    if not _CONTRACT_ID_RE.match(cid):
+        raise Exception(
+            "Invalid contract address format. A Soroban contract address must start "
+            "with 'C', be exactly 56 characters long, and use only uppercase "
+            "Base32 characters (A-Z and 2-7)."
+        )
+
+    return cid
 
 from .cache_utils import (
     get_or_set_json,
@@ -984,6 +1007,8 @@ class Mutation:
         if not user:
             raise Exception("Authentication required")
 
+        cid = _validate_contract_id(contract_id)
+
         from .models import Team, TeamMembership
 
         team = None
@@ -995,15 +1020,28 @@ class Mutation:
             if not TeamMembership.objects.filter(team=team, user=user).exists():
                 raise Exception("Not a member of this team")
 
-        contract = TrackedContract.objects.create(
-            contract_id=contract_id,
-            name=name,
-            description=description,
-            owner=user,
-            team=team,
-            metadata=metadata or {},
-        )
-        invalidate_cached_contract(contract_id)
+        if TrackedContract.objects.filter(contract_id=cid).exists():
+            raise Exception(
+                f"Contract '{cid}' is already registered. "
+                "Each contract address can only be tracked once."
+            )
+
+        try:
+            contract = TrackedContract.objects.create(
+                contract_id=cid,
+                name=name,
+                description=description,
+                owner=user,
+                team=team,
+                metadata=metadata or {},
+            )
+        except IntegrityError:
+            raise Exception(
+                f"Contract '{cid}' is already registered. "
+                "Each contract address can only be tracked once."
+            )
+
+        invalidate_cached_contract(cid)
         return contract
 
     @strawberry.mutation

@@ -1,6 +1,7 @@
 import pytest
 from datetime import UTC, datetime
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+from django.db import IntegrityError
 from django.utils import timezone
 
 from soroscan.ingest.schema import schema
@@ -572,22 +573,109 @@ class TestGraphQLQueries:
 @pytest.mark.django_db
 class TestGraphQLMutations:
     def test_register_contract(self, user):
-        mutation = """
-            mutation {
+        valid_cid = "CB3SRMOGPKYI5RC7KMCZGXTGGMNBA6OOS3AX7XTJLTDSYOS62PFTKT5B"
+        mutation = f"""
+            mutation {{
                 registerContract(
-                    contractId: "CTEST123",
+                    contractId: "{valid_cid}",
                     name: "Test Contract",
                     description: "A test"
-                ) {
+                ) {{
                     contractId
                     name
-                }
-            }
+                }}
+            }}
         """
         context = create_context_with_user(user)
         result = schema.execute_sync(mutation, context_value=context)
         assert result.errors is None
-        assert result.data["registerContract"]["contractId"] == "CTEST123"
+        assert result.data["registerContract"]["contractId"] == valid_cid
+
+    @pytest.mark.parametrize(
+        "malformed_id",
+        [
+            "CTEST123",  # Too short
+            "GB3SRMOGPKYI5RC7KMCZGXTGGMNBA6OOS3AX7XTJLTDSYOS62PFTKT5B",  # Non-C prefix
+            "C" + "0" * 55,  # Contains invalid Base32 digit '0'
+            "c" + "A" * 55,  # Lowercase prefix
+            "",  # Empty
+            "   ",  # Whitespace only
+            "C" + "A" * 56,  # Too long (57 characters)
+        ],
+    )
+    def test_register_contract_rejects_malformed_id(self, user, malformed_id):
+        mutation = f"""
+            mutation {{
+                registerContract(
+                    contractId: "{malformed_id}",
+                    name: "Malformed Contract",
+                    description: "Should fail"
+                ) {{
+                    contractId
+                    name
+                }}
+            }}
+        """
+        context = create_context_with_user(user)
+        result = schema.execute_sync(mutation, context_value=context)
+        assert result.errors is not None
+        assert len(result.errors) > 0
+        error_msg = str(result.errors[0])
+        assert any(
+            phrase in error_msg
+            for phrase in ["Invalid contract", "cannot be empty", "Base32"]
+        )
+
+    def test_register_contract_rejects_duplicate(self, user):
+        cid = "CBBEU6QTXKJ3FTXPXVD3R6CF37HGHGXELWWVPPKZFLTFYHDJIIU4H5U4"
+        mutation = f"""
+            mutation {{
+                registerContract(
+                    contractId: "{cid}",
+                    name: "Duplicate Test Contract",
+                    description: "Testing duplicates"
+                ) {{
+                    contractId
+                    name
+                }}
+            }}
+        """
+        context = create_context_with_user(user)
+        # First registration should succeed
+        result1 = schema.execute_sync(mutation, context_value=context)
+        assert result1.errors is None
+        assert result1.data["registerContract"]["contractId"] == cid
+
+        # Second registration of the same ID must return a clear error
+        result2 = schema.execute_sync(mutation, context_value=context)
+        assert result2.errors is not None
+        assert len(result2.errors) > 0
+        error_msg = str(result2.errors[0])
+        assert "already registered" in error_msg
+
+    def test_register_contract_handles_integrity_error_race_condition(self, user):
+        cid = "CB4QIIBGTVV453W4QMSSQ3SU33HRKUJN2PM7ZKJLEWTR4KADMWSUCOV4"
+        mutation = f"""
+            mutation {{
+                registerContract(
+                    contractId: "{cid}",
+                    name: "Race Condition Contract",
+                    description: "Testing concurrency IntegrityError"
+                ) {{
+                    contractId
+                    name
+                }}
+            }}
+        """
+        context = create_context_with_user(user)
+        with patch(
+            "soroscan.ingest.models.TrackedContract.objects.create",
+            side_effect=IntegrityError("duplicate key value violates unique constraint"),
+        ):
+            result = schema.execute_sync(mutation, context_value=context)
+            assert result.errors is not None
+            assert len(result.errors) > 0
+            assert "already registered" in str(result.errors[0])
 
     def test_update_contract(self, contract):
         mutation = f"""
