@@ -21,6 +21,14 @@ k6 run load-tests/k6/smoke.js
 mkdir -p load-tests/results
 K6_REPORT_PATH=load-tests/results/scenarios-summary.json \
   k6 run load-tests/k6/scenarios.js
+
+# Soak testing: sustained moderate load (stability & memory leak checks)
+K6_SOAK_VUS=10 K6_SOAK_DURATION=30m \
+  k6 run load-tests/k6/soak.js
+
+# Stress testing: progressive concurrency ramp to break-point
+K6_STRESS_PEAK_VUS=50 \
+  k6 run load-tests/k6/stress.js
 ```
 
 ## Environment variables
@@ -30,6 +38,9 @@ K6_REPORT_PATH=load-tests/results/scenarios-summary.json \
 | `BASE_URL` | `http://127.0.0.1:8000` | API base URL |
 | `K6_VUS` | `5` | Virtual users / smoke VUs |
 | `K6_DURATION` | `30s` / `45s` | Steady-state duration |
+| `K6_SOAK_VUS` | `10` | Concurrency for soak testing |
+| `K6_SOAK_DURATION` | `30m` | Steady-state duration for soak testing |
+| `K6_STRESS_PEAK_VUS` | `50` | Maximum VUs for stress testing ramp |
 | `K6_RAMP_UP` | `10s` | Ramp-up for the health scenario |
 | `K6_REPORT_PATH` | `load-tests/results/*.json` | JSON summary output |
 | `K6_USERNAME` / `K6_PASSWORD` | empty | JWT via `POST /api/token/` |

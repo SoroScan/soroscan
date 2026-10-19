@@ -98,8 +98,10 @@ pnpm exec playwright test
 ## Performance Testing
 
 - Load testing uses **k6** under `load-tests/k6/`.
-- Smoke runs in CI; the full scenario suite is scheduled / manual.
-- Production hosts are blocked unless `ALLOW_PRODUCTION_LOAD=true`.
+- Smoke test (`smoke.js`) runs in CI; the full scenario suite (`scenarios.js`) runs on schedule or dispatch.
+- Sustained soak testing (`soak.js`) tests memory leaks and long-run latency degradation.
+- Progressive stress ramp (`stress.js`) tests peak capacity and autoscaling recovery.
+- Production hosts are strictly blocked unless `ALLOW_PRODUCTION_LOAD=true`.
 - See `load-tests/README.md` and [reliability](reliability.md).
 
 ## Chaos Engineering
