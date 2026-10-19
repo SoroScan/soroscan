@@ -1,0 +1,139 @@
+# Alertmanager Configuration and Deployment for SoroScan
+#
+# Routes & Architecture:
+# - Default Route: Groups alerts by [alertname, service, severity] with a 30s wait and 4h repeat.
+# - Critical Route (severity: critical): Routes to critical-pager receiver (PagerDuty/email) with 1h repeat.
+# - Warning Route (severity: warning): Routes to warning-notifications receiver (Slack/webhook) with 4h repeat.
+# - Inhibit Rules: Mutes warning alerts when a corresponding critical alert is already active for the same service.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: soroscan-alertmanager-config
+  namespace: soroscan
+  labels:
+    app: soroscan
+    component: alertmanager
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+      smtp_smarthost: 'smtp.example.com:587'
+      smtp_from: 'alerts@soroscan.io'
+      smtp_auth_username: 'alerts@soroscan.io'
+      smtp_auth_password: 'placeholder-password'
+
+    # Route tree: alerts from prometheus-rules.yaml are dispatched based on labels
+    route:
+      group_by: ['alertname', 'service', 'severity']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      receiver: 'default-webhook'
+      routes:
+        # Route 1: Critical infrastructure and SLA alerts trigger immediate paging
+        - match:
+            severity: critical
+          receiver: 'critical-pager'
+          repeat_interval: 1h
+          continue: false
+
+        # Route 2: Warning alerts for queue depth or moderate error rates
+        - match:
+            severity: warning
+          receiver: 'warning-notifications'
+          repeat_interval: 4h
+          continue: false
+
+    # Inhibit rules prevent duplicate notifications when a more severe alert is firing
+    inhibit_rules:
+      - source_match:
+          severity: 'critical'
+        target_match:
+          severity: 'warning'
+        equal: ['alertname', 'service']
+
+    # Notification receivers
+    receivers:
+      - name: 'default-webhook'
+        webhook_configs:
+          - url: 'http://soroscan-backend:80/api/v1/internal/alerts/webhook'
+            send_resolved: true
+
+      - name: 'critical-pager'
+        webhook_configs:
+          - url: 'https://pagerduty.example.com/soroscan-critical-alerts'
+            send_resolved: true
+        email_configs:
+          - to: 'oncall@soroscan.io'
+            send_resolved: true
+
+      - name: 'warning-notifications'
+        webhook_configs:
+          - url: 'https://hooks.slack.com/services/PLACEHOLDER/TOKEN'
+            send_resolved: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: soroscan-alertmanager
+  namespace: soroscan
+  labels:
+    app: soroscan
+    component: alertmanager
+spec:
+  type: ClusterIP
+  selector:
+    app: soroscan
+    component: alertmanager
+  ports:
+    - name: http
+      port: 9093
+      targetPort: 9093
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: soroscan-alertmanager
+  namespace: soroscan
+  labels:
+    app: soroscan
+    component: alertmanager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: soroscan
+      component: alertmanager
+  template:
+    metadata:
+      labels:
+        app: soroscan
+        component: alertmanager
+    spec:
+      serviceAccountName: soroscan-serviceaccount
+      automountServiceAccountToken: false
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.27.0
+          args:
+            - "--config.file=/etc/alertmanager/alertmanager.yml"
+            - "--storage.path=/alertmanager"
+          ports:
+            - name: http
+              containerPort: 9093
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/alertmanager
+      volumes:
+        - name: config-volume
+          configMap:
+            name: soroscan-alertmanager-config
