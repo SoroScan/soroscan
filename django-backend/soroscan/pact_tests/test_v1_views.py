@@ -45,3 +45,64 @@ class TestV1ApiViews:
             reverse("v1-contract-detail", kwargs={"contract_id": missing_id})
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_get_contract_verified_reports_verified_and_timestamp(self, api_client):
+        from django.utils import timezone
+        from soroscan.ingest.models import ContractSource, ContractVerification
+        from soroscan.v1.views import _isoformat
+
+        contract = TrackedContractFactory(contract_id=PACT_CONTRACT_ID, name="Verified SDK Contract")
+        source = ContractSource.objects.create(contract=contract, uploaded_by=contract.owner)
+        verified_time = timezone.now()
+        ContractVerification.objects.create(
+            contract=contract,
+            source=source,
+            status=ContractVerification.Status.VERIFIED,
+            bytecode_hash="e" * 64,
+            verified_at=verified_time,
+        )
+
+        response = api_client.get(
+            reverse("v1-contract-detail", kwargs={"contract_id": PACT_CONTRACT_ID})
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["id"] == PACT_CONTRACT_ID
+        assert response.data["verified"] is True
+        assert response.data["verifiedAt"] == _isoformat(verified_time)
+        assert response.data["wasmHash"] == "e" * 64
+
+    def test_get_contract_unverified_reports_false_and_null(self, api_client):
+        TrackedContractFactory(contract_id=PACT_CONTRACT_ID, name="Unverified SDK Contract")
+
+        response = api_client.get(
+            reverse("v1-contract-detail", kwargs={"contract_id": PACT_CONTRACT_ID})
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["id"] == PACT_CONTRACT_ID
+        assert response.data["verified"] is False
+        assert response.data["verifiedAt"] is None
+        assert response.data["wasmHash"] == ""
+
+    def test_get_contract_failed_verification_reports_false(self, api_client):
+        from soroscan.ingest.models import ContractSource, ContractVerification
+
+        contract = TrackedContractFactory(contract_id=PACT_CONTRACT_ID)
+        source = ContractSource.objects.create(contract=contract, uploaded_by=contract.owner)
+        ContractVerification.objects.create(
+            contract=contract,
+            source=source,
+            status=ContractVerification.Status.FAILED,
+            bytecode_hash="f" * 64,
+            error_message="Hash mismatch",
+        )
+
+        response = api_client.get(
+            reverse("v1-contract-detail", kwargs={"contract_id": PACT_CONTRACT_ID})
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["verified"] is False
+        assert response.data["verifiedAt"] is None
+

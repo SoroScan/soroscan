@@ -11,7 +11,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from soroscan.ingest.models import ContractEvent, TrackedContract
+from soroscan.ingest.models import ContractEvent, ContractVerification, TrackedContract
 
 from rest_framework.permissions import IsAuthenticated
 from soroscan.ingest.models import WebhookDeadLetter
@@ -43,19 +43,32 @@ def _event_to_sdk(event: ContractEvent) -> dict:
 
 
 def _contract_to_sdk(contract: TrackedContract) -> dict:
+    verified = False
+    verified_at = None
+    wasm_hash = ""
+    try:
+        verification = contract.verification
+    except (ContractVerification.DoesNotExist, AttributeError):
+        verification = None
+
+    if verification and verification.status == ContractVerification.Status.VERIFIED:
+        verified = True
+        verified_at = _isoformat(verification.verified_at)
+        wasm_hash = verification.bytecode_hash or ""
+
     return {
         "id": contract.contract_id,
         "network": contract.network,
         "type": "custom",
-        "wasmHash": "",
+        "wasmHash": wasm_hash,
         "creator": "",
         "createdAt": _isoformat(contract.created_at),
         "createdLedger": contract.last_indexed_ledger or 0,
         "lastActivityAt": _isoformat(contract.last_event_at),
         "totalEvents": contract.events.count(),
         "spec": None,
-        "verified": False,
-        "verifiedAt": None,
+        "verified": verified,
+        "verifiedAt": verified_at,
         "sourceCode": None,
         "label": contract.name,
     }
@@ -117,7 +130,7 @@ def get_contract(request, contract_id: str):
     - 404: Contract not found
     """
     try:
-        contract = TrackedContract.objects.get(contract_id=contract_id)
+        contract = TrackedContract.objects.select_related("verification").get(contract_id=contract_id)
     except TrackedContract.DoesNotExist:
         return Response(
             {"code": "NOT_FOUND", "message": "Contract not found"},
