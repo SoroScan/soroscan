@@ -26,6 +26,8 @@ spec:
         app: soroscan
         component: beat
     spec:
+      serviceAccountName: soroscan
+      automountServiceAccountToken: false
       containers:
         - name: beat
           image: soroscan/backend:v1.0.0  # Replace with your image registry and tag
