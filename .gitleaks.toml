@@ -1,0 +1,34 @@
+title = "SoroScan Gitleaks Configuration"
+
+[allowlist]
+description = "Global allowlist for tests, mock credentials, documentation, and example files"
+
+paths = [
+    '''(?i)(^|/)(tests|testing)/''',
+    '''(?i)(^|/)pacts/''',
+    '''(?i)(^|/)docs/''',
+    '''(?i)\.md$''',
+    '''(?i)\.example$''',
+    '''(?i)\.env\.(example|sample|test)$''',
+    '''(?i)test_.*\.py$''',
+    '''(?i).*_test\.py$''',
+    '''(?i).*fixtures.*''',
+]
+
+regexes = [
+    '''django-insecure-[a-zA-Z0-9_\-=+!@#$%^&*()]{10,}''',
+    '''(?i)mock[-_]?secret''',
+    '''(?i)test[-_]?key''',
+    '''(?i)dummy[-_]?token''',
+    '''(?i)fake[-_]?secret''',
+    '''(?i)example[-_]?api[-_]?key''',
+]
+
+stopwords = [
+    "django-insecure",
+    "test-secret",
+    "test-token",
+    "mock-key",
+    "dummy-secret",
+    "00000000000000000000000000000000",
+]
