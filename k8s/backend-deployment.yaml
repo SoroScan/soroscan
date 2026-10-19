@@ -83,9 +83,10 @@ spec:
                 name: soroscan-config
             - secretRef:
                 name: soroscan-secrets
+          imagePullPolicy: IfNotPresent
           readinessProbe:
             httpGet:
-              path: /api/events/
+              path: /ready/
               port: http
               httpHeaders:
                 - name: Host
@@ -97,7 +98,7 @@ spec:
             failureThreshold: 3
           livenessProbe:
             httpGet:
-              path: /api/events/
+              path: /health/
               port: http
               httpHeaders:
                 - name: Host

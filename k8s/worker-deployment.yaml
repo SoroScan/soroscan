@@ -37,6 +37,7 @@ spec:
                 name: soroscan-config
             - secretRef:
                 name: soroscan-secrets
+          imagePullPolicy: IfNotPresent
           resources:
             limits:
               cpu: 2000m
@@ -44,6 +45,15 @@ spec:
             requests:
               cpu: 500m
               memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+      securityContext:
+        fsGroup: 1000
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -84,6 +94,7 @@ spec:
                 name: soroscan-config
             - secretRef:
                 name: soroscan-secrets
+          imagePullPolicy: IfNotPresent
           resources:
             limits:
               cpu: 1000m
@@ -91,6 +102,15 @@ spec:
             requests:
               cpu: 250m
               memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+      securityContext:
+        fsGroup: 1000
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -131,6 +151,7 @@ spec:
                 name: soroscan-config
             - secretRef:
                 name: soroscan-secrets
+          imagePullPolicy: IfNotPresent
           resources:
             limits:
               cpu: 1000m
@@ -138,6 +159,15 @@ spec:
             requests:
               cpu: 250m
               memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+      securityContext:
+        fsGroup: 1000
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -178,6 +208,7 @@ spec:
                 name: soroscan-config
             - secretRef:
                 name: soroscan-secrets
+          imagePullPolicy: IfNotPresent
           resources:
             limits:
               cpu: 500m
