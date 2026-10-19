@@ -375,6 +375,21 @@ fn record_structured_event_topics_and_payload() {
     assert_eq!(record.correlation_id, correlation_id);
     assert_eq!(record.ledger, 99);
     assert_eq!(record.timestamp, 555_000);
+
+    let stored = client
+        .structured_by_correlation(&correlation_id)
+        .expect("structured record stored by correlation ID");
+    assert_eq!(stored, record);
+}
+
+#[test]
+fn structured_by_correlation_returns_none_when_missing() {
+    let env = Env::default();
+    let (contract_id, _, _) = setup(&env);
+    let client = SoroScanCoreClient::new(&env, &contract_id);
+    let correlation_id = BytesN::from_array(&env, &[0x33; 32]);
+
+    assert_eq!(client.structured_by_correlation(&correlation_id), None);
 }
 
 #[test]
@@ -461,6 +476,23 @@ fn record_tagged_event_topics_and_payload() {
     assert_eq!(record.tags.get(1).unwrap(), symbol_short!("defi"));
     assert_eq!(record.ledger, 7);
     assert_eq!(record.timestamp, 88);
+
+    let stored = client
+        .latest_tagged_by_type(&symbol_short!("trade"))
+        .expect("tagged record stored by event type");
+    assert_eq!(stored, record);
+}
+
+#[test]
+fn latest_tagged_by_type_returns_none_when_missing() {
+    let env = Env::default();
+    let (contract_id, _, _) = setup(&env);
+    let client = SoroScanCoreClient::new(&env, &contract_id);
+
+    assert_eq!(
+        client.latest_tagged_by_type(&symbol_short!("trade")),
+        None
+    );
 }
 
 #[test]

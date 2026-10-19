@@ -14,6 +14,8 @@ __all__ = [
     "task_duration_seconds",
     "active_contracts_gauge",
     "current_ingestion_rate_gauge",
+    "contract_health_status_gauge",
+    "contract_health_transitions_total",
     # detailed pipeline metrics
     "ingest_errors_total",
     "events_skipped_total",
@@ -102,6 +104,20 @@ active_contracts_gauge = _get_or_create(
     Gauge,
     "soroscan_tracked_contracts_active",
     "Number of currently active tracked contracts",
+)
+
+contract_health_status_gauge = _get_or_create(
+    Gauge,
+    "soroscan_contract_health_status",
+    "Contract health status (0=healthy, 1=degraded, 2=failed)",
+    ["contract_id"],
+)
+
+contract_health_transitions_total = _get_or_create(
+    Counter,
+    "soroscan_contract_health_transitions_total",
+    "Contract health status transitions",
+    ["from_status", "to_status"],
 )
 
 # ---------------------------------------------------------------------------
