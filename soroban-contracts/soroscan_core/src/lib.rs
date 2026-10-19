@@ -1916,6 +1916,38 @@ mod tests {
         assert!(!client.is_paused());
     }
 
+    #[test]
+    fn test_unpause_unauthorized() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, _indexer) = setup_contract(&env);
+        let non_admin = Address::generate(&env);
+
+        client.pause(&admin);
+        assert!(client.is_paused());
+
+        let result = client.try_unpause(&non_admin);
+        assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+        assert!(client.is_paused());
+    }
+
+    #[test]
+    fn test_remove_indexer_unauthorized() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, indexer) = setup_contract(&env);
+        let non_admin = Address::generate(&env);
+
+        client.add_indexer(&admin, &indexer);
+        assert!(client.is_indexer(&indexer));
+
+        let result = client.try_remove_indexer(&non_admin, &indexer);
+        assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+        assert!(client.is_indexer(&indexer));
+    }
+
     // ── SC-30: recent events per contract ───────────────────────────────────
 
     #[test]
