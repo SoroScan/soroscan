@@ -112,6 +112,48 @@ class RecordEventResponse(BaseModel):
     error: str | None = Field(None, description="Error message if failed")
 
 
+# ── SC-38: Structured event submission ────────────────────────────────────────
+
+class StructuredEventRequest(BaseModel):
+    """Request model for submitting an idempotent SC-38 structured event."""
+
+    contract_id: str = Field(..., max_length=56, description="Target contract address")
+    event_type: str = Field(..., max_length=100, description="Event type name")
+    payload_hash: str = Field(..., max_length=64, description="SHA-256 hash of payload (hex)")
+    schema_version: int = Field(..., ge=1, description="Positive schema version")
+    correlation_id: str = Field(
+        ..., max_length=64, description="Idempotency correlation identifier"
+    )
+
+
+# ── SC-24: Tagged event submission ────────────────────────────────────────────
+
+MAX_TAGS = 4
+
+
+class TaggedEventRequest(BaseModel):
+    """Request model for submitting an SC-24 tagged event."""
+
+    contract_id: str = Field(..., max_length=56, description="Target contract address")
+    event_type: str = Field(..., max_length=100, description="Event type name")
+    payload_hash: str = Field(..., max_length=64, description="SHA-256 hash of payload (hex)")
+    tags: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_TAGS,
+        description="Up to MAX_TAGS producer-defined classification tags",
+    )
+
+
+class TaggedEventResponse(BaseModel):
+    """Response from submitting an SC-24 tagged event."""
+
+    status: str = Field(..., description="Submission status")
+    tx_hash: str | None = Field(None, description="Transaction hash")
+    transaction_status: str | None = Field(None, description="Transaction status")
+    error: str | None = Field(None, description="Error message if failed")
+    tags: list[str] = Field(default_factory=list, description="Echoed classification tags")
+
+
 # ── SC-9: Indexer authorization ───────────────────────────────────────────────
 
 class AddIndexerRequest(BaseModel):
