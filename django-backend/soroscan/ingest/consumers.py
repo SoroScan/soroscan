@@ -3,6 +3,7 @@ WebSocket consumers for real-time event streaming.
 """
 import json
 import logging
+from urllib.parse import parse_qs
 
 from channels.generic.websocket import AsyncWebsocketConsumer
 
@@ -22,7 +23,13 @@ class EventConsumer(AsyncWebsocketConsumer):
 
     async def connect(self):
         self.contract_id = self.scope["url_route"]["kwargs"]["contract_id"]
-        self.event_type = self.scope["query_string"].decode().split("event_type=")[-1] if b"event_type=" in self.scope["query_string"] else None
+        
+        query_string = self.scope.get("query_string", b"")
+        if isinstance(query_string, bytes):
+            query_string = query_string.decode("utf-8", errors="replace")
+        parsed = parse_qs(query_string)
+        event_types = parsed.get("event_type")
+        self.event_type = event_types[0].strip() if event_types and event_types[0].strip() else None
 
         try:
             contract = await self.get_contract(self.contract_id)
