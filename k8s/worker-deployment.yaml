@@ -7,7 +7,7 @@ metadata:
     app: soroscan
     component: worker-high
 spec:
-  replicas: 1
+  replicas: 1  # Initial replicas; managed dynamically by HorizontalPodAutoscaler (k8s/hpa.yaml)
   selector:
     matchLabels:
       app: soroscan
@@ -54,7 +54,7 @@ metadata:
     app: soroscan
     component: worker-default
 spec:
-  replicas: 1
+  replicas: 1  # Initial replicas; managed dynamically by HorizontalPodAutoscaler (k8s/hpa.yaml)
   selector:
     matchLabels:
       app: soroscan
@@ -101,7 +101,7 @@ metadata:
     app: soroscan
     component: worker-low
 spec:
-  replicas: 1
+  replicas: 1  # Initial replicas; managed dynamically by HorizontalPodAutoscaler (k8s/hpa.yaml)
   selector:
     matchLabels:
       app: soroscan
@@ -148,7 +148,7 @@ metadata:
     app: soroscan
     component: worker-backfill
 spec:
-  replicas: 1
+  replicas: 1  # Initial replicas; managed dynamically by HorizontalPodAutoscaler (k8s/hpa.yaml)
   selector:
     matchLabels:
       app: soroscan

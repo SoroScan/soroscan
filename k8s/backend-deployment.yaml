@@ -7,7 +7,7 @@ metadata:
     app: soroscan
     component: backend
 spec:
-  replicas: 2
+  replicas: 2  # Initial replicas; managed dynamically by HorizontalPodAutoscaler (k8s/hpa.yaml)
   selector:
     matchLabels:
       app: soroscan

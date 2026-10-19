@@ -1,0 +1,123 @@
+# HorizontalPodAutoscalers for SoroScan Backend and Workers
+#
+# Scaling rationale:
+# - Backend API: High traffic volatility during network events; min 2 for high availability, scales up to 10 at 70% CPU utilization.
+# - Worker High: Priority queue worker; min 1, scales up to 5 at 80% CPU to quickly absorb webhook and high-priority bursts.
+# - Worker Default: General asynchronous task processing; min 1, scales up to 5 at 80% CPU.
+# - Worker Low: Background task processing; min 1, scales up to 3 at 85% CPU.
+# - Worker Backfill: Ledger and historical backfilling; min 1, scales up to 3 at 85% CPU.
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: soroscan-backend-hpa
+  namespace: soroscan
+  labels:
+    app: soroscan
+    component: backend
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: soroscan-backend
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: soroscan-worker-high-hpa
+  namespace: soroscan
+  labels:
+    app: soroscan
+    component: worker-high
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: soroscan-worker-high
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: soroscan-worker-default-hpa
+  namespace: soroscan
+  labels:
+    app: soroscan
+    component: worker-default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: soroscan-worker-default
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: soroscan-worker-low-hpa
+  namespace: soroscan
+  labels:
+    app: soroscan
+    component: worker-low
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: soroscan-worker-low
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 85
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: soroscan-worker-backfill-hpa
+  namespace: soroscan
+  labels:
+    app: soroscan
+    component: worker-backfill
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: soroscan-worker-backfill
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 85
