@@ -48,8 +48,7 @@ localStorage.setItem('access_token', yourJwtToken);
 ## 📚 Documentation
 
 - **Technical Details**: `lib/apollo-client.README.md`
-- **Integration Guide**: `APOLLO_INTEGRATION.md`
-- **Implementation Summary**: `../docs/architecture/frontend/APOLLO_CLIENT_IMPLEMENTATION.md`
+- **GraphQL & Apollo Guide**: `../docs/frontend/apollo_guide.md`
 
 ## ✅ Status
 
