@@ -1,0 +1,32 @@
+name: Actionlint
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - ".github/workflows/**"
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - ".github/workflows/**"
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: Lint GitHub Actions workflows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download and run actionlint
+        run: |
+          bash <(curl -s https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
+
+      - name: Run workflow permissions assertions
+        run: |
+          python -m pip install pytest PyYAML
+          python -m pytest tests/test_workflow_permissions.py -v

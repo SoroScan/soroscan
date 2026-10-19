@@ -12,6 +12,9 @@ on:
       - 'soroban-contracts/**'
       - '.github/workflows/soroban.yml'
 
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest

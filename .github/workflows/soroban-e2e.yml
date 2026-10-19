@@ -16,6 +16,9 @@ on:
       - "scripts/soroban-e2e-setup.sh"
       - ".github/workflows/soroban-e2e.yml"
 
+permissions:
+  contents: read
+
 jobs:
   soroban-e2e:
     runs-on: ubuntu-latest

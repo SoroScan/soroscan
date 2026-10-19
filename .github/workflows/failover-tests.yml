@@ -20,6 +20,9 @@ on:
       - "django-backend/soroscan/health.py"
       - ".github/workflows/failover-tests.yml"
 
+permissions:
+  contents: read
+
 jobs:
   validate-scenarios:
     runs-on: ubuntu-latest

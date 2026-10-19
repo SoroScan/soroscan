@@ -12,6 +12,9 @@ on:
       - 'django-backend/**'
       - '.github/workflows/django.yml'
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest

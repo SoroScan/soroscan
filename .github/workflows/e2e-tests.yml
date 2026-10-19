@@ -14,6 +14,9 @@ on:
       - "django-backend/soroscan/ingest/tests/test_e2e_workflows.py"
       - ".github/workflows/e2e-tests.yml"
 
+permissions:
+  contents: read
+
 jobs:
   validate:
     runs-on: ubuntu-latest

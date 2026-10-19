@@ -16,6 +16,9 @@ on:
         type: choice
         options: [smoke, scenarios]
 
+permissions:
+  contents: read
+
 jobs:
   k6-config:
     name: k6 config and production-guard tests

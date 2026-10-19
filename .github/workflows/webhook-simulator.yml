@@ -12,6 +12,9 @@ on:
       - "tools/webhook-simulator/**"
       - ".github/workflows/webhook-simulator.yml"
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
