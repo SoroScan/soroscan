@@ -1067,13 +1067,27 @@ impl SoroScanCore {
     ///
     /// Captures the previously installed WASM hash before
     /// `update_current_contract_wasm`. Topic is `("soroscan", "contract_upgraded")`.
-    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), ContractError> {
-        let admin: Address = env
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `admin` - The admin address (must match stored admin)
+    /// * `new_wasm_hash` - The new WASM hash to upgrade to
+    pub fn upgrade(
+        env: Env,
+        admin: Address,
+        new_wasm_hash: BytesN<32>,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+
+        let stored_admin: Address = env
             .storage()
             .instance()
             .get(&ADMIN_KEY)
             .ok_or(ContractError::NotInitialized)?;
-        admin.require_auth();
+
+        if admin != stored_admin {
+            return Err(ContractError::Unauthorized);
+        }
 
         let old_wasm_hash = current_wasm_hash(&env);
 
@@ -2237,7 +2251,7 @@ mod tests {
         let env = Env::default();
         env.mock_all_auths();
 
-        let (client, _admin, _indexer) = setup_contract(&env);
+        let (client, admin, _indexer) = setup_contract(&env);
         let contract_id = client.address.clone();
 
         // Native test contracts are installed with the host's empty WASM blob.
@@ -2246,7 +2260,7 @@ mod tests {
             .deployer()
             .upload_contract_wasm(Bytes::from_slice(&env, CONTRACT_WASM_V1));
 
-        client.upgrade(&new_wasm_hash);
+        client.upgrade(&admin, &new_wasm_hash);
 
         let all_events = env.events().all();
         let (emitter, payload, topics) = find_contract_upgraded(&env, &all_events);
@@ -2270,7 +2284,7 @@ mod tests {
         let env = Env::default();
         env.mock_all_auths();
 
-        let (client, _admin, _indexer) = setup_contract(&env);
+        let (client, admin, _indexer) = setup_contract(&env);
         let contract_id = client.address.clone();
 
         let previous_wasm_hash = env
@@ -2286,7 +2300,7 @@ mod tests {
                 .set(&WASM_HASH_KEY, &previous_wasm_hash);
         });
 
-        client.upgrade(&replacement_wasm_hash);
+        client.upgrade(&admin, &replacement_wasm_hash);
 
         let all_events = env.events().all();
         let (emitter, payload, topics) = find_contract_upgraded(&env, &all_events);
@@ -2304,6 +2318,23 @@ mod tests {
         assert_eq!(payload.old_wasm_hash, previous_wasm_hash);
         assert_eq!(payload.new_wasm_hash, replacement_wasm_hash);
         assert_ne!(payload.old_wasm_hash, payload.new_wasm_hash);
+    }
+
+    #[test]
+    fn test_upgrade_unauthorized() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, admin, _indexer) = setup_contract(&env);
+        let non_admin = Address::generate(&env);
+
+        let new_wasm_hash = env
+            .deployer()
+            .upload_contract_wasm(Bytes::from_slice(&env, CONTRACT_WASM_V1));
+
+        // Non-admin caller should fail with Unauthorized
+        let result = client.try_upgrade(&non_admin, &new_wasm_hash);
+        assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
     }
 
     #[test]
