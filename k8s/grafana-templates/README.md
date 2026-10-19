@@ -19,6 +19,19 @@ This folder contains reusable Grafana dashboard JSON templates for common monito
 
 ## Usage
 
+### Option 1: Automated Kubernetes Provisioning (Recommended)
+
+Apply the provisioning manifests in `k8s/grafana-provisioning.yaml`:
+```bash
+kubectl apply -f k8s/grafana-provisioning.yaml
+```
+This deploys ConfigMaps providing:
+- Prometheus datasource configuration (`soroscan-grafana-datasources`);
+- Dashboard provider configuration (`soroscan-grafana-dashboards-provider`);
+- All packaged dashboard JSONs loaded into `/var/lib/grafana/dashboards/soroscan`.
+
+### Option 2: Manual Import
+
 1. Open Grafana and navigate to **Dashboards -> New -> Import**.
 2. Upload one of the JSON files in this folder.
 3. Select your Prometheus datasource when prompted.

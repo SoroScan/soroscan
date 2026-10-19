@@ -1,0 +1,402 @@
+# Grafana Provisioning Configuration for SoroScan
+# - Datasource: Prometheus at http://soroscan-prometheus.soroscan.svc:9090
+# - Dashboard Provider: Auto-loads packaged JSON dashboards into /var/lib/grafana/dashboards/soroscan
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: soroscan-grafana-datasources
+  namespace: soroscan
+  labels:
+    app: soroscan
+    component: grafana
+data:
+  datasources.yaml: "apiVersion: 1\n\ndatasources:\n  - name: Prometheus\n    type:\
+    \ prometheus\n    access: proxy\n    url: http://soroscan-prometheus.soroscan.svc:9090\n\
+    \    isDefault: true\n    editable: false\n    jsonData:\n      timeInterval:\
+    \ '15s'\n      httpMethod: 'POST'\n"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: soroscan-grafana-dashboards-provider
+  namespace: soroscan
+  labels:
+    app: soroscan
+    component: grafana
+data:
+  dashboards.yaml: "apiVersion: 1\n\nproviders:\n  - name: 'SoroScan Dashboards'\n\
+    \    orgId: 1\n    folder: 'SoroScan'\n    type: file\n    disableDeletion: false\n\
+    \    updateIntervalSeconds: 30\n    allowUiUpdates: true\n    options:\n     \
+    \ path: /var/lib/grafana/dashboards/soroscan\n      foldersFromFilesStructure:\
+    \ false\n"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: soroscan-grafana-dashboards
+  namespace: soroscan
+  labels:
+    app: soroscan
+    component: grafana
+data:
+  grafana-dashboard.json: "{\n  \"__inputs\": [\n    {\n      \"name\": \"DS_PROMETHEUS\"\
+    ,\n      \"label\": \"Prometheus\",\n      \"description\": \"Prometheus datasource\
+    \ connected to SoroScan metrics endpoint\",\n      \"type\": \"datasource\",\n\
+    \      \"pluginId\": \"prometheus\",\n      \"pluginName\": \"Prometheus\"\n \
+    \   }\n  ],\n  \"__requires\": [\n    { \"type\": \"grafana\", \"id\": \"grafana\"\
+    , \"name\": \"Grafana\", \"version\": \"9.0.0\" },\n    { \"type\": \"datasource\"\
+    , \"id\": \"prometheus\", \"name\": \"Prometheus\", \"version\": \"1.0.0\" },\n\
+    \    { \"type\": \"panel\", \"id\": \"timeseries\", \"name\": \"Time series\"\
+    , \"version\": \"\" },\n    { \"type\": \"panel\", \"id\": \"stat\", \"name\"\
+    : \"Stat\", \"version\": \"\" },\n    { \"type\": \"panel\", \"id\": \"table\"\
+    , \"name\": \"Table\", \"version\": \"\" }\n  ],\n  \"annotations\": { \"list\"\
+    : [] },\n  \"description\": \"SoroScan performance monitoring \u2014 API latencies,\
+    \ Celery tasks, slow queries\",\n  \"editable\": true,\n  \"fiscalYearStartMonth\"\
+    : 0,\n  \"graphTooltip\": 1,\n  \"id\": null,\n  \"links\": [],\n  \"panels\"\
+    : [\n    {\n      \"collapsed\": false,\n      \"gridPos\": { \"h\": 1, \"w\"\
+    : 24, \"x\": 0, \"y\": 0 },\n      \"id\": 100,\n      \"title\": \"API Latency\"\
+    ,\n      \"type\": \"row\"\n    },\n    {\n      \"datasource\": { \"type\": \"\
+    prometheus\", \"uid\": \"${DS_PROMETHEUS}\" },\n      \"fieldConfig\": {\n   \
+    \     \"defaults\": {\n          \"color\": { \"mode\": \"palette-classic\" },\n\
+    \          \"custom\": { \"lineWidth\": 1, \"fillOpacity\": 10 },\n          \"\
+    unit\": \"s\"\n        }\n      },\n      \"gridPos\": { \"h\": 8, \"w\": 12,\
+    \ \"x\": 0, \"y\": 1 },\n      \"id\": 1,\n      \"options\": { \"tooltip\": {\
+    \ \"mode\": \"multi\" } },\n      \"targets\": [\n        {\n          \"expr\"\
+    : \"histogram_quantile(0.50, sum(rate(django_http_requests_latency_seconds_bucket[5m]))\
+    \ by (le))\",\n          \"legendFormat\": \"p50\"\n        },\n        {\n  \
+    \        \"expr\": \"histogram_quantile(0.95, sum(rate(django_http_requests_latency_seconds_bucket[5m]))\
+    \ by (le))\",\n          \"legendFormat\": \"p95\"\n        },\n        {\n  \
+    \        \"expr\": \"histogram_quantile(0.99, sum(rate(django_http_requests_latency_seconds_bucket[5m]))\
+    \ by (le))\",\n          \"legendFormat\": \"p99\"\n        }\n      ],\n    \
+    \  \"title\": \"API Request Latency (p50/p95/p99)\",\n      \"type\": \"timeseries\"\
+    \n    },\n    {\n      \"datasource\": { \"type\": \"prometheus\", \"uid\": \"\
+    ${DS_PROMETHEUS}\" },\n      \"fieldConfig\": {\n        \"defaults\": { \"unit\"\
+    : \"reqps\" }\n      },\n      \"gridPos\": { \"h\": 8, \"w\": 12, \"x\": 12,\
+    \ \"y\": 1 },\n      \"id\": 2,\n      \"targets\": [\n        {\n          \"\
+    expr\": \"sum(rate(django_http_requests_total_by_view_transport_method_total[5m]))\
+    \ by (view)\",\n          \"legendFormat\": \"{{view}}\"\n        }\n      ],\n\
+    \      \"title\": \"Request Rate by View\",\n      \"type\": \"timeseries\"\n\
+    \    },\n    {\n      \"collapsed\": false,\n      \"gridPos\": { \"h\": 1, \"\
+    w\": 24, \"x\": 0, \"y\": 9 },\n      \"id\": 101,\n      \"title\": \"Rate Limiting\"\
+    ,\n      \"type\": \"row\"\n    },\n    {\n      \"datasource\": { \"type\": \"\
+    prometheus\", \"uid\": \"${DS_PROMETHEUS}\" },\n      \"fieldConfig\": { \"defaults\"\
+    : { \"unit\": \"short\" } },\n      \"gridPos\": { \"h\": 6, \"w\": 8, \"x\":\
+    \ 0, \"y\": 10 },\n      \"id\": 3,\n      \"targets\": [\n        {\n       \
+    \   \"expr\": \"sum(rate(django_http_responses_total_by_status_total{status=\\\
+    \"429\\\"}[5m]))\",\n          \"legendFormat\": \"429 Rate Limited\"\n      \
+    \  }\n      ],\n      \"title\": \"Rate Limit Rejections (429/s)\",\n      \"\
+    type\": \"timeseries\"\n    },\n    {\n      \"collapsed\": false,\n      \"gridPos\"\
+    : { \"h\": 1, \"w\": 24, \"x\": 0, \"y\": 16 },\n      \"id\": 102,\n      \"\
+    title\": \"Celery Tasks\",\n      \"type\": \"row\"\n    },\n    {\n      \"datasource\"\
+    : { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\" },\n      \"fieldConfig\"\
+    : { \"defaults\": { \"unit\": \"short\" } },\n      \"gridPos\": { \"h\": 8, \"\
+    w\": 12, \"x\": 0, \"y\": 17 },\n      \"id\": 4,\n      \"targets\": [\n    \
+    \    {\n          \"expr\": \"sum(rate(celery_tasks_total[5m])) by (name, state)\"\
+    ,\n          \"legendFormat\": \"{{name}} [{{state}}]\"\n        }\n      ],\n\
+    \      \"title\": \"Celery Task Rate by Name\",\n      \"type\": \"timeseries\"\
+    \n    },\n    {\n      \"datasource\": { \"type\": \"prometheus\", \"uid\": \"\
+    ${DS_PROMETHEUS}\" },\n      \"fieldConfig\": { \"defaults\": { \"unit\": \"s\"\
+    \ } },\n      \"gridPos\": { \"h\": 8, \"w\": 12, \"x\": 12, \"y\": 17 },\n  \
+    \    \"id\": 5,\n      \"targets\": [\n        {\n          \"expr\": \"histogram_quantile(0.95,\
+    \ sum(rate(celery_task_runtime_seconds_bucket[5m])) by (le, name))\",\n      \
+    \    \"legendFormat\": \"p95 {{name}}\"\n        }\n      ],\n      \"title\"\
+    : \"Celery Task Runtime p95\",\n      \"type\": \"timeseries\"\n    },\n    {\n\
+    \      \"datasource\": { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\"\
+    \ },\n      \"fieldConfig\": { \"defaults\": { \"unit\": \"short\", \"color\"\
+    : { \"mode\": \"thresholds\" },\n        \"thresholds\": { \"mode\": \"absolute\"\
+    , \"steps\": [\n          { \"color\": \"green\", \"value\": null },\n       \
+    \   { \"color\": \"yellow\", \"value\": 10 },\n          { \"color\": \"red\"\
+    , \"value\": 50 }\n        ] }\n      } },\n      \"gridPos\": { \"h\": 4, \"\
+    w\": 6, \"x\": 0, \"y\": 25 },\n      \"id\": 6,\n      \"options\": { \"reduceOptions\"\
+    : { \"calcs\": [\"lastNotNull\"] } },\n      \"targets\": [\n        {\n     \
+    \     \"expr\": \"celery_worker_tasks_active\",\n          \"legendFormat\": \"\
+    Active Tasks\"\n        }\n      ],\n      \"title\": \"Celery Active Tasks\"\
+    ,\n      \"type\": \"stat\"\n    },\n    {\n      \"collapsed\": false,\n    \
+    \  \"gridPos\": { \"h\": 1, \"w\": 24, \"x\": 0, \"y\": 29 },\n      \"id\": 103,\n\
+    \      \"title\": \"Database\",\n      \"type\": \"row\"\n    },\n    {\n    \
+    \  \"datasource\": { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\" },\n\
+    \      \"fieldConfig\": { \"defaults\": { \"unit\": \"s\" } },\n      \"gridPos\"\
+    : { \"h\": 8, \"w\": 12, \"x\": 0, \"y\": 30 },\n      \"id\": 7,\n      \"targets\"\
+    : [\n        {\n          \"expr\": \"histogram_quantile(0.95, sum(rate(django_db_execute_many_duration_seconds_bucket[5m]))\
+    \ by (le, vendor))\",\n          \"legendFormat\": \"p95 DB {{vendor}}\"\n   \
+    \     }\n      ],\n      \"title\": \"DB Query Latency p95\",\n      \"type\"\
+    : \"timeseries\"\n    },\n    {\n      \"datasource\": { \"type\": \"prometheus\"\
+    , \"uid\": \"${DS_PROMETHEUS}\" },\n      \"fieldConfig\": { \"defaults\": { \"\
+    unit\": \"short\" } },\n      \"gridPos\": { \"h\": 8, \"w\": 12, \"x\": 12, \"\
+    y\": 30 },\n      \"id\": 8,\n      \"targets\": [\n        {\n          \"expr\"\
+    : \"sum(rate(django_db_errors_total[5m])) by (type)\",\n          \"legendFormat\"\
+    : \"DB Error {{type}}\"\n        }\n      ],\n      \"title\": \"DB Errors/s\"\
+    ,\n      \"type\": \"timeseries\"\n    }\n  ],\n  \"refresh\": \"30s\",\n  \"\
+    schemaVersion\": 37,\n  \"tags\": [\"soroscan\", \"performance\"],\n  \"templating\"\
+    : { \"list\": [] },\n  \"time\": { \"from\": \"now-1h\", \"to\": \"now\" },\n\
+    \  \"timepicker\": {},\n  \"timezone\": \"browser\",\n  \"title\": \"SoroScan\
+    \ Performance\",\n  \"uid\": \"soroscan-perf-v1\",\n  \"version\": 1\n}\n"
+  grafana-templates\celery-task-queue.json: "{\n  \"__inputs\": [\n    {\n      \"\
+    name\": \"DS_PROMETHEUS\",\n      \"label\": \"Prometheus\",\n      \"description\"\
+    : \"Prometheus datasource\",\n      \"type\": \"datasource\",\n      \"pluginId\"\
+    : \"prometheus\",\n      \"pluginName\": \"Prometheus\"\n    }\n  ],\n  \"annotations\"\
+    : {\n    \"list\": [\n      {\n        \"name\": \"Queue backlog\",\n        \"\
+    datasource\": { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\" },\n \
+    \       \"enable\": true,\n        \"expr\": \"soroscan_celery_queue_depth{job=~\\\
+    \"$job\\\"} > 100\",\n        \"iconColor\": \"rgba(255, 170, 0, 1)\",\n     \
+    \   \"titleFormat\": \"Queue backlog\",\n        \"textFormat\": \"Celery queue\
+    \ depth above threshold\"\n      }\n    ]\n  },\n  \"editable\": true,\n  \"graphTooltip\"\
+    : 1,\n  \"id\": null,\n  \"panels\": [\n    {\n      \"id\": 1,\n      \"title\"\
+    : \"Queue Depth\",\n      \"type\": \"timeseries\",\n      \"datasource\": { \"\
+    type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\" },\n      \"gridPos\": {\
+    \ \"h\": 8, \"w\": 12, \"x\": 0, \"y\": 0 },\n      \"targets\": [\n        {\n\
+    \          \"expr\": \"soroscan_celery_queue_depth{job=~\\\"$job\\\",instance=~\\\
+    \"$instance\\\"}\",\n          \"legendFormat\": \"{{queue}}\"\n        }\n  \
+    \    ]\n    },\n    {\n      \"id\": 2,\n      \"title\": \"Active Tasks\",\n\
+    \      \"type\": \"timeseries\",\n      \"datasource\": { \"type\": \"prometheus\"\
+    , \"uid\": \"${DS_PROMETHEUS}\" },\n      \"gridPos\": { \"h\": 8, \"w\": 12,\
+    \ \"x\": 12, \"y\": 0 },\n      \"targets\": [\n        {\n          \"expr\"\
+    : \"sum(soroscan_celery_tasks_active{job=~\\\"$job\\\",instance=~\\\"$instance\\\
+    \"}) by (task_name)\",\n          \"legendFormat\": \"{{task_name}}\"\n      \
+    \  }\n      ]\n    },\n    {\n      \"id\": 3,\n      \"title\": \"Completed and\
+    \ Failed Tasks\",\n      \"type\": \"timeseries\",\n      \"datasource\": { \"\
+    type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\" },\n      \"gridPos\": {\
+    \ \"h\": 8, \"w\": 12, \"x\": 0, \"y\": 8 },\n      \"targets\": [\n        {\n\
+    \          \"expr\": \"sum(rate(soroscan_celery_tasks_total{job=~\\\"$job\\\"\
+    ,instance=~\\\"$instance\\\"}[5m])) by (status,task_name)\",\n          \"legendFormat\"\
+    : \"{{status}} {{task_name}}\"\n        }\n      ]\n    },\n    {\n      \"id\"\
+    : 4,\n      \"title\": \"Average Task Duration\",\n      \"type\": \"timeseries\"\
+    ,\n      \"datasource\": { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\"\
+    \ },\n      \"gridPos\": { \"h\": 8, \"w\": 8, \"x\": 12, \"y\": 8 },\n      \"\
+    targets\": [\n        {\n          \"expr\": \"sum(rate(soroscan_celery_task_duration_seconds_sum{job=~\\\
+    \"$job\\\",instance=~\\\"$instance\\\"}[5m])) by (task_name) / clamp_min(sum(rate(soroscan_celery_task_duration_seconds_count{job=~\\\
+    \"$job\\\",instance=~\\\"$instance\\\"}[5m])) by (task_name), 0.001)\",\n    \
+    \      \"legendFormat\": \"{{task_name}}\"\n        }\n      ]\n    },\n    {\n\
+    \      \"id\": 5,\n      \"title\": \"Workers Online\",\n      \"type\": \"stat\"\
+    ,\n      \"datasource\": { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\"\
+    \ },\n      \"gridPos\": { \"h\": 8, \"w\": 4, \"x\": 20, \"y\": 8 },\n      \"\
+    targets\": [\n        {\n          \"expr\": \"sum(soroscan_celery_workers_online{job=~\\\
+    \"$job\\\",instance=~\\\"$instance\\\"})\",\n          \"legendFormat\": \"workers\"\
+    \n        }\n      ]\n    }\n  ],\n  \"refresh\": \"30s\",\n  \"schemaVersion\"\
+    : 39,\n  \"tags\": [\"soroscan\", \"celery\", \"queue\"],\n  \"templating\": {\n\
+    \    \"list\": [\n      {\n        \"name\": \"job\",\n        \"type\": \"query\"\
+    ,\n        \"datasource\": { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\"\
+    \ },\n        \"query\": \"label_values(soroscan_celery_queue_depth, job)\",\n\
+    \        \"includeAll\": true,\n        \"current\": { \"text\": \"All\", \"value\"\
+    : \"$__all\" }\n      },\n      {\n        \"name\": \"instance\",\n        \"\
+    type\": \"query\",\n        \"datasource\": { \"type\": \"prometheus\", \"uid\"\
+    : \"${DS_PROMETHEUS}\" },\n        \"query\": \"label_values(soroscan_celery_queue_depth{job=~\\\
+    \"$job\\\"}, instance)\",\n        \"includeAll\": true,\n        \"current\"\
+    : { \"text\": \"All\", \"value\": \"$__all\" }\n      }\n    ]\n  },\n  \"time\"\
+    : { \"from\": \"now-6h\", \"to\": \"now\" },\n  \"title\": \"SoroScan - Celery\
+    \ Task Queue\",\n  \"uid\": \"soroscan-celery-queue\",\n  \"version\": 2\n}\n"
+  grafana-templates\event-ingestion-metrics.json: "{\n  \"__inputs\": [\n    {\n \
+    \     \"name\": \"DS_PROMETHEUS\",\n      \"label\": \"Prometheus\",\n      \"\
+    description\": \"Prometheus datasource\",\n      \"type\": \"datasource\",\n \
+    \     \"pluginId\": \"prometheus\",\n      \"pluginName\": \"Prometheus\"\n  \
+    \  }\n  ],\n  \"annotations\": {\n    \"list\": [\n      {\n        \"name\":\
+    \ \"Ingestion incidents\",\n        \"datasource\": { \"type\": \"prometheus\"\
+    , \"uid\": \"${DS_PROMETHEUS}\" },\n        \"enable\": true,\n        \"expr\"\
+    : \"increase(django_db_errors_total{type=\\\"ingest\\\"}[5m]) > 0\",\n       \
+    \ \"iconColor\": \"rgba(255, 170, 0, 1)\",\n        \"titleFormat\": \"Ingestion\
+    \ error burst\",\n        \"textFormat\": \"Database ingest errors increased\"\
+    \n      }\n    ]\n  },\n  \"editable\": true,\n  \"graphTooltip\": 1,\n  \"id\"\
+    : null,\n  \"panels\": [\n    {\n      \"id\": 11,\n      \"title\": \"Events\
+    \ Indexed / min\",\n      \"type\": \"timeseries\",\n      \"datasource\": { \"\
+    type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\" },\n      \"gridPos\": {\
+    \ \"h\": 8, \"w\": 12, \"x\": 0, \"y\": 0 },\n      \"targets\": [\n        {\n\
+    \          \"expr\": \"sum(rate(celery_tasks_total{name=~\\\".*ingest.*\\\",state=\\\
+    \"SUCCESS\\\",job=~\\\"$job\\\"}[1m])) * 60\",\n          \"legendFormat\": \"\
+    indexed\"\n        }\n      ]\n    },\n    {\n      \"id\": 12,\n      \"title\"\
+    : \"Ingestion Failures / min\",\n      \"type\": \"timeseries\",\n      \"datasource\"\
+    : { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\" },\n      \"gridPos\"\
+    : { \"h\": 8, \"w\": 12, \"x\": 12, \"y\": 0 },\n      \"targets\": [\n      \
+    \  {\n          \"expr\": \"sum(rate(celery_tasks_total{name=~\\\".*ingest.*\\\
+    \",state=\\\"FAILURE\\\",job=~\\\"$job\\\"}[1m])) * 60\",\n          \"legendFormat\"\
+    : \"failed\"\n        }\n      ]\n    },\n    {\n      \"id\": 13,\n      \"title\"\
+    : \"Task Runtime p95\",\n      \"type\": \"timeseries\",\n      \"datasource\"\
+    : { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\" },\n      \"gridPos\"\
+    : { \"h\": 8, \"w\": 12, \"x\": 0, \"y\": 8 },\n      \"targets\": [\n       \
+    \ {\n          \"expr\": \"histogram_quantile(0.95, sum(rate(celery_task_runtime_seconds_bucket{name=~\\\
+    \".*ingest.*\\\",instance=~\\\"$instance\\\"}[5m])) by (le, name))\",\n      \
+    \    \"legendFormat\": \"{{name}}\"\n        }\n      ]\n    },\n    {\n     \
+    \ \"id\": 14,\n      \"title\": \"Deduplication and DB Errors\",\n      \"type\"\
+    : \"timeseries\",\n      \"datasource\": { \"type\": \"prometheus\", \"uid\":\
+    \ \"${DS_PROMETHEUS}\" },\n      \"gridPos\": { \"h\": 8, \"w\": 12, \"x\": 12,\
+    \ \"y\": 8 },\n      \"targets\": [\n        {\n          \"expr\": \"sum(rate(django_db_errors_total{job=~\\\
+    \"$job\\\"}[5m])) by (type)\",\n          \"legendFormat\": \"db-{{type}}\"\n\
+    \        }\n      ]\n    }\n  ],\n  \"refresh\": \"30s\",\n  \"schemaVersion\"\
+    : 39,\n  \"tags\": [\"soroscan\", \"ingestion\", \"events\"],\n  \"templating\"\
+    : {\n    \"list\": [\n      {\n        \"name\": \"job\",\n        \"type\": \"\
+    query\",\n        \"datasource\": { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\"\
+    \ },\n        \"query\": \"label_values(celery_tasks_total, job)\",\n        \"\
+    includeAll\": true,\n        \"current\": { \"text\": \"All\", \"value\": \"$__all\"\
+    \ }\n      },\n      {\n        \"name\": \"instance\",\n        \"type\": \"\
+    query\",\n        \"datasource\": { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\"\
+    \ },\n        \"query\": \"label_values(celery_tasks_total{job=~\\\"$job\\\"},\
+    \ instance)\",\n        \"includeAll\": true,\n        \"current\": { \"text\"\
+    : \"All\", \"value\": \"$__all\" }\n      }\n    ]\n  },\n  \"time\": { \"from\"\
+    : \"now-6h\", \"to\": \"now\" },\n  \"title\": \"SoroScan - Event Ingestion Metrics\"\
+    ,\n  \"uid\": \"soroscan-ingestion-template\",\n  \"version\": 1\n}"
+  grafana-templates\performance-analysis.json: "{\n  \"__inputs\": [\n    {\n    \
+    \  \"name\": \"DS_PROMETHEUS\",\n      \"label\": \"Prometheus\",\n      \"description\"\
+    : \"Prometheus datasource\",\n      \"type\": \"datasource\",\n      \"pluginId\"\
+    : \"prometheus\",\n      \"pluginName\": \"Prometheus\"\n    }\n  ],\n  \"annotations\"\
+    : {\n    \"list\": [\n      {\n        \"name\": \"Performance regressions\",\n\
+    \        \"datasource\": { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\"\
+    \ },\n        \"enable\": true,\n        \"expr\": \"histogram_quantile(0.99,\
+    \ sum(rate(django_http_requests_latency_seconds_bucket[5m])) by (le)) > 2\",\n\
+    \        \"iconColor\": \"rgba(255, 170, 0, 1)\",\n        \"titleFormat\": \"\
+    p99 > 2s\",\n        \"textFormat\": \"API latency regression detected\"\n   \
+    \   }\n    ]\n  },\n  \"editable\": true,\n  \"graphTooltip\": 1,\n  \"id\": null,\n\
+    \  \"panels\": [\n    {\n      \"id\": 31,\n      \"title\": \"API Latency Percentiles\"\
+    ,\n      \"type\": \"timeseries\",\n      \"datasource\": { \"type\": \"prometheus\"\
+    , \"uid\": \"${DS_PROMETHEUS}\" },\n      \"gridPos\": { \"h\": 8, \"w\": 12,\
+    \ \"x\": 0, \"y\": 0 },\n      \"targets\": [\n        {\n          \"expr\":\
+    \ \"histogram_quantile(0.50, sum(rate(django_http_requests_latency_seconds_bucket{job=~\\\
+    \"$job\\\",instance=~\\\"$instance\\\"}[5m])) by (le))\",\n          \"legendFormat\"\
+    : \"p50\"\n        },\n        {\n          \"expr\": \"histogram_quantile(0.95,\
+    \ sum(rate(django_http_requests_latency_seconds_bucket{job=~\\\"$job\\\",instance=~\\\
+    \"$instance\\\"}[5m])) by (le))\",\n          \"legendFormat\": \"p95\"\n    \
+    \    },\n        {\n          \"expr\": \"histogram_quantile(0.99, sum(rate(django_http_requests_latency_seconds_bucket{job=~\\\
+    \"$job\\\",instance=~\\\"$instance\\\"}[5m])) by (le))\",\n          \"legendFormat\"\
+    : \"p99\"\n        }\n      ]\n    },\n    {\n      \"id\": 32,\n      \"title\"\
+    : \"Request Rate by View\",\n      \"type\": \"timeseries\",\n      \"datasource\"\
+    : { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\" },\n      \"gridPos\"\
+    : { \"h\": 8, \"w\": 12, \"x\": 12, \"y\": 0 },\n      \"targets\": [\n      \
+    \  {\n          \"expr\": \"sum(rate(django_http_requests_total_by_view_transport_method_total{job=~\\\
+    \"$job\\\"}[5m])) by (view)\",\n          \"legendFormat\": \"{{view}}\"\n   \
+    \     }\n      ]\n    },\n    {\n      \"id\": 33,\n      \"title\": \"DB Query\
+    \ Latency p95\",\n      \"type\": \"timeseries\",\n      \"datasource\": { \"\
+    type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\" },\n      \"gridPos\": {\
+    \ \"h\": 8, \"w\": 12, \"x\": 0, \"y\": 8 },\n      \"targets\": [\n        {\n\
+    \          \"expr\": \"histogram_quantile(0.95, sum(rate(django_db_execute_many_duration_seconds_bucket{job=~\\\
+    \"$job\\\"}[5m])) by (le, vendor))\",\n          \"legendFormat\": \"{{vendor}}\"\
+    \n        }\n      ]\n    },\n    {\n      \"id\": 34,\n      \"title\": \"Top\
+    \ Slow Views (avg latency)\",\n      \"type\": \"table\",\n      \"datasource\"\
+    : { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\" },\n      \"gridPos\"\
+    : { \"h\": 8, \"w\": 12, \"x\": 12, \"y\": 8 },\n      \"targets\": [\n      \
+    \  {\n          \"expr\": \"topk(10, sum(rate(django_http_requests_latency_seconds_sum{job=~\\\
+    \"$job\\\"}[5m])) by (view) / clamp_min(sum(rate(django_http_requests_latency_seconds_count{job=~\\\
+    \"$job\\\"}[5m])) by (view), 1))\",\n          \"format\": \"table\",\n      \
+    \    \"legendFormat\": \"{{view}}\"\n        }\n      ]\n    }\n  ],\n  \"refresh\"\
+    : \"30s\",\n  \"schemaVersion\": 39,\n  \"tags\": [\"soroscan\", \"performance\"\
+    , \"analysis\"],\n  \"templating\": {\n    \"list\": [\n      {\n        \"name\"\
+    : \"job\",\n        \"type\": \"query\",\n        \"datasource\": { \"type\":\
+    \ \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\" },\n        \"query\": \"label_values(django_http_requests_latency_seconds_count,\
+    \ job)\",\n        \"includeAll\": true,\n        \"current\": { \"text\": \"\
+    All\", \"value\": \"$__all\" }\n      },\n      {\n        \"name\": \"instance\"\
+    ,\n        \"type\": \"query\",\n        \"datasource\": { \"type\": \"prometheus\"\
+    , \"uid\": \"${DS_PROMETHEUS}\" },\n        \"query\": \"label_values(django_http_requests_latency_seconds_count{job=~\\\
+    \"$job\\\"}, instance)\",\n        \"includeAll\": true,\n        \"current\"\
+    : { \"text\": \"All\", \"value\": \"$__all\" }\n      }\n    ]\n  },\n  \"time\"\
+    : { \"from\": \"now-6h\", \"to\": \"now\" },\n  \"title\": \"SoroScan - Performance\
+    \ Analysis\",\n  \"uid\": \"soroscan-performance-template\",\n  \"version\": 1\n\
+    }"
+  grafana-templates\system-health-overview.json: "{\n  \"__inputs\": [\n    {\n  \
+    \    \"name\": \"DS_PROMETHEUS\",\n      \"label\": \"Prometheus\",\n      \"\
+    description\": \"Prometheus datasource connected to SoroScan metrics endpoint\"\
+    ,\n      \"type\": \"datasource\",\n      \"pluginId\": \"prometheus\",\n    \
+    \  \"pluginName\": \"Prometheus\"\n    }\n  ],\n  \"annotations\": {\n    \"list\"\
+    : [\n      {\n        \"name\": \"Deployments\",\n        \"datasource\": {\n\
+    \          \"type\": \"prometheus\",\n          \"uid\": \"${DS_PROMETHEUS}\"\n\
+    \        },\n        \"enable\": true,\n        \"iconColor\": \"rgba(0, 211,\
+    \ 255, 1)\",\n        \"expr\": \"changes(kube_deployment_status_observed_generation{namespace=~\\\
+    \"$namespace\\\"}[5m]) > 0\",\n        \"titleFormat\": \"Deployment change\"\
+    ,\n        \"textFormat\": \"Observed generation updated\"\n      }\n    ]\n \
+    \ },\n  \"editable\": true,\n  \"graphTooltip\": 1,\n  \"id\": null,\n  \"panels\"\
+    : [\n    {\n      \"id\": 1,\n      \"title\": \"Service Up\",\n      \"type\"\
+    : \"stat\",\n      \"datasource\": { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\"\
+    \ },\n      \"gridPos\": { \"h\": 4, \"w\": 6, \"x\": 0, \"y\": 0 },\n      \"\
+    targets\": [\n        {\n          \"expr\": \"max(up{job=~\\\"$job\\\",instance=~\\\
+    \"$instance\\\"})\",\n          \"legendFormat\": \"up\"\n        }\n      ]\n\
+    \    },\n    {\n      \"id\": 2,\n      \"title\": \"HTTP Error Rate\",\n    \
+    \  \"type\": \"timeseries\",\n      \"datasource\": { \"type\": \"prometheus\"\
+    , \"uid\": \"${DS_PROMETHEUS}\" },\n      \"gridPos\": { \"h\": 8, \"w\": 12,\
+    \ \"x\": 6, \"y\": 0 },\n      \"targets\": [\n        {\n          \"expr\":\
+    \ \"sum(rate(django_http_responses_total_by_status_total{status=~\\\"5..\\\",job=~\\\
+    \"$job\\\",instance=~\\\"$instance\\\"}[5m]))\",\n          \"legendFormat\":\
+    \ \"5xx\"\n        },\n        {\n          \"expr\": \"sum(rate(django_http_responses_total_by_status_total{status=~\\\
+    \"4..\\\",job=~\\\"$job\\\",instance=~\\\"$instance\\\"}[5m]))\",\n          \"\
+    legendFormat\": \"4xx\"\n        }\n      ]\n    },\n    {\n      \"id\": 3,\n\
+    \      \"title\": \"Celery Queue Depth\",\n      \"type\": \"timeseries\",\n \
+    \     \"datasource\": { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\"\
+    \ },\n      \"gridPos\": { \"h\": 8, \"w\": 6, \"x\": 18, \"y\": 0 },\n      \"\
+    targets\": [\n        {\n          \"expr\": \"sum(celery_worker_tasks_active{instance=~\\\
+    \"$instance\\\"})\",\n          \"legendFormat\": \"active\"\n        }\n    \
+    \  ]\n    },\n    {\n      \"id\": 4,\n      \"title\": \"DB Error Count\",\n\
+    \      \"type\": \"timeseries\",\n      \"datasource\": { \"type\": \"prometheus\"\
+    , \"uid\": \"${DS_PROMETHEUS}\" },\n      \"gridPos\": { \"h\": 8, \"w\": 12,\
+    \ \"x\": 0, \"y\": 8 },\n      \"targets\": [\n        {\n          \"expr\":\
+    \ \"sum(rate(django_db_errors_total{job=~\\\"$job\\\"}[5m])) by (type)\",\n  \
+    \        \"legendFormat\": \"{{type}}\"\n        }\n      ]\n    },\n    {\n \
+    \     \"id\": 5,\n      \"title\": \"Worker Runtime p95\",\n      \"type\": \"\
+    timeseries\",\n      \"datasource\": { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\"\
+    \ },\n      \"gridPos\": { \"h\": 8, \"w\": 12, \"x\": 12, \"y\": 8 },\n     \
+    \ \"targets\": [\n        {\n          \"expr\": \"histogram_quantile(0.95, sum(rate(celery_task_runtime_seconds_bucket{instance=~\\\
+    \"$instance\\\"}[5m])) by (le, name))\",\n          \"legendFormat\": \"{{name}}\"\
+    \n        }\n      ]\n    }\n  ],\n  \"refresh\": \"30s\",\n  \"schemaVersion\"\
+    : 39,\n  \"tags\": [\"soroscan\", \"system\", \"health\"],\n  \"templating\":\
+    \ {\n    \"list\": [\n      {\n        \"name\": \"namespace\",\n        \"type\"\
+    : \"query\",\n        \"datasource\": { \"type\": \"prometheus\", \"uid\": \"\
+    ${DS_PROMETHEUS}\" },\n        \"query\": \"label_values(kube_pod_info, namespace)\"\
+    ,\n        \"current\": { \"text\": \"default\", \"value\": \"default\" }\n  \
+    \    },\n      {\n        \"name\": \"job\",\n        \"type\": \"query\",\n \
+    \       \"datasource\": { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\"\
+    \ },\n        \"query\": \"label_values(up{namespace=~\\\"$namespace\\\"}, job)\"\
+    ,\n        \"includeAll\": true,\n        \"current\": { \"text\": \"All\", \"\
+    value\": \"$__all\" }\n      },\n      {\n        \"name\": \"instance\",\n  \
+    \      \"type\": \"query\",\n        \"datasource\": { \"type\": \"prometheus\"\
+    , \"uid\": \"${DS_PROMETHEUS}\" },\n        \"query\": \"label_values(up{job=~\\\
+    \"$job\\\"}, instance)\",\n        \"includeAll\": true,\n        \"current\"\
+    : { \"text\": \"All\", \"value\": \"$__all\" }\n      }\n    ]\n  },\n  \"time\"\
+    : { \"from\": \"now-6h\", \"to\": \"now\" },\n  \"title\": \"SoroScan - System\
+    \ Health Overview\",\n  \"uid\": \"soroscan-system-health-template\",\n  \"version\"\
+    : 1\n}"
+  grafana-templates\webhook-delivery-status.json: "{\n  \"__inputs\": [\n    {\n \
+    \     \"name\": \"DS_PROMETHEUS\",\n      \"label\": \"Prometheus\",\n      \"\
+    description\": \"Prometheus datasource\",\n      \"type\": \"datasource\",\n \
+    \     \"pluginId\": \"prometheus\",\n      \"pluginName\": \"Prometheus\"\n  \
+    \  }\n  ],\n  \"annotations\": {\n    \"list\": [\n      {\n        \"name\":\
+    \ \"Retry spikes\",\n        \"datasource\": { \"type\": \"prometheus\", \"uid\"\
+    : \"${DS_PROMETHEUS}\" },\n        \"enable\": true,\n        \"expr\": \"sum(rate(celery_tasks_total{name=~\\\
+    \".*webhook.*retry.*\\\",state=\\\"STARTED\\\"}[5m])) > 0\",\n        \"iconColor\"\
+    : \"rgba(255, 106, 106, 1)\",\n        \"titleFormat\": \"Retry burst\",\n   \
+    \     \"textFormat\": \"Webhook retries are increasing\"\n      }\n    ]\n  },\n\
+    \  \"editable\": true,\n  \"graphTooltip\": 1,\n  \"id\": null,\n  \"panels\"\
+    : [\n    {\n      \"id\": 21,\n      \"title\": \"Webhook Success Rate\",\n  \
+    \    \"type\": \"timeseries\",\n      \"datasource\": { \"type\": \"prometheus\"\
+    , \"uid\": \"${DS_PROMETHEUS}\" },\n      \"gridPos\": { \"h\": 8, \"w\": 12,\
+    \ \"x\": 0, \"y\": 0 },\n      \"targets\": [\n        {\n          \"expr\":\
+    \ \"100 * sum(rate(celery_tasks_total{name=~\\\".*webhook.*\\\",state=\\\"SUCCESS\\\
+    \",job=~\\\"$job\\\"}[5m])) / clamp_min(sum(rate(celery_tasks_total{name=~\\\"\
+    .*webhook.*\\\",job=~\\\"$job\\\"}[5m])), 1)\",\n          \"legendFormat\": \"\
+    success %\"\n        }\n      ]\n    },\n    {\n      \"id\": 22,\n      \"title\"\
+    : \"Webhook Retry Throughput\",\n      \"type\": \"timeseries\",\n      \"datasource\"\
+    : { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\" },\n      \"gridPos\"\
+    : { \"h\": 8, \"w\": 12, \"x\": 12, \"y\": 0 },\n      \"targets\": [\n      \
+    \  {\n          \"expr\": \"sum(rate(celery_tasks_total{name=~\\\".*webhook.*retry.*\\\
+    \",job=~\\\"$job\\\"}[5m]))\",\n          \"legendFormat\": \"retry/s\"\n    \
+    \    }\n      ]\n    },\n    {\n      \"id\": 23,\n      \"title\": \"Webhook\
+    \ Delivery Runtime p95\",\n      \"type\": \"timeseries\",\n      \"datasource\"\
+    : { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\" },\n      \"gridPos\"\
+    : { \"h\": 8, \"w\": 12, \"x\": 0, \"y\": 8 },\n      \"targets\": [\n       \
+    \ {\n          \"expr\": \"histogram_quantile(0.95, sum(rate(celery_task_runtime_seconds_bucket{name=~\\\
+    \".*webhook.*\\\",instance=~\\\"$instance\\\"}[5m])) by (le, name))\",\n     \
+    \     \"legendFormat\": \"{{name}}\"\n        }\n      ]\n    },\n    {\n    \
+    \  \"id\": 24,\n      \"title\": \"Failure Breakdown\",\n      \"type\": \"table\"\
+    ,\n      \"datasource\": { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\"\
+    \ },\n      \"gridPos\": { \"h\": 8, \"w\": 12, \"x\": 12, \"y\": 8 },\n     \
+    \ \"targets\": [\n        {\n          \"expr\": \"sum(rate(celery_tasks_total{name=~\\\
+    \".*webhook.*\\\",state=\\\"FAILURE\\\",job=~\\\"$job\\\"}[5m])) by (name)\",\n\
+    \          \"legendFormat\": \"{{name}}\",\n          \"format\": \"table\"\n\
+    \        }\n      ]\n    }\n  ],\n  \"refresh\": \"30s\",\n  \"schemaVersion\"\
+    : 39,\n  \"tags\": [\"soroscan\", \"webhook\", \"delivery\"],\n  \"templating\"\
+    : {\n    \"list\": [\n      {\n        \"name\": \"job\",\n        \"type\": \"\
+    query\",\n        \"datasource\": { \"type\": \"prometheus\", \"uid\": \"${DS_PROMETHEUS}\"\
+    \ },\n        \"query\": \"label_values(celery_tasks_total{name=~\\\".*webhook.*\\\
+    \"}, job)\",\n        \"includeAll\": true,\n        \"current\": { \"text\":\
+    \ \"All\", \"value\": \"$__all\" }\n      },\n      {\n        \"name\": \"instance\"\
+    ,\n        \"type\": \"query\",\n        \"datasource\": { \"type\": \"prometheus\"\
+    , \"uid\": \"${DS_PROMETHEUS}\" },\n        \"query\": \"label_values(celery_tasks_total{job=~\\\
+    \"$job\\\"}, instance)\",\n        \"includeAll\": true,\n        \"current\"\
+    : { \"text\": \"All\", \"value\": \"$__all\" }\n      }\n    ]\n  },\n  \"time\"\
+    : { \"from\": \"now-24h\", \"to\": \"now\" },\n  \"title\": \"SoroScan - Webhook\
+    \ Delivery Status\",\n  \"uid\": \"soroscan-webhook-template\",\n  \"version\"\
+    : 1\n}"
