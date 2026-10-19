@@ -1,0 +1,43 @@
+name: Documentation CI
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "soroscan-docs/**"
+      - "docs/**"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - "soroscan-docs/**"
+      - "docs/**"
+      - ".github/workflows/docs.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-docs:
+    name: Build Docusaurus site and verify links
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: soroscan-docs
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: "soroscan-docs/package-lock.json"
+
+      - name: Install documentation dependencies
+        run: npm ci
+
+      - name: Build Docusaurus documentation
+        run: npm run build
