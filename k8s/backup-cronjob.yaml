@@ -23,6 +23,8 @@ spec:
             app: soroscan
             component: pg-backup
         spec:
+          serviceAccountName: soroscan-serviceaccount
+          automountServiceAccountToken: false
           restartPolicy: OnFailure
           containers:
             - name: pg-backup
