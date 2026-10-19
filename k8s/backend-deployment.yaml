@@ -83,6 +83,7 @@ spec:
                 name: soroscan-config
             - secretRef:
                 name: soroscan-secrets
+          imagePullPolicy: IfNotPresent
           readinessProbe:
             httpGet:
               path: /ready/

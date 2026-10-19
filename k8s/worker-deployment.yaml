@@ -40,6 +40,7 @@ spec:
                 name: soroscan-config
             - secretRef:
                 name: soroscan-secrets
+          imagePullPolicy: IfNotPresent
           resources:
             limits:
               cpu: 2000m
@@ -99,6 +100,7 @@ spec:
                 name: soroscan-config
             - secretRef:
                 name: soroscan-secrets
+          imagePullPolicy: IfNotPresent
           resources:
             limits:
               cpu: 1000m
@@ -158,6 +160,7 @@ spec:
                 name: soroscan-config
             - secretRef:
                 name: soroscan-secrets
+          imagePullPolicy: IfNotPresent
           resources:
             limits:
               cpu: 1000m
@@ -217,6 +220,7 @@ spec:
                 name: soroscan-config
             - secretRef:
                 name: soroscan-secrets
+          imagePullPolicy: IfNotPresent
           resources:
             limits:
               cpu: 500m
