@@ -396,6 +396,40 @@ class APIKeyThrottleTests(TestCase):
         self.assertGreaterEqual(wait_seconds, 0.0)
         self.assertLessEqual(wait_seconds, 3600)
 
+    def test_reject_invalid_key_increments_counter(self):
+        from soroscan.throttles import APIKeyThrottle
+        from soroscan.ingest.metrics import throttle_rejections_total
+
+        before = throttle_rejections_total.labels(reason="invalid_key")._value.get()
+        throttle = APIKeyThrottle()
+        factory = APIRequestFactory()
+        request = factory.get("/api/ingest/events/", HTTP_AUTHORIZATION="ApiKey BADKEY")
+        request.user = self.user
+        self.assertFalse(throttle.allow_request(request, MagicMock()))
+        after = throttle_rejections_total.labels(reason="invalid_key")._value.get()
+        self.assertEqual(after, before + 1)
+
+    def test_reject_quota_exhausted_increments_counter(self):
+        from soroscan.throttles import APIKeyThrottle
+        from soroscan.ingest.metrics import throttle_rejections_total
+
+        before = throttle_rejections_total.labels(reason="quota_exhausted")._value.get()
+        throttle = APIKeyThrottle()
+        cache_key = throttle._cache_key(self.api_key.id)
+        cache.set(cache_key, self.api_key.quota_per_hour + 1)
+
+        factory = APIRequestFactory()
+        request = factory.get(
+            "/api/ingest/events/",
+            HTTP_AUTHORIZATION=f"ApiKey {self.api_key.key}",
+        )
+        request.user = self.user
+        view = MagicMock()
+        view.kwargs = {}
+        self.assertFalse(throttle.allow_request(request, view))
+        after = throttle_rejections_total.labels(reason="quota_exhausted")._value.get()
+        self.assertEqual(after, before + 1)
+
 
 # ---------------------------------------------------------------------------
 # SlowQueryMiddleware tests

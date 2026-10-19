@@ -51,6 +51,13 @@ class RateLimitHeaderMixin:
     def allow_request(self, request, view):
         allowed = super().allow_request(request, view)
         self._write_ratelimit_headers(request, allowed)
+        if not allowed:
+            scope = getattr(self, "scope", None) or "rate_limit_exceeded"
+            try:
+                from soroscan.ingest.metrics import throttle_rejections_total
+                throttle_rejections_total.labels(reason=scope).inc()
+            except Exception:
+                pass
         return allowed
 
     def _write_ratelimit_headers(self, request, allowed: bool) -> None:
@@ -137,6 +144,11 @@ class APIKeyThrottle(BaseThrottle):
                 )
             except APIKey.DoesNotExist:
                 # Invalid / revoked key → reject
+                try:
+                    from soroscan.ingest.metrics import throttle_rejections_total
+                    throttle_rejections_total.labels(reason="invalid_key").inc()
+                except Exception:
+                    pass
                 self._set_headers(request, limit=0, remaining=0, reset=self._next_reset())
                 return False
 
@@ -167,6 +179,11 @@ class APIKeyThrottle(BaseThrottle):
         reset_ts = self._next_reset()
 
         if count >= quota:
+            try:
+                from soroscan.ingest.metrics import throttle_rejections_total
+                throttle_rejections_total.labels(reason="quota_exhausted").inc()
+            except Exception:
+                pass
             self._set_headers(request, limit=quota, remaining=0, reset=reset_ts)
             logger.warning(
                 "API key %s quota exhausted (%d/%d req/hr)",
@@ -277,6 +294,16 @@ class DBExplainThrottle(SimpleRateThrottle):
             ident = self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
+    def allow_request(self, request, view):
+        allowed = super().allow_request(request, view)
+        if not allowed:
+            try:
+                from soroscan.ingest.metrics import throttle_rejections_total
+                throttle_rejections_total.labels(reason=getattr(self, "scope", "db_explain")).inc()
+            except Exception:
+                pass
+        return allowed
+
 
 class DynamicEndpointThrottle(RateLimitHeaderMixin, ScopedRateThrottle):
     """
@@ -355,4 +382,11 @@ class UnauthenticatedIPRateThrottle(SimpleRateThrottle):
         # Authenticated users are never throttled by this class
         if request.user and request.user.is_authenticated:
             return True
-        return super().allow_request(request, view)
+        allowed = super().allow_request(request, view)
+        if not allowed:
+            try:
+                from soroscan.ingest.metrics import throttle_rejections_total
+                throttle_rejections_total.labels(reason=getattr(self, "scope", "unauthenticated_ip")).inc()
+            except Exception:
+                pass
+        return allowed

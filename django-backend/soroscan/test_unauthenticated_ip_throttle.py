@@ -89,3 +89,27 @@ def test_get_cache_key_returns_key_for_anonymous():
     key = throttle.get_cache_key(req, view)
     assert key is not None
     assert "unauthenticated_ip" in key
+
+
+@pytest.mark.django_db
+def test_unauthenticated_request_throttled_increments_counter(user):
+    """Throttled unauthenticated requests should increment throttle_rejections_total."""
+    from soroscan.ingest.metrics import throttle_rejections_total
+
+    factory = APIRequestFactory()
+    view = _make_view()
+    throttle = _make_throttle("1/minute")
+
+    before = throttle_rejections_total.labels(reason="unauthenticated_ip")._value.get()
+
+    req1 = factory.get("/api/ingest/health/")
+    req1.user = None
+    assert throttle.allow_request(req1, view) is True
+
+    req2 = factory.get("/api/ingest/health/")
+    req2.user = None
+    assert throttle.allow_request(req2, view) is False
+
+    after = throttle_rejections_total.labels(reason="unauthenticated_ip")._value.get()
+    assert after == before + 1
+

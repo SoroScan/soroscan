@@ -53,6 +53,8 @@ __all__ = [
     "reorg_detected_total",
     "reorg_rolled_back_events_total",
     "last_reorg_ledger",
+    # rate-limit and throttle rejection metrics
+    "throttle_rejections_total",
 ]
 
 
@@ -367,4 +369,11 @@ last_reorg_ledger = _get_or_create(
     Gauge,
     "soroscan_last_reorg_ledger",
     "Ledger sequence of the most recent detected re-org fork",
+)
+
+throttle_rejections_total = _get_or_create(
+    Counter,
+    "soroscan_throttle_rejections_total",
+    "Total number of requests rejected by API throttle classes, labelled by reason",
+    ["reason"],
 )
