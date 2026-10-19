@@ -6,6 +6,8 @@ These endpoints return the cursor-based pagination shape expected by
 """
 from __future__ import annotations
 
+from django.db.models import Q
+from django.utils.dateparse import parse_datetime
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
@@ -61,6 +63,56 @@ def _contract_to_sdk(contract: TrackedContract) -> dict:
     }
 
 
+def _find_event_by_cursor(base_queryset, cursor: str) -> ContractEvent | None:
+    if not cursor or not isinstance(cursor, str):
+        return None
+    cursor = cursor.strip()
+    if not cursor:
+        return None
+
+    # 1. Paging token format: "<ledger>-<event_index>"
+    if "-" in cursor:
+        parts = cursor.split("-", 1)
+        if parts[0].isdigit() and parts[1].isdigit():
+            ledger = int(parts[0])
+            idx = int(parts[1])
+            ev = base_queryset.filter(ledger=ledger, event_index=idx).first()
+            if ev:
+                return ev
+            ev = ContractEvent.objects.filter(ledger=ledger, event_index=idx).first()
+            if ev:
+                return ev
+
+    # 2. Integer ID
+    if cursor.isdigit():
+        try:
+            ev = base_queryset.filter(id=int(cursor)).first() or ContractEvent.objects.filter(id=int(cursor)).first()
+            if ev:
+                return ev
+        except Exception:
+            pass
+
+    # 3. String / UUID ID
+    try:
+        ev = base_queryset.filter(id=cursor).first() or ContractEvent.objects.filter(id=cursor).first()
+        if ev:
+            return ev
+    except Exception:
+        pass
+
+    # 4. ISO timestamp
+    try:
+        dt = parse_datetime(cursor)
+        if dt:
+            ev = base_queryset.filter(timestamp=dt).first() or ContractEvent.objects.filter(timestamp=dt).first()
+            if ev:
+                return ev
+    except Exception:
+        pass
+
+    return None
+
+
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def list_events(request):
@@ -69,36 +121,145 @@ def list_events(request):
 
     Query params:
     - first (int) - Maximum items to return, capped at 200 (default 20)
+    - last (int) - Maximum items to return from end, capped at 200
     - contractId (string) - Filter by Soroban contract ID
     - eventType (string) - Filter by event type label
+    - startLedger (int) - Filter events at or after this ledger
+    - endLedger (int) - Filter events at or before this ledger
+    - after (string) - Fetch events after this cursor (pagingToken)
+    - before (string) - Fetch events before this cursor (pagingToken)
 
     - 200: Paginated event list with pageInfo cursors
     """
-    try:
-        first = min(int(request.query_params.get("first", 20)), 200)
-    except (TypeError, ValueError):
-        first = 20
+    after_cursor = request.query_params.get("after")
+    before_cursor = request.query_params.get("before")
 
-    queryset = ContractEvent.objects.select_related("contract").order_by("-timestamp")
+    last_param = request.query_params.get("last")
+    is_last = False
+    if last_param is not None:
+        try:
+            limit = min(int(last_param), 200)
+            if limit < 1:
+                limit = 20
+            is_last = True
+        except (TypeError, ValueError):
+            limit = 20
+    else:
+        try:
+            limit = min(int(request.query_params.get("first", 20)), 200)
+            if limit < 1:
+                limit = 20
+        except (TypeError, ValueError):
+            limit = 20
+
+    base_qs = ContractEvent.objects.select_related("contract").order_by("-timestamp", "-id")
 
     contract_id = request.query_params.get("contractId")
     if contract_id:
-        queryset = queryset.filter(contract__contract_id=contract_id)
+        base_qs = base_qs.filter(contract__contract_id=contract_id)
 
     event_type = request.query_params.get("eventType")
     if event_type:
-        queryset = queryset.filter(event_type=event_type)
+        base_qs = base_qs.filter(event_type=event_type)
 
-    total = queryset.count()
-    events = list(queryset[:first])
+    start_ledger = request.query_params.get("startLedger")
+    if start_ledger is not None:
+        try:
+            base_qs = base_qs.filter(ledger__gte=int(start_ledger))
+        except (ValueError, TypeError):
+            pass
+
+    end_ledger = request.query_params.get("endLedger")
+    if end_ledger is not None:
+        try:
+            base_qs = base_qs.filter(ledger__lte=int(end_ledger))
+        except (ValueError, TypeError):
+            pass
+
+    total = base_qs.count()
+
+    ref_after = _find_event_by_cursor(base_qs, after_cursor) if after_cursor else None
+    ref_before = _find_event_by_cursor(base_qs, before_cursor) if before_cursor else None
+
+    if after_cursor and not ref_after:
+        return Response(
+            {
+                "items": [],
+                "pageInfo": {
+                    "hasNextPage": False,
+                    "hasPreviousPage": False,
+                    "startCursor": None,
+                    "endCursor": None,
+                },
+                "totalCount": total,
+            }
+        )
+
+    if before_cursor and not ref_before:
+        return Response(
+            {
+                "items": [],
+                "pageInfo": {
+                    "hasNextPage": False,
+                    "hasPreviousPage": False,
+                    "startCursor": None,
+                    "endCursor": None,
+                },
+                "totalCount": total,
+            }
+        )
+
+    queryset = base_qs
+    has_previous_page = False
+    has_next_page = False
+
+    if ref_after:
+        queryset = queryset.filter(
+            Q(timestamp__lt=ref_after.timestamp)
+            | Q(timestamp=ref_after.timestamp, id__lt=ref_after.id)
+        )
+        has_previous_page = base_qs.filter(
+            Q(timestamp__gt=ref_after.timestamp)
+            | Q(timestamp=ref_after.timestamp, id__gte=ref_after.id)
+        ).exists()
+
+    if ref_before:
+        queryset = queryset.filter(
+            Q(timestamp__gt=ref_before.timestamp)
+            | Q(timestamp=ref_before.timestamp, id__gt=ref_before.id)
+        )
+        has_next_page = base_qs.filter(
+            Q(timestamp__lt=ref_before.timestamp)
+            | Q(timestamp=ref_before.timestamp, id__lte=ref_before.id)
+        ).exists()
+
+    if is_last:
+        all_matches = list(queryset)
+        if len(all_matches) > limit:
+            has_previous_page = True
+            events = all_matches[-limit:]
+        else:
+            events = all_matches
+            if not ref_after:
+                has_previous_page = False
+    else:
+        events_plus = list(queryset[:limit + 1])
+        if len(events_plus) > limit:
+            has_next_page = True
+            events = events_plus[:limit]
+        else:
+            if not ref_before:
+                has_next_page = False
+            events = events_plus
+
     items = [_event_to_sdk(event) for event in events]
 
     return Response(
         {
             "items": items,
             "pageInfo": {
-                "hasNextPage": total > first,
-                "hasPreviousPage": False,
+                "hasNextPage": has_next_page,
+                "hasPreviousPage": has_previous_page,
                 "startCursor": items[0]["pagingToken"] if items else None,
                 "endCursor": items[-1]["pagingToken"] if items else None,
             },
