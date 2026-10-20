@@ -471,7 +471,6 @@ export default function WebhookDetailPage() {
                   </div>
                 } />
                 <InfoRow label="CONTRACT_FILTER" value={webhook.contractFilter ?? "ALL_CONTRACTS"} />
-                <InfoRow label="REQUEST_TIMEOUT" value={`${webhook.timeoutSeconds}s`} mono={false} />
                 <div className="col-span-full mt-4 rounded border border-terminal-green/10 bg-terminal-black/30 p-4">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                     <div>
@@ -480,7 +479,7 @@ export default function WebhookDetailPage() {
                         Webhook delivery requests will abort after this timeout if the endpoint is too slow.
                       </p>
                     </div>
-                    <div className="text-[10px] text-terminal-gray">Valid range: 5–60 seconds</div>
+                    <div className="text-[10px] text-terminal-gray">Current: <span className="text-terminal-green font-semibold">{webhook.timeoutSeconds}s</span> · Valid range: 5–60 seconds</div>
                   </div>
 
                   <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto] items-end">
