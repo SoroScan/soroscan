@@ -469,6 +469,58 @@ describe("deleteWebhook()", () => {
   });
 });
 
+describe("testWebhook()", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("sends POST request to /v1/webhooks/:id/test and returns queued status", async () => {
+    mockFetch({ status: "test_webhook_queued" });
+    const result = await makeClient("key").testWebhook("wh_001");
+    expect(result.status).toBe("test_webhook_queued");
+
+    const [url, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit
+    ];
+    expect(url).toContain("/v1/webhooks/wh_001/test");
+    expect(init.method).toBe("POST");
+  });
+
+  it("supports numeric webhook IDs", async () => {
+    mockFetch({ status: "test_webhook_queued" });
+    const result = await makeClient("key").testWebhook(42);
+    expect(result.status).toBe("test_webhook_queued");
+
+    const [url, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit
+    ];
+    expect(url).toContain("/v1/webhooks/42/test");
+    expect(init.method).toBe("POST");
+  });
+
+  it("URL-encodes special characters in webhook ID", async () => {
+    mockFetch({ status: "test_webhook_queued" });
+    await makeClient("key").testWebhook("wh/special#test");
+
+    const [url, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit
+    ];
+    expect(url).toContain("/v1/webhooks/wh%2Fspecial%23test/test");
+    expect(init.method).toBe("POST");
+  });
+
+  it("propagates error on failure (e.g. 404 webhook not found)", async () => {
+    mockFetch({ code: "NOT_FOUND", message: "Webhook not found" }, 404);
+    await expect(
+      makeClient("key").testWebhook("wh_nonexistent")
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      code: "NOT_FOUND",
+    });
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Error handling
 // ─────────────────────────────────────────────────────────────────────────────

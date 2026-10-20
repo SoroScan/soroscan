@@ -71,6 +71,7 @@ export type {
   SubscribeWebhookParams,
   UpdateWebhookParams,
   WebhookListResponse,
+  TestWebhookResponse,
   // SC-17: Contract event type info
   ContractEventTypeInfo,
   // SC-29: Batch event recording

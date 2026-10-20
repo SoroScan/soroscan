@@ -22,6 +22,7 @@ import type {
   UpdateWebhookParams,
   Webhook,
   WebhookListResponse,
+  TestWebhookResponse,
   PaginatedResponse,
   RecordEventsBatchParams,
   RecordEventsBatchResponse,
@@ -598,6 +599,23 @@ export class SoroScanClient {
     return this.#request<void>(
       "DELETE",
       `/v1/webhooks/${encodeURIComponent(webhookId)}`
+    );
+  }
+
+  /**
+   * Send a test webhook delivery notification to the subscriber endpoint.
+   *
+   * @param webhookId - Webhook identifier (string or number)
+   * @returns Response indicating that the test delivery has been queued
+   *
+   * @example
+   * const result = await client.testWebhook("wh_001");
+   * console.log(result.status); // "test_webhook_queued"
+   */
+  async testWebhook(webhookId: string | number): Promise<TestWebhookResponse> {
+    return this.#request<TestWebhookResponse>(
+      "POST",
+      `/v1/webhooks/${encodeURIComponent(String(webhookId))}/test`
     );
   }
 }

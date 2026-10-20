@@ -390,6 +390,11 @@ export interface WebhookListResponse {
   totalCount: number;
 }
 
+export interface TestWebhookResponse {
+  /** Delivery status indicator returned by the test webhook endpoint (e.g. "test_webhook_queued") */
+  status: string;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SC-16: Contract health
 // ─────────────────────────────────────────────────────────────────────────────
