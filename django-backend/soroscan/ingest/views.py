@@ -28,7 +28,7 @@ from rest_framework import renderers, serializers, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
 from rest_framework.exceptions import ValidationError
 from rest_framework.filters import OrderingFilter, SearchFilter
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -2118,6 +2118,10 @@ def event_type_statistics_view(request):
                 "batch_id": serializers.IntegerField(),
             },
         ),
+        403: inline_serializer(
+            name="RestoreForbidden",
+            fields={"detail": serializers.CharField()},
+        ),
         404: inline_serializer(
             name="RestoreNotFound",
             fields={"detail": serializers.CharField()},
@@ -2129,7 +2133,7 @@ def event_type_statistics_view(request):
     },
 )
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, IsAdminUser])
 @throttle_classes([UserRateThrottle])
 def restore_archived_events(request):
     """

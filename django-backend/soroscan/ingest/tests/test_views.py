@@ -899,3 +899,35 @@ class TestEventCountCaching:
         with patch.object(cache, 'set') as mock_set:
             get_event_count(contract.contract_id)
             mock_set.assert_called_once_with(f"event_count:{contract.contract_id}", 2, 300)
+
+
+@pytest.mark.django_db
+class TestRestoreArchivedEventsPermission:
+    """Regression tests for Issue #1591: restore_archived_events requires staff privileges."""
+
+    def test_unauthenticated_request_is_rejected(self, api_client):
+        url = reverse("restore-archive")
+        response = api_client.post(url, {"batch_id": 1})
+        assert response.status_code in (
+            status.HTTP_401_UNAUTHORIZED,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_non_staff_authenticated_user_forbidden(self, authenticated_client):
+        url = reverse("restore-archive")
+        response = authenticated_client.post(url, {"batch_id": 1})
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_staff_user_is_authorized_validates_batch_id(self, api_client):
+        staff_user = UserFactory(is_staff=True)
+        api_client.force_authenticate(user=staff_user)
+        url = reverse("restore-archive")
+
+        # Missing batch_id should pass auth and return 400 Bad Request
+        response_missing_param = api_client.post(url)
+        assert response_missing_param.status_code == status.HTTP_400_BAD_REQUEST
+        assert "batch_id is required." in response_missing_param.data.get("detail", "")
+
+        # Non-existent batch_id should pass auth and return 404 Not Found
+        response_not_found = api_client.post(url, {"batch_id": 999999})
+        assert response_not_found.status_code == status.HTTP_404_NOT_FOUND
