@@ -19,31 +19,40 @@ spec:
         component: worker-high
     spec:
       containers:
-        - name: worker
-          image: soroscan/backend:v1.0.0
-          command:
-            - celery
-            - -A
-            - soroscan
-            - worker
-            - --loglevel=info
-            - --concurrency=8
-            - --queues=high_priority
-            - --max-tasks-per-child=1000
-            - --stop-timeout=30
-          workingDir: /app
-          envFrom:
-            - configMapRef:
-                name: soroscan-config
-            - secretRef:
-                name: soroscan-secrets
-          resources:
-            limits:
-              cpu: 2000m
-              memory: 2Gi
-            requests:
-              cpu: 500m
-              memory: 1Gi
+      - name: worker
+        image: soroscan/backend:v1.0.0
+        command:
+        - celery
+        - -A
+        - soroscan
+        - worker
+        - --loglevel=info
+        - --concurrency=8
+        - --queues=high_priority
+        - --max-tasks-per-child=1000
+        - --stop-timeout=30
+        workingDir: /app
+        envFrom:
+        - configMapRef:
+            name: soroscan-config
+        - secretRef:
+            name: soroscan-secrets
+        resources:
+          limits:
+            cpu: 2000m
+            memory: 2Gi
+          requests:
+            cpu: 500m
+            memory: 1Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+      securityContext:
+        fsGroup: 1000
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -66,31 +75,40 @@ spec:
         component: worker-default
     spec:
       containers:
-        - name: worker
-          image: soroscan/backend:v1.0.0
-          command:
-            - celery
-            - -A
-            - soroscan
-            - worker
-            - --loglevel=info
-            - --concurrency=4
-            - --queues=default
-            - --max-tasks-per-child=1000
-            - --stop-timeout=30
-          workingDir: /app
-          envFrom:
-            - configMapRef:
-                name: soroscan-config
-            - secretRef:
-                name: soroscan-secrets
-          resources:
-            limits:
-              cpu: 1000m
-              memory: 1Gi
-            requests:
-              cpu: 250m
-              memory: 512Mi
+      - name: worker
+        image: soroscan/backend:v1.0.0
+        command:
+        - celery
+        - -A
+        - soroscan
+        - worker
+        - --loglevel=info
+        - --concurrency=4
+        - --queues=default
+        - --max-tasks-per-child=1000
+        - --stop-timeout=30
+        workingDir: /app
+        envFrom:
+        - configMapRef:
+            name: soroscan-config
+        - secretRef:
+            name: soroscan-secrets
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+          requests:
+            cpu: 250m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+      securityContext:
+        fsGroup: 1000
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -113,31 +131,40 @@ spec:
         component: worker-low
     spec:
       containers:
-        - name: worker
-          image: soroscan/backend:v1.0.0
-          command:
-            - celery
-            - -A
-            - soroscan
-            - worker
-            - --loglevel=info
-            - --concurrency=4
-            - --queues=low_priority
-            - --max-tasks-per-child=1000
-            - --stop-timeout=30
-          workingDir: /app
-          envFrom:
-            - configMapRef:
-                name: soroscan-config
-            - secretRef:
-                name: soroscan-secrets
-          resources:
-            limits:
-              cpu: 1000m
-              memory: 1Gi
-            requests:
-              cpu: 250m
-              memory: 512Mi
+      - name: worker
+        image: soroscan/backend:v1.0.0
+        command:
+        - celery
+        - -A
+        - soroscan
+        - worker
+        - --loglevel=info
+        - --concurrency=4
+        - --queues=low_priority
+        - --max-tasks-per-child=1000
+        - --stop-timeout=30
+        workingDir: /app
+        envFrom:
+        - configMapRef:
+            name: soroscan-config
+        - secretRef:
+            name: soroscan-secrets
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+          requests:
+            cpu: 250m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+      securityContext:
+        fsGroup: 1000
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -160,37 +187,37 @@ spec:
         component: worker-backfill
     spec:
       containers:
-        - name: worker-backfill
-          image: soroscan/backend:v1.0.0
-          command:
-            - celery
-            - -A
-            - soroscan
-            - worker
-            - --loglevel=info
-            - --concurrency=2
-            - --queues=backfill
-            - --max-tasks-per-child=100
-            - --stop-timeout=30
-          workingDir: /app
-          envFrom:
-            - configMapRef:
-                name: soroscan-config
-            - secretRef:
-                name: soroscan-secrets
-          resources:
-            limits:
-              cpu: 500m
-              memory: 512Mi
-            requests:
-              cpu: 100m
-              memory: 256Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            runAsNonRoot: true
-            runAsUser: 1000
-            capabilities:
-              drop:
-                - ALL
+      - name: worker-backfill
+        image: soroscan/backend:v1.0.0
+        command:
+        - celery
+        - -A
+        - soroscan
+        - worker
+        - --loglevel=info
+        - --concurrency=2
+        - --queues=backfill
+        - --max-tasks-per-child=100
+        - --stop-timeout=30
+        workingDir: /app
+        envFrom:
+        - configMapRef:
+            name: soroscan-config
+        - secretRef:
+            name: soroscan-secrets
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
       securityContext:
         fsGroup: 1000
