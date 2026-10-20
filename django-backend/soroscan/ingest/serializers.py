@@ -404,12 +404,14 @@ class ContractEventSerializer(serializers.ModelSerializer):
             "decoded_payload",
             "decoding_status",
             "ledger",
+            "event_index",
             "timestamp",
             "tx_hash",
             "transaction_id",
             "schema_version",
             "validation_status",
             "signature_status",
+            "status",
         ]
 
 
