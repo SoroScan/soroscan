@@ -239,6 +239,30 @@ fn unpause_contract_event_topics_and_payload() {
 }
 
 #[test]
+fn unauthorized_unpause_is_rejected() {
+    let env = Env::default();
+    let (contract_id, admin, _) = setup(&env);
+    let client = SoroScanCoreClient::new(&env, &contract_id);
+    let stranger = Address::generate(&env);
+
+    client.pause(&admin);
+
+    let res = client.try_unpause(&stranger);
+    assert_eq!(res, Err(Ok(ContractError::Unauthorized)));
+}
+
+#[test]
+fn unauthorized_remove_indexer_is_rejected() {
+    let env = Env::default();
+    let (contract_id, _, indexer) = setup(&env);
+    let client = SoroScanCoreClient::new(&env, &contract_id);
+    let stranger = Address::generate(&env);
+
+    let res = client.try_remove_indexer(&stranger, &indexer);
+    assert_eq!(res, Err(Ok(ContractError::Unauthorized)));
+}
+
+#[test]
 fn rejected_calls_publish_no_events() {
     let env = Env::default();
     let (contract_id, _, _) = setup(&env);
@@ -254,6 +278,8 @@ fn rejected_calls_publish_no_events() {
         .try_record_event(&stranger, &target, &symbol_short!("swap"), &payload_hash)
         .is_err());
     assert!(client.try_pause(&stranger).is_err());
+    assert!(client.try_unpause(&stranger).is_err());
+    assert!(client.try_remove_indexer(&stranger, &target).is_err());
     assert!(client.try_init(&stranger).is_err());
 
     assert_eq!(
