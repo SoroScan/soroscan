@@ -1,13 +1,22 @@
-name: Django Tests
+# Canonical Django CI workflow — consolidates the former django.yml and django-tests.yml.
+# Coverage threshold: 80% (single agreed gate; see issue #1678).
+name: Django CI
 
 on:
   push:
     branches: [main, dev]
+    paths:
+      - 'django-backend/**'
+      - '.github/workflows/django-tests.yml'
   pull_request:
     branches: [main, dev]
+    paths:
+      - 'django-backend/**'
+      - '.github/workflows/django-tests.yml'
 
 jobs:
   test:
+    name: Tests & coverage
     runs-on: ubuntu-latest
 
     services:
@@ -84,6 +93,7 @@ jobs:
           LOG_FORMAT: ""
           SENTRY_DSN: ""
         run: |
+          # Coverage gate: 80% (canonical threshold — do not lower without a PR discussion)
           python -m pytest \
             --cov=soroscan \
             --cov-report=term-missing \
@@ -92,7 +102,7 @@ jobs:
             --cov-report=json \
             --cov-fail-under=80
 
-      - name: Upload HTML coverage report as artifact
+      - name: Upload HTML coverage report
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -109,6 +119,10 @@ jobs:
           flags: backend
           name: backend-coverage
           fail_ci_if_error: false
+
+      - name: Lint with ruff
+        working-directory: django-backend
+        run: python -m ruff check .
 
   migration-rollbacks:
     name: Migration rollback tests

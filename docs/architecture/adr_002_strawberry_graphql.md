@@ -1,3 +1,6 @@
+> **Retired.** This ADR has been moved to the canonical set as
+> [ADR 0007](../adrs/0007-strawberry-graphql.md).  Please read and update that file.
+
 # ADR-002: Use Strawberry GraphQL for the SoroScan GraphQL API
 
 ## Status
