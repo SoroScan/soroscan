@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { readStoredArray as readStoredArrayLib } from "@/lib/safe-storage";
+import { EmptyState } from "@/components/ui/empty-state";
 
 interface EventRow {
   contractId: string;
@@ -40,8 +41,6 @@ const selectableColumns: Array<keyof EventRow> = ["contractId", "eventType", "le
 
 // Convert CSV to Parquet (simplified - in production would use parquet library)
 function exportParquet(rows: EventRow[], columns: Array<keyof EventRow>, fileName: string): void {
-  // For MVP, export as JSON with .parquet extension
-  // In production, would use arrow/parquet libraries
   const payload = rows.map((row) => pickColumns(row, columns));
   const jsonStr = JSON.stringify(payload);
   const blob = new Blob([jsonStr], { type: "application/octet-stream" });
@@ -100,6 +99,13 @@ export default function QueryBuilderReportPage() {
   const [scheduleEmail, setScheduleEmail] = useState("");
   const [scheduleFrequency, setScheduleFrequency] = useState<"daily" | "weekly">("daily");
   const [scheduleTime, setScheduleTime] = useState("09:00");
+
+  const resetFilters = () => {
+    setContractFilter("");
+    setEventTypeFilter("");
+    setRowLimit(1000);
+    setColumns(selectableColumns);
+  };
 
   const rows = useMemo(() => {
     const filtered = sourceRows.filter((row) => {
@@ -221,11 +227,13 @@ export default function QueryBuilderReportPage() {
             value={contractFilter}
             onChange={(e) => setContractFilter(e.target.value)}
             placeholder="Filter by contract"
+            data-testid="contract-filter-input"
             className="rounded border border-terminal-green/30 bg-terminal-black px-3 py-2 text-terminal-green"
           />
           <select
             value={eventTypeFilter}
             onChange={(e) => setEventTypeFilter(e.target.value)}
+            data-testid="event-type-filter-select"
             className="rounded border border-terminal-green/30 bg-terminal-black px-3 py-2 text-terminal-green"
           >
             <option value="">All event types</option>
@@ -238,14 +246,27 @@ export default function QueryBuilderReportPage() {
             value={rowLimit}
             onChange={(e) => setRowLimit(Math.max(1, parseInt(e.target.value) || 1000))}
             placeholder="Row limit"
+            data-testid="row-limit-input"
             className="rounded border border-terminal-green/30 bg-terminal-black px-3 py-2 text-terminal-green"
           />
-          <div className="text-xs text-terminal-gray self-center">
-            Rows: {rows.length}/{sourceRows.filter((row) => {
-              const contractMatch = contractFilter ? row.contractId.toLowerCase().includes(contractFilter.toLowerCase()) : true;
-              const typeMatch = eventTypeFilter ? row.eventType === eventTypeFilter : true;
-              return contractMatch && typeMatch;
-            }).length}
+          <div className="text-xs text-terminal-gray self-center flex items-center justify-between">
+            <span>
+              Rows: {rows.length}/{sourceRows.filter((row) => {
+                const contractMatch = contractFilter ? row.contractId.toLowerCase().includes(contractFilter.toLowerCase()) : true;
+                const typeMatch = eventTypeFilter ? row.eventType === eventTypeFilter : true;
+                return contractMatch && typeMatch;
+              }).length}
+            </span>
+            {(contractFilter || eventTypeFilter || rowLimit !== 1000 || columns.length !== selectableColumns.length) && (
+              <button
+                type="button"
+                onClick={resetFilters}
+                data-testid="reset-filters-btn"
+                className="text-[10px] text-terminal-cyan hover:underline ml-2"
+              >
+                RESET
+              </button>
+            )}
           </div>
         </section>
 
@@ -254,21 +275,24 @@ export default function QueryBuilderReportPage() {
           <button
             type="button"
             onClick={exportCsv}
-            className="rounded border border-terminal-cyan/40 px-3 py-2 text-terminal-cyan hover:bg-terminal-cyan/10"
+            disabled={rows.length === 0}
+            className="rounded border border-terminal-cyan/40 px-3 py-2 text-terminal-cyan hover:bg-terminal-cyan/10 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Export CSV
           </button>
           <button
             type="button"
             onClick={exportJson}
-            className="rounded border border-terminal-green/40 px-3 py-2 hover:bg-terminal-green/10"
+            disabled={rows.length === 0}
+            className="rounded border border-terminal-green/40 px-3 py-2 hover:bg-terminal-green/10 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Export JSON
           </button>
           <button
             type="button"
             onClick={exportParquetFile}
-            className="rounded border border-terminal-magenta/40 px-3 py-2 text-terminal-magenta hover:bg-terminal-magenta/10"
+            disabled={rows.length === 0}
+            className="rounded border border-terminal-magenta/40 px-3 py-2 text-terminal-magenta hover:bg-terminal-magenta/10 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Export Parquet
           </button>
@@ -292,27 +316,42 @@ export default function QueryBuilderReportPage() {
         </section>
 
         {/* Data Preview Table */}
-        <section className="rounded border border-terminal-green/20 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-terminal-green/5">
-              <tr>
-                {columns.map((column) => (
-                  <th key={column} className="px-3 py-2 text-left">{column}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.txHash} className="border-t border-terminal-green/10 hover:bg-terminal-green/5">
+        <section className="rounded border border-terminal-green/20 overflow-hidden" data-testid="query-builder-results">
+          {rows.length === 0 ? (
+            <EmptyState
+              variant="terminal"
+              title="NO_QUERY_RESULTS"
+              description="No event records matched your filter criteria. Try adjusting your contract filter, selecting a different event type, or resetting filters."
+              action={{
+                label: "RESET_FILTERS",
+                onClick: resetFilters,
+                terminalVariant: "primary",
+              }}
+              data-testid="query-builder-empty"
+              className="py-12"
+            />
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-terminal-green/5">
+                <tr>
                   {columns.map((column) => (
-                    <td key={`${row.txHash}-${column}`} className="px-3 py-2">
-                      {String(row[column])}
-                    </td>
+                    <th key={column} className="px-3 py-2 text-left">{column}</th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.txHash} className="border-t border-terminal-green/10 hover:bg-terminal-green/5">
+                    {columns.map((column) => (
+                      <td key={`${row.txHash}-${column}`} className="px-3 py-2">
+                        {String(row[column])}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </section>
 
         {/* Save Report Section */}
