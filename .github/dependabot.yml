@@ -1,0 +1,121 @@
+version: 2
+updates:
+  # GitHub Actions Workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    open-pull-requests-limit: 10
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # Python: Django Backend
+  - package-ecosystem: "pip"
+    directory: "/django-backend"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    open-pull-requests-limit: 10
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
+
+  # Python: Python SDK
+  - package-ecosystem: "pip"
+    directory: "/sdk/python"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    open-pull-requests-limit: 10
+    groups:
+      sdk-python-dependencies:
+        patterns:
+          - "*"
+
+  # Python: Webhook Simulator
+  - package-ecosystem: "pip"
+    directory: "/tools/webhook-simulator"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    open-pull-requests-limit: 5
+
+  # npm: Root Project
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    open-pull-requests-limit: 5
+
+  # npm: Frontend Next.js App
+  - package-ecosystem: "npm"
+    directory: "/soroscan-frontend"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    open-pull-requests-limit: 10
+    groups:
+      frontend-dependencies:
+        patterns:
+          - "*"
+
+  # npm: Admin Dashboard
+  - package-ecosystem: "npm"
+    directory: "/admin"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    open-pull-requests-limit: 10
+    groups:
+      admin-dependencies:
+        patterns:
+          - "*"
+
+  # npm: TypeScript SDK
+  - package-ecosystem: "npm"
+    directory: "/sdk/typescript"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    open-pull-requests-limit: 10
+    groups:
+      sdk-ts-dependencies:
+        patterns:
+          - "*"
+
+  # npm: Documentation (Docusaurus)
+  - package-ecosystem: "npm"
+    directory: "/soroscan-docs"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    open-pull-requests-limit: 5
+    groups:
+      docs-dependencies:
+        patterns:
+          - "*"
+
+  # Cargo: Soroban Core Contract
+  - package-ecosystem: "cargo"
+    directory: "/soroban-contracts/soroscan_core"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    open-pull-requests-limit: 5
+    groups:
+      cargo-dependencies:
+        patterns:
+          - "*"
+
+  # Cargo: Soroban Macros
+  - package-ecosystem: "cargo"
+    directory: "/soroban-contracts/soroscan_macros"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    open-pull-requests-limit: 5
