@@ -161,6 +161,60 @@ def test_e2e_admin_ingest_error_review(api_client):
     assert data[0]["error_type"] == "decode_error"
 
 
+@pytest.mark.django_db
+def test_e2e_api_key_lifecycle(api_client):
+    """User creates, uses, lists, and revokes an API key."""
+    user = User.objects.create_user(
+        username="e2e_apikey_user",
+        email="e2e_apikey@example.com",
+        password="secret",
+    )
+    api_client.force_authenticate(user=user)
+
+    # 1. Create API key
+    create_response = api_client.post(
+        reverse("apikey-list"),
+        {"name": "E2E Programmatic Key"},
+        format="json",
+    )
+    assert create_response.status_code == status.HTTP_201_CREATED
+    key_id = create_response.data["id"]
+    plain_key = create_response.data["key"]
+    assert plain_key is not None
+    assert len(plain_key) > 0
+
+    # 2. List API keys and verify created key is present
+    list_response = api_client.get(reverse("apikey-list"))
+    assert list_response.status_code == status.HTTP_200_OK
+    assert any(item["id"] == key_id for item in list_response.data["results"])
+
+    # 3. Create a clean client and authenticate using the API key header
+    key_client = APIClient()
+    key_client.credentials(HTTP_AUTHORIZATION=f"ApiKey {plain_key}")
+
+    # Access authenticated endpoint with the API key
+    contract_payload = {
+        "contract_id": "C" + "K" * 55,
+        "name": "E2E Key Contract",
+        "description": "Created via API key authentication",
+        "is_active": True,
+    }
+    create_contract_res = key_client.post(reverse("contract-list"), contract_payload, format="json")
+    assert create_contract_res.status_code == status.HTTP_201_CREATED
+
+    list_contracts_res = key_client.get(reverse("contract-list"))
+    assert list_contracts_res.status_code == status.HTTP_200_OK
+    assert any(item["id"] == create_contract_res.data["id"] for item in list_contracts_res.data["results"])
+
+    # 4. Revoke the API key (DELETE /api-keys/{id}/)
+    revoke_response = api_client.delete(reverse("apikey-detail", args=[key_id]))
+    assert revoke_response.status_code == status.HTTP_204_NO_CONTENT
+
+    # 5. Verify the revoked API key is rejected with 401 Unauthorized
+    rejected_response = key_client.get(reverse("contract-list"))
+    assert rejected_response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
 def test_e2e_framework_files_exist():
     """Sanity check that the E2E scenario catalog is present."""
     from pathlib import Path
