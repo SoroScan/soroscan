@@ -414,6 +414,49 @@ fn record_structured_event_duplicate_correlation_publishes_one_event() {
 }
 
 #[test]
+fn structured_by_correlation_getter_retrieval_and_absent() {
+    let env = Env::default();
+    env.ledger().set_sequence_number(42);
+    env.ledger().set_timestamp(123_456);
+    let (contract_id, _, indexer) = setup(&env);
+    let client = SoroScanCoreClient::new(&env, &contract_id);
+
+    let correlation_id = BytesN::from_array(&env, &[0x55; 32]);
+    let unrecorded_id = BytesN::from_array(&env, &[0x99; 32]);
+
+    // 1. Absent case before recording
+    assert_eq!(client.structured_by_correlation(&correlation_id), None);
+    assert_eq!(client.structured_by_correlation(&unrecorded_id), None);
+
+    // 2. Record event
+    let target = Address::generate(&env);
+    let payload_hash = BytesN::from_array(&env, &[0x66; 32]);
+    client.record_structured_event(
+        &indexer,
+        &target,
+        &symbol_short!("payment"),
+        &payload_hash,
+        &2,
+        &correlation_id,
+    );
+
+    // 3. Retrieved case matches stored values
+    let record = client
+        .structured_by_correlation(&correlation_id)
+        .expect("structured event record should exist");
+    assert_eq!(record.contract_id, target);
+    assert_eq!(record.event_type, symbol_short!("payment"));
+    assert_eq!(record.payload_hash, payload_hash);
+    assert_eq!(record.schema_version, 2);
+    assert_eq!(record.correlation_id, correlation_id);
+    assert_eq!(record.ledger, 42);
+    assert_eq!(record.timestamp, 123_456);
+
+    // 4. Other correlation ID still absent
+    assert_eq!(client.structured_by_correlation(&unrecorded_id), None);
+}
+
+#[test]
 fn record_tagged_event_topics_and_payload() {
     let env = Env::default();
     env.ledger().set_sequence_number(7);
@@ -461,6 +504,80 @@ fn record_tagged_event_topics_and_payload() {
     assert_eq!(record.tags.get(1).unwrap(), symbol_short!("defi"));
     assert_eq!(record.ledger, 7);
     assert_eq!(record.timestamp, 88);
+}
+
+#[test]
+fn latest_tagged_by_type_getter_retrieval_and_absent() {
+    let env = Env::default();
+    env.ledger().set_sequence_number(10);
+    env.ledger().set_timestamp(200);
+    let (contract_id, _, indexer) = setup(&env);
+    let client = SoroScanCoreClient::new(&env, &contract_id);
+
+    let event_type = symbol_short!("swap");
+    let unrecorded_type = symbol_short!("vault");
+
+    // 1. Absent case before recording
+    assert_eq!(client.latest_tagged_by_type(&event_type), None);
+    assert_eq!(client.latest_tagged_by_type(&unrecorded_type), None);
+
+    // 2. Record first tagged event
+    let target1 = Address::generate(&env);
+    let payload_hash1 = BytesN::from_array(&env, &[0x77; 32]);
+    let mut tags1 = Vec::new(&env);
+    tags1.push_back(symbol_short!("v1"));
+
+    client.record_tagged_event(
+        &indexer,
+        &target1,
+        &event_type,
+        &payload_hash1,
+        &tags1,
+    );
+
+    let first = client
+        .latest_tagged_by_type(&event_type)
+        .expect("tagged event record should exist");
+    assert_eq!(first.contract_id, target1);
+    assert_eq!(first.event_type, event_type);
+    assert_eq!(first.payload_hash, payload_hash1);
+    assert_eq!(first.tags.len(), 1);
+    assert_eq!(first.tags.get(0).unwrap(), symbol_short!("v1"));
+    assert_eq!(first.ledger, 10);
+    assert_eq!(first.timestamp, 200);
+
+    // 3. Advance ledger and record second tagged event with same event_type
+    env.ledger().set_sequence_number(15);
+    env.ledger().set_timestamp(350);
+    let target2 = Address::generate(&env);
+    let payload_hash2 = BytesN::from_array(&env, &[0x88; 32]);
+    let mut tags2 = Vec::new(&env);
+    tags2.push_back(symbol_short!("v2"));
+    tags2.push_back(symbol_short!("dex"));
+
+    client.record_tagged_event(
+        &indexer,
+        &target2,
+        &event_type,
+        &payload_hash2,
+        &tags2,
+    );
+
+    // 4. Must return the updated latest record
+    let latest = client
+        .latest_tagged_by_type(&event_type)
+        .expect("updated tagged event record should exist");
+    assert_eq!(latest.contract_id, target2);
+    assert_eq!(latest.event_type, event_type);
+    assert_eq!(latest.payload_hash, payload_hash2);
+    assert_eq!(latest.tags.len(), 2);
+    assert_eq!(latest.tags.get(0).unwrap(), symbol_short!("v2"));
+    assert_eq!(latest.tags.get(1).unwrap(), symbol_short!("dex"));
+    assert_eq!(latest.ledger, 15);
+    assert_eq!(latest.timestamp, 350);
+
+    // 5. Unrecorded type still returns None
+    assert_eq!(client.latest_tagged_by_type(&unrecorded_type), None);
 }
 
 #[test]
