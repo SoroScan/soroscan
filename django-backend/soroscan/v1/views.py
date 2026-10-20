@@ -141,6 +141,10 @@ def bulk_replay_dead_letters(request):
         )
 
     dead_letters = WebhookDeadLetter.objects.filter(id__in=dead_letter_ids, resolved=False).select_related('subscription', 'event')
+    if not request.user.is_staff:
+        dead_letters = dead_letters.filter(
+            subscription__contract__owner=request.user
+        )
     
     jobs_created = []
     for dl in dead_letters:
