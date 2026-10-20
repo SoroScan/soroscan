@@ -1,0 +1,168 @@
+# k8s/networkpolicy.yaml
+#
+# NetworkPolicy resources for the SoroScan namespace.
+#
+# Policy model:
+#   1. Default-deny all ingress for every pod in the namespace.
+#   2. Explicit allow rules for the required traffic flows:
+#        ingress controller → backend (HTTP 8000)
+#        backend / workers  → PostgreSQL (5432)
+#        backend / workers  → Redis (6379)
+#        Prometheus         → backend metrics endpoint (HTTP 8000)
+#
+# Assumptions:
+#   - All SoroScan workloads run in the "soroscan" namespace.
+#   - The ingress controller runs in the "ingress-nginx" namespace and its pods
+#     carry the label "app.kubernetes.io/name: ingress-nginx".  Adjust the
+#     namespaceSelector / podSelector if you use a different controller.
+#   - Prometheus runs in the "monitoring" namespace and its pods carry the
+#     label "app.kubernetes.io/name: prometheus".  Adjust if needed.
+#   - PostgreSQL and Redis pods live in the "soroscan" namespace and carry the
+#     labels "app: soroscan, component: postgres" and
+#     "app: soroscan, component: redis" respectively.  Update these selectors
+#     if your datastores are external (e.g. RDS / ElastiCache) — in that case
+#     replace the podSelector rules with ipBlock CIDR rules.
+#
+# Apply with:
+#   kubectl apply -f k8s/networkpolicy.yaml
+---
+# 1. Default-deny all ingress in the soroscan namespace.
+#    Egress is intentionally left unrestricted at this policy level;
+#    tighten separately if required.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: soroscan
+spec:
+  podSelector: {}       # Applies to every pod in the namespace
+  policyTypes:
+    - Ingress
+---
+# 2. Allow the ingress controller to reach the backend on port 8000.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-backend
+  namespace: soroscan
+spec:
+  podSelector:
+    matchLabels:
+      app: soroscan
+      component: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+# 3. Allow backend and all worker tiers to reach PostgreSQL on port 5432.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-app-to-postgres
+  namespace: soroscan
+spec:
+  podSelector:
+    matchLabels:
+      app: soroscan
+      component: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: soroscan
+              component: backend
+        - podSelector:
+            matchLabels:
+              app: soroscan
+              component: worker-high
+        - podSelector:
+            matchLabels:
+              app: soroscan
+              component: worker-default
+        - podSelector:
+            matchLabels:
+              app: soroscan
+              component: worker-low
+        - podSelector:
+            matchLabels:
+              app: soroscan
+              component: worker-backfill
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# 4. Allow backend and all worker tiers to reach Redis on port 6379.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-app-to-redis
+  namespace: soroscan
+spec:
+  podSelector:
+    matchLabels:
+      app: soroscan
+      component: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: soroscan
+              component: backend
+        - podSelector:
+            matchLabels:
+              app: soroscan
+              component: worker-high
+        - podSelector:
+            matchLabels:
+              app: soroscan
+              component: worker-default
+        - podSelector:
+            matchLabels:
+              app: soroscan
+              component: worker-low
+        - podSelector:
+            matchLabels:
+              app: soroscan
+              component: worker-backfill
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+# 5. Allow Prometheus to scrape the backend metrics endpoint on port 8000.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+  namespace: soroscan
+spec:
+  podSelector:
+    matchLabels:
+      app: soroscan
+      component: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 8000
