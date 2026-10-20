@@ -1,0 +1,134 @@
+# ==============================================================================
+# SoroScan Kubernetes Network Policies
+# Issue #1681: Enforce zero-trust network segmentation and least privilege
+# ==============================================================================
+
+# 1. Default-Deny Ingress for all pods in the soroscan namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: soroscan
+  labels:
+    app: soroscan
+    component: network-policy
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# 2. Allow Ingress Controller traffic to Backend API & WebSockets (Port 8000)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-backend
+  namespace: soroscan
+  labels:
+    app: soroscan
+    component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: soroscan
+      component: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow traffic from ingress controllers (e.g. ingress-nginx)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: controller
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+# 3. Allow Prometheus scraper to access Backend metrics (Port 8000, /metrics)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-to-backend
+  namespace: soroscan
+  labels:
+    app: soroscan
+    component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: soroscan
+      component: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              prometheus: kube-prometheus
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+# 4. Allow Backend and Workers egress to Datastores, RPCs, and Webhooks
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-workloads-to-datastores
+  namespace: soroscan
+  labels:
+    app: soroscan
+    component: network-policy
+spec:
+  podSelector:
+    matchExpressions:
+      - key: component
+        operator: In
+        values:
+          - backend
+          - worker-high
+          - worker-default
+          - worker-low
+          - celery-beat
+  policyTypes:
+    - Egress
+  egress:
+    # Core DNS resolution
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # In-cluster or managed PostgreSQL database
+    - ports:
+        - protocol: TCP
+          port: 5432
+    # In-cluster or managed Redis Celery broker
+    - ports:
+        - protocol: TCP
+          port: 6379
+    # External HTTPS/HTTP (Stellar/Soroban RPCs, AWS S3 archives, Webhook dispatches)
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
