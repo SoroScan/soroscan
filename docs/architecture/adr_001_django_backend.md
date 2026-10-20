@@ -1,3 +1,6 @@
+> **Retired.** This ADR has been moved to the canonical set as
+> [ADR 0006](../adrs/0006-django-backend.md).  Please read and update that file.
+
 # ADR-001: Use Django for the SoroScan Backend
 
 ## Status
