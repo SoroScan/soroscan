@@ -461,6 +461,61 @@ fn record_tagged_event_topics_and_payload() {
     assert_eq!(record.tags.get(1).unwrap(), symbol_short!("defi"));
     assert_eq!(record.ledger, 7);
     assert_eq!(record.timestamp, 88);
+    assert_eq!(
+        client.events_recorded_by(&indexer),
+        1,
+        "indexer count increments after a tagged event"
+    );
+}
+
+#[test]
+fn record_tagged_event_increments_indexer_count() {
+    let env = Env::default();
+    let (contract_id, admin, indexer1) = setup(&env);
+    let indexer2 = Address::generate(&env);
+    let client = SoroScanCoreClient::new(&env, &contract_id);
+    client.add_indexer(&admin, &indexer2);
+
+    assert_eq!(client.events_recorded_by(&indexer1), 0);
+    assert_eq!(client.events_recorded_by(&indexer2), 0);
+
+    let target = Address::generate(&env);
+    let payload_hash = BytesN::from_array(&env, &[0x44; 32]);
+    let mut tags = Vec::new(&env);
+    tags.push_back(symbol_short!("hot"));
+
+    client.record_tagged_event(
+        &indexer1,
+        &target,
+        &symbol_short!("trade"),
+        &payload_hash,
+        &tags,
+    );
+
+    assert_eq!(
+        client.events_recorded_by(&indexer1),
+        1,
+        "first tagged event increments indexer1 count to 1"
+    );
+    assert_eq!(
+        client.events_recorded_by(&indexer2),
+        0,
+        "indexer2 count remains unaffected"
+    );
+
+    client.record_tagged_event(
+        &indexer1,
+        &target,
+        &symbol_short!("trade"),
+        &payload_hash,
+        &tags,
+    );
+
+    assert_eq!(
+        client.events_recorded_by(&indexer1),
+        2,
+        "second tagged event increments indexer1 count to 2"
+    );
 }
 
 #[test]
