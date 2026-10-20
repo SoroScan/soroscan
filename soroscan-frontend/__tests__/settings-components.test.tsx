@@ -1,0 +1,6 @@
+import "@/app/settings/components/__tests__/AccountSettings.test"
+import "@/app/settings/components/__tests__/NotificationPrefs.test"
+import "@/app/settings/components/__tests__/APIKeyManager.test"
+import "@/app/settings/components/__tests__/ThemeSelector.test"
+import "@/app/settings/components/__tests__/BillingOverview.test"
+import "@/app/settings/components/__tests__/SettingsShell.test"
