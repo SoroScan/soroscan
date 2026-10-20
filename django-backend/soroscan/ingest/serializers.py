@@ -464,6 +464,9 @@ class WebhookSubscriptionSerializer(serializers.ModelSerializer):
             "event_type",
             "target_url",
             "is_active",
+            "timeout_seconds",
+            "retry_backoff_strategy",
+            "retry_backoff_seconds",
             "signature_algorithm",
             "ack_header_name",
             "ack_header_value",
@@ -485,6 +488,15 @@ class WebhookSubscriptionSerializer(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("filter_condition must be an object.")
         _validate_filter_condition_node(value)
+        return value
+    def validate_timeout_seconds(self, value):
+        if value is not None and not (1 <= value <= 60):
+            raise serializers.ValidationError("timeout_seconds must be between 1 and 60.")
+        return value
+
+    def validate_retry_backoff_seconds(self, value):
+        if value is not None and not (1 <= value <= 3600):
+            raise serializers.ValidationError("retry_backoff_seconds must be between 1 and 3600.")
         return value
 
     def validate(self, attrs):
