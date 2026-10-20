@@ -16,8 +16,8 @@ High-quality documentation is just as important as high-quality code. This guide
 ## 1. Documentation Architecture
 
 SoroScan documentation is hosted at `docs.soroscan.io` and is powered by **Docusaurus**.
-- The raw markdown files are located in the [docs/](file:///workspaces/soroscan/docs/) directory at the repository root.
-- The Docusaurus configuration and static assets reside in the [soroscan-docs/](file:///workspaces/soroscan/soroscan-docs/) folder.
+- The raw markdown files are located in the [docs/](../) directory at the repository root.
+- The Docusaurus configuration and static assets reside in the [soroscan-docs/](../../soroscan-docs/) folder.
 
 ---
 
@@ -32,7 +32,7 @@ Keep documentation clean, readable, and highly informative. Follow these princip
   python manage.py runserver
   ```
   ```
-- **File & Code Symbol Links**: Link to directories, files, or specific line ranges in code blocks. Make sure they are clickable links (e.g. `[manage.py](file:///workspaces/soroscan/django-backend/manage.py)`). Do not wrap the link text itself in backticks, as this breaks link formatting.
+- **File & Code Symbol Links**: Link to directories, files, or specific line ranges in code blocks. Make sure they are clickable links (e.g. `[manage.py](../../django-backend/manage.py)`). Do not wrap the link text itself in backticks, as this breaks link formatting.
 - **Alerts**: Use strategic alerts to highlight critical information:
   ```markdown
   > [!IMPORTANT]
@@ -64,7 +64,7 @@ hide_title: false
 
 ## 4. Modifying the Sidebar Navigation
 
-To expose a new document in the documentation sidebar, update [soroscan-docs/sidebars.ts](file:///workspaces/soroscan/soroscan-docs/sidebars.ts).
+To expose a new document in the documentation sidebar, update [soroscan-docs/sidebars.ts](../../soroscan-docs/sidebars.ts).
 - Add the `id` of your document to the relevant category's `items` array:
 
 ```typescript

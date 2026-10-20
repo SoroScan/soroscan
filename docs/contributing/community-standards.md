@@ -67,7 +67,7 @@ We believe in recognizing the hard work of our community members.
 
 ### 4.1 All-Contributors Hall of Fame
 We use the `all-contributors` bot to recognize all forms of contributions (code, docs, design, translation, triage, community support).
-- Contributors are listed in the [CONTRIBUTORS.md](file:///workspaces/soroscan/CONTRIBUTORS.md) file (Hall of Fame).
+- Contributors are listed in the [CONTRIBUTING.md](../../CONTRIBUTING.md) file (Hall of Fame).
 - If your contribution was merged and you weren't added, submit a comment on your PR asking to be added.
 
 ### 4.2 Swag and Rewards

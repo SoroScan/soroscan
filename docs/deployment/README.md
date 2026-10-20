@@ -15,22 +15,22 @@ import TabItem from '@theme/TabItem';
 This guide covers recommended production deployments for SoroScan, including local Docker Compose, Kubernetes (Helm + Terraform), an AWS/EKS example, monitoring, backups, security, runbooks, and troubleshooting.
 
 **Quick links**
-- [Docker Compose](deployment/docker-compose)
-- [Kubernetes (Helm)](deployment/kubernetes)
-- [AWS EKS (Terraform)](deployment/aws)
-- [Monitoring & Observability](deployment/monitoring)
-- [Backups & Disaster Recovery](deployment/backups)
-- [Troubleshooting & Runbooks](deployment/runbooks)
-- [Pre-Deployment Security Checklist](deployment/security)
-- [Cost Estimates](deployment/costs)
-- [Docker Compose](./docker-compose)
-- [Kubernetes (Helm)](./kubernetes)
-- [AWS EKS (Terraform)](./aws)
-- [Monitoring & Observability](./monitoring)
-- [Backups & Disaster Recovery](./backups)
-- [Troubleshooting & Runbooks](./runbooks)
-- [Security Checklist](./security)
-- [Cost Estimates](./costs)
+- [Docker Compose](./docker-compose.md)
+- [Kubernetes (Helm)](./kubernetes.md)
+- [AWS EKS (Terraform)](./aws.md)
+- [Monitoring & Observability](./monitoring.md)
+- [Backups & Disaster Recovery](./backups.md)
+- [Troubleshooting & Runbooks](./runbooks.md)
+- [Pre-Deployment Security Checklist](./security.md)
+- [Cost Estimates](./costs.md)
+- [Docker Compose](./docker-compose.md)
+- [Kubernetes (Helm)](./kubernetes.md)
+- [AWS EKS (Terraform)](./aws.md)
+- [Monitoring & Observability](./monitoring.md)
+- [Backups & Disaster Recovery](./backups.md)
+- [Troubleshooting & Runbooks](./runbooks.md)
+- [Security Checklist](./security.md)
+- [Cost Estimates](./costs.md)
 
 ## Decision tree
 

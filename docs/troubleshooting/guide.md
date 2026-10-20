@@ -170,7 +170,7 @@ Kubernetes pod statuses show `CrashLoopBackOff` or `Error`.
 Logs display `OperationalError: FATAL: remaining connection slots are reserved for non-replication superuser connections`.
 
 #### Solution:
-1. **Enable PgBouncer**: Ensure traffic routing goes through port `6432` (PgBouncer) instead of direct to PostgreSQL `5432`. See [PgBouncer Configuration](file:///workspaces/soroscan/docs/database/operations-guide.md#16-connection-pooling-pgbouncer).
+1. **Enable PgBouncer**: Ensure traffic routing goes through port `6432` (PgBouncer) instead of direct to PostgreSQL `5432`. See [PgBouncer Configuration](../database/operations-guide.md#16-connection-pooling-pgbouncer).
 2. **Increase DB connection limit**:
    ```sql
    ALTER SYSTEM SET max_connections = 500;
@@ -244,7 +244,7 @@ DB Server CPU spikes to 100%, causing query timeouts.
    SELECT pg_cancel_backend(<pid>); -- Polite stop
    SELECT pg_terminate_backend(<pid>); -- Force kill connection
    ```
-3. Read the query explanation with `EXPLAIN (ANALYZE, BUFFERS)` to determine if it requires a compound or partial index. See [EXPLAIN Plan Analysis](file:///workspaces/soroscan/docs/database/operations-guide.md#42-explain-plan-analysis).
+3. Read the query explanation with `EXPLAIN (ANALYZE, BUFFERS)` to determine if it requires a compound or partial index. See [EXPLAIN Plan Analysis](../database/operations-guide.md#42-explain-plan-analysis).
 
 ---
 
@@ -326,7 +326,7 @@ If the deployment contains a database schema migration that is incompatible with
 ### 9.2 Data Recovery Playbook
 If data corruption occurs:
 1. Stop ingestion worker containers to prevent further writes.
-2. Restore the latest clean database backup. See [Restore Procedures](file:///workspaces/soroscan/docs/database/operations-guide.md#13-restore-procedures--testing).
+2. Restore the latest clean database backup. See [Restore Procedures](../database/operations-guide.md#13-restore-procedures--testing).
 3. Identify the block number where the corruption began.
 4. Restart ingestion, initiating backfill from that specific block number.
 
