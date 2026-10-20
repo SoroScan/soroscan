@@ -3,8 +3,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import type { ContractEvent } from "./types";
-import { WebSocketClient } from "./websocket-client";
+import type { ContractEvent } from "./types.js";
+import { WebSocketClient } from "./websocket-client.js";
 
 // Mock WebSocket
 class MockWebSocket {

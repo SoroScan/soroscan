@@ -112,6 +112,16 @@ class RecordEventResponse(BaseModel):
     error: str | None = Field(None, description="Error message if failed")
 
 
+class StructuredEventRequest(BaseModel):
+    """Request model for recording a structured event (SC-38)."""
+
+    contract_id: str = Field(..., max_length=56, description="Target contract address")
+    event_type: str = Field(..., max_length=100, description="Event type name")
+    payload_hash: str = Field(..., max_length=64, description="SHA-256 hash of payload (hex)")
+    schema_version: int = Field(..., ge=1, description="Schema version used for validation")
+    correlation_id: str = Field(..., max_length=64, description="Correlation identifier")
+
+
 # ── SC-9: Indexer authorization ───────────────────────────────────────────────
 
 class AddIndexerRequest(BaseModel):

@@ -40,6 +40,7 @@ from soroscan.models import (
     RecordEventsBatchResponse,
     TaggedEventRequest,
     TaggedEventResponse,
+    StructuredEventRequest,
     TrackedContract,
     WebhookSubscription,
 )
