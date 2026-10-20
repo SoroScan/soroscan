@@ -167,4 +167,15 @@ describe("useWebhook", () => {
     expect(result.current.data).toHaveLength(1);
     expect(result.current.data?.[0]?.id).toBe("1");
   });
+
+  it("renders SoroScanHooksProvider returning React.JSX.Element", () => {
+    const client = {} as unknown as SoroScanClient;
+    const element: React.JSX.Element = (
+      <SoroScanHooksProvider client={client}>
+        <div data-testid="child">Test Child</div>
+      </SoroScanHooksProvider>
+    );
+    expect(element).toBeDefined();
+    expect(element.type).toBe(SoroScanHooksProvider);
+  });
 });
