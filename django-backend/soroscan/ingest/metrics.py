@@ -53,6 +53,10 @@ __all__ = [
     "reorg_detected_total",
     "reorg_rolled_back_events_total",
     "last_reorg_ledger",
+    # contract health metrics
+    "contract_health_status_gauge",
+    "contract_health_transitions_total",
+    "CONTRACT_HEALTH_STATUS_MAP",
 ]
 
 
@@ -368,3 +372,28 @@ last_reorg_ledger = _get_or_create(
     "soroscan_last_reorg_ledger",
     "Ledger sequence of the most recent detected re-org fork",
 )
+
+# ---------------------------------------------------------------------------
+# Contract health metrics (issue #1665)
+# ---------------------------------------------------------------------------
+
+CONTRACT_HEALTH_STATUS_MAP = {
+    "healthy": 0,
+    "degraded": 1,
+    "failed": 2,
+}
+
+contract_health_status_gauge = _get_or_create(
+    Gauge,
+    "soroscan_contract_health_status",
+    "Current health status of tracked contract (0=healthy, 1=degraded, 2=failed)",
+    ["contract_id"],
+)
+
+contract_health_transitions_total = _get_or_create(
+    Counter,
+    "soroscan_contract_health_transitions_total",
+    "Total number of contract health status transitions",
+    ["contract_id", "from_status", "to_status"],
+)
+

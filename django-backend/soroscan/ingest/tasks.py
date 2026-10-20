@@ -3925,6 +3925,20 @@ def _check_single_contract_health(contract: TrackedContract, now=None, cutoff_1h
     health.last_checked_at = now
     health.save()
 
+    try:
+        m = _get_metrics()
+        short_cid = _short_contract_id(contract.contract_id)
+        status_val = m.CONTRACT_HEALTH_STATUS_MAP.get(new_status, 2)
+        m.contract_health_status_gauge.labels(contract_id=short_cid).set(status_val)
+        if old_status != new_status:
+            m.contract_health_transitions_total.labels(
+                contract_id=short_cid,
+                from_status=old_status,
+                to_status=new_status,
+            ).inc()
+    except Exception:
+        logger.exception("Failed to emit contract health metrics for %s", contract.contract_id)
+
     if old_status == ContractHealthCheck.Status.HEALTHY and new_status in (
         ContractHealthCheck.Status.DEGRADED,
         ContractHealthCheck.Status.FAILED,
