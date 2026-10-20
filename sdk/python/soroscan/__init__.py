@@ -46,6 +46,9 @@ from soroscan.models import (
     RecordEventsBatchResponse,
     TrackedContract,
     WebhookSubscription,
+    MAX_TAGS,
+    TaggedEventRequest,
+    TaggedEventResponse,
 )
 from soroscan.pagination import AsyncPaginator, Paginator
 from soroscan.webhook_verification import verify_webhook_signature
@@ -93,4 +96,7 @@ __all__ = [
     "SoroScanTimeoutError",
     "SoroScanConnectionError",
     "verify_webhook_signature",
+    "MAX_TAGS",
+    "TaggedEventRequest",
+    "TaggedEventResponse",
 ]

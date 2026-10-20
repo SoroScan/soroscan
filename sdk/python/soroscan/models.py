@@ -214,3 +214,27 @@ class ContractHealth(BaseModel):
     consecutive_failures: int = Field(default=0, description="Consecutive indexing failures")
     error_message: str = Field(default="", description="Error message if unhealthy")
     checked_at: datetime | None = Field(None, description="When health was last checked")
+
+
+# ── SC-24: Tagged events ───────────────────────────────────────────────────────
+
+MAX_TAGS = 4
+
+
+class TaggedEventRequest(BaseModel):
+    """Request payload for recording a tagged event (SC-24). Max 4 tags."""
+
+    contract_id: str = Field(..., max_length=56, description="Target contract address")
+    event_type: str = Field(..., max_length=100, description="Event type name")
+    payload_hash: str = Field(..., max_length=64, description="SHA-256 hash of payload (hex)")
+    tags: list[str] = Field(default_factory=list, max_length=MAX_TAGS, description="Classification tags")
+
+
+class TaggedEventResponse(BaseModel):
+    """Response from recording a tagged event (SC-24)."""
+
+    status: str = Field(..., description="Submission status")
+    tx_hash: str | None = Field(None, description="Transaction hash")
+    transaction_status: str | None = Field(None, description="Transaction status")
+    error: str | None = Field(None, description="Error message if failed")
+    tags: list[str] = Field(default_factory=list, description="Echoed tags")

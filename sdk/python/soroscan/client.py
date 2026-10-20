@@ -40,6 +40,9 @@ from soroscan.models import (
     StructuredEventRequest,
     TrackedContract,
     WebhookSubscription,
+    MAX_TAGS,
+    TaggedEventRequest,
+    TaggedEventResponse,
 )
 
 if TYPE_CHECKING:
@@ -1572,3 +1575,37 @@ class AsyncSoroScanClient:
         url = urljoin(self.base_url, f"/api/webhooks/{webhook_id}/test/")
         response = await self._client.post(url, headers=self._get_headers())
         return self._handle_response(response)
+    async def record_tagged_event(
+        self,
+        contract_id: str,
+        event_type: str,
+        payload_hash: str,
+        tags: list[str] | None = None,
+    ) -> TaggedEventResponse:
+        """Submit an SC-24 tagged event asynchronously.
+
+        Tags are short producer-defined classification strings that allow
+        off-chain indexers to filter events without decoding the full payload.
+        At most 4 tags may be supplied per event.
+
+        Args:
+            contract_id: Target contract address
+            event_type: Event type name
+            payload_hash: SHA-256 hash of payload (hex)
+            tags: Up to 4 classification tag strings (default: empty list)
+
+        Returns:
+            TaggedEventResponse with submission status and echoed tags
+        """
+        request = TaggedEventRequest(
+            contract_id=contract_id,
+            event_type=event_type,
+            payload_hash=payload_hash,
+            tags=tags or [],
+        )
+        response = await self._client.post(
+            urljoin(self.base_url, "/api/record/tagged/"),
+            headers=self._get_headers(),
+            json=request.model_dump(),
+        )
+        return TaggedEventResponse.model_validate(self._handle_response(response))
