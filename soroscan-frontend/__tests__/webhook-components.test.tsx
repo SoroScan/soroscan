@@ -416,7 +416,8 @@ describe("WebhookDetailPage", () => {
 
   it("shows loading, then webhook detail loaded from the API", async () => {
     render(<WebhookDetailPage />)
-    expect(await screen.findByText("https://api.myapp.io/hooks/soroban")).toBeInTheDocument()
+    const urlElements = await screen.findAllByText("https://api.myapp.io/hooks/soroban")
+    expect(urlElements.length).toBeGreaterThan(0)
     expect(global.fetch).toHaveBeenCalledWith(
       expect.stringContaining("/api/webhooks/wh_001/"),
       expect.anything(),

@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, FlaskConical, Trash2, Eye, EyeOff } from "lucide-react"
+import { ArrowLeft, FlaskConical, Trash2, Eye, EyeOff, Copy, Check } from "lucide-react"
 import { Navbar } from "@/components/terminal/landing/Navbar"
 import { Footer } from "@/components/terminal/landing/Footer"
 import { Card } from "@/components/terminal/Card"
@@ -11,6 +11,7 @@ import { Input } from "@/components/terminal/Input"
 import { Button } from "@/components/terminal/Button"
 import { Modal } from "@/components/terminal/Modal"
 import { DeliveryLog } from "./components/DeliveryLog"
+import { showToast } from "@/context/ToastContext"
 import type { DeliveryLog as DeliveryLogType, EventType, Webhook, WebhookStatus } from "../types"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
@@ -210,6 +211,7 @@ export default function WebhookDetailPage() {
   const [testResult, setTestResult] = React.useState<{ ok: boolean; code: number; ms: number } | null>(null)
   const [deleteOpen, setDeleteOpen] = React.useState(false)
   const [secretVisible, setSecretVisible] = React.useState(false)
+  const [copiedSecret, setCopiedSecret] = React.useState(false)
   const [timeoutInput, setTimeoutInput] = React.useState("30")
   const [timeoutError, setTimeoutError] = React.useState<string | null>(null)
   const [saveMessage, setSaveMessage] = React.useState<string | null>(null)
@@ -351,6 +353,31 @@ export default function WebhookDetailPage() {
       setTestResult({ ok: false, code: 503, ms: Date.now() - start })
     } finally {
       setTesting(false)
+    }
+  }
+
+  const handleCopySecret = async () => {
+    if (!webhook?.secret) return
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(webhook.secret)
+      } else if (typeof document !== "undefined") {
+        const textArea = document.createElement("textarea")
+        textArea.value = webhook.secret
+        textArea.style.position = "fixed"
+        textArea.style.top = "0"
+        textArea.style.left = "0"
+        document.body.appendChild(textArea)
+        textArea.focus()
+        textArea.select()
+        document.execCommand("copy")
+        document.body.removeChild(textArea)
+      }
+      setCopiedSecret(true)
+      showToast("Webhook signing secret copied to clipboard.", "success", "COPIED")
+      setTimeout(() => setCopiedSecret(false), 2000)
+    } catch (err) {
+      console.error("Failed to copy webhook secret:", err)
     }
   }
 
@@ -538,11 +565,30 @@ export default function WebhookDetailPage() {
                         {secretVisible ? webhook.secret : "•".repeat(webhook.secret.length)}
                       </span>
                       <button
+                        type="button"
                         onClick={() => setSecretVisible((v) => !v)}
                         className="text-terminal-cyan hover:text-terminal-green transition-colors"
                         title={secretVisible ? "Hide secret" : "Reveal secret"}
+                        aria-label={secretVisible ? "Hide secret" : "Reveal secret"}
                       >
                         {secretVisible ? <EyeOff size={12} /> : <Eye size={12} />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleCopySecret()}
+                        className="text-terminal-cyan hover:text-terminal-green transition-colors flex items-center gap-1"
+                        title={copiedSecret ? "Copied to clipboard" : "Copy secret to clipboard"}
+                        aria-label={copiedSecret ? "Copied secret" : "Copy secret"}
+                        data-testid="copy-secret-button"
+                      >
+                        {copiedSecret ? (
+                          <>
+                            <Check size={12} className="text-terminal-green" />
+                            <span className="text-[10px] text-terminal-green font-terminal-mono">COPIED</span>
+                          </>
+                        ) : (
+                          <Copy size={12} />
+                        )}
                       </button>
                     </span>
                   }
