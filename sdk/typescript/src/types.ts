@@ -391,6 +391,28 @@ export interface WebhookListResponse {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SC-17: Contract event type info
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Event type summary and statistics for a contract (SC-17).
+ */
+export interface ContractEventTypeInfo {
+  /** Event type name (e.g. "transfer", "swap") */
+  eventType: string;
+  /** Number of events of this type */
+  count: number;
+  /** ISO timestamp of first occurrence */
+  firstSeen: ISODateString | string;
+  /** ISO timestamp of last occurrence */
+  lastSeen: ISODateString | string;
+  /** Raw backend field compatibility */
+  event_type?: string;
+  first_seen?: string;
+  last_seen?: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SC-16: Contract health
 // ─────────────────────────────────────────────────────────────────────────────
 
