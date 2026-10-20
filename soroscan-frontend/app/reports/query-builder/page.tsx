@@ -100,6 +100,7 @@ export default function QueryBuilderReportPage() {
   const [scheduleEmail, setScheduleEmail] = useState("");
   const [scheduleFrequency, setScheduleFrequency] = useState<"daily" | "weekly">("daily");
   const [scheduleTime, setScheduleTime] = useState("09:00");
+  const [feedback, setFeedback] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   const rows = useMemo(() => {
     const filtered = sourceRows.filter((row) => {
@@ -138,7 +139,7 @@ export default function QueryBuilderReportPage() {
 
   const saveReport = () => {
     if (!reportName.trim()) {
-      alert("Please enter a report name");
+      setFeedback({ message: "Please enter a report name", type: "error" });
       return;
     }
     const newReport: SavedReport = {
@@ -152,7 +153,7 @@ export default function QueryBuilderReportPage() {
     setSavedReports(updated);
     localStorage.setItem("savedReports", JSON.stringify(updated));
     setReportName("");
-    alert(`Report "${reportName}" saved!`);
+    setFeedback({ message: `Report "${reportName}" saved!`, type: "success" });
   };
 
   const loadReport = (report: SavedReport) => {
@@ -169,7 +170,7 @@ export default function QueryBuilderReportPage() {
 
   const scheduleReport = () => {
     if (!reportName.trim() || !scheduleEmail.trim()) {
-      alert("Please enter a report name and email");
+      setFeedback({ message: "Please enter a report name and email", type: "error" });
       return;
     }
     const newScheduled: ScheduledReport = {
@@ -187,7 +188,7 @@ export default function QueryBuilderReportPage() {
     setReportName("");
     setScheduleEmail("");
     setShowScheduleForm(false);
-    alert("Report scheduled successfully!");
+    setFeedback({ message: "Report scheduled successfully!", type: "success" });
   };
 
   const toggleScheduledReport = (id: string) => {
@@ -214,6 +215,31 @@ export default function QueryBuilderReportPage() {
             Build a filtered report, save it, and export as CSV, JSON, or Parquet.
           </p>
         </header>
+
+        {/* Accessible Feedback Toast / Live Region */}
+        <div aria-live="polite" aria-atomic="true">
+          {feedback && (
+            <div
+              role={feedback.type === "error" ? "alert" : "status"}
+              className={`p-3 rounded border text-xs font-terminal-mono flex items-center justify-between ${
+                feedback.type === "error"
+                  ? "border-terminal-danger/40 bg-terminal-danger/10 text-terminal-danger"
+                  : "border-terminal-green/40 bg-terminal-green/10 text-terminal-green"
+              }`}
+              data-testid="query-builder-feedback"
+            >
+              <span>{feedback.message}</span>
+              <button
+                type="button"
+                onClick={() => setFeedback(null)}
+                className="ml-2 text-terminal-gray hover:text-terminal-green text-[10px]"
+                aria-label="Dismiss feedback"
+              >
+                [x]
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Filters Section */}
         <section className="grid grid-cols-1 md:grid-cols-4 gap-4 rounded border border-terminal-green/20 p-4">
