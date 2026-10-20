@@ -3,8 +3,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import type { ContractEvent } from "./types";
-import { WebSocketClient } from "./websocket-client";
+import type { ContractEvent } from "./types.js";
+import { WebSocketClient } from "./websocket-client.js";
 
 // Mock WebSocket
 class MockWebSocket {
@@ -163,7 +163,7 @@ describe("WebSocketClient", () => {
       // Manually trigger event through client
       const listeners: any[] = [];
       const originalOn = client.on.bind(client);
-      client.on = (callback, filter) => {
+      client.on = (callback: any, filter?: any) => {
         listeners.push({ callback, filter });
         originalOn(callback, filter);
       };
@@ -218,7 +218,7 @@ describe("WebSocketClient", () => {
       const reconnectingCallback = vi.fn();
       let lastDelay = 0;
 
-      client.onReconnecting((attempt, delay) => {
+      client.onReconnecting((attempt: number, delay: number) => {
         reconnectingCallback(attempt, delay);
         lastDelay = delay;
       });
@@ -281,7 +281,7 @@ describe("WebSocketClient", () => {
         constructor(url: string) {
           super(url);
           setTimeout(() => {
-            this.dispatchEvent("error", new Error("Connection failed"));
+            (this as any).dispatchEvent("error", new Error("Connection failed"));
           }, 10);
         }
       } as any;
@@ -319,7 +319,7 @@ describe("WebSocketClient", () => {
       const sendSpy = vi.fn();
 
       global.WebSocket = class extends MockWebSocket {
-        send(data: string) {
+        override send(data: string) {
           sendSpy(data);
         }
       } as any;
@@ -347,7 +347,7 @@ describe("WebSocketClient", () => {
       const sendSpy = vi.fn();
 
       global.WebSocket = class extends MockWebSocket {
-        send(data: string) {
+        override send(data: string) {
           sendSpy(data);
         }
       } as any;

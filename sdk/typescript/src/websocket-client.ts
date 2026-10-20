@@ -3,7 +3,7 @@
  * Includes exponential backoff reconnection logic and event buffering.
  */
 
-import type { ContractEvent, ContractEventTopic, EventType } from "./types";
+import type { ContractEvent, ContractEventTopic, EventType } from "./types.js";
 
 /**
  * Configuration for WebSocket connection and reconnection behavior.
@@ -339,7 +339,7 @@ export class WebSocketClient {
     if (filter.topics) {
       const hasMatchingTopics = filter.topics.every((filterTopic) =>
         event.topics.some(
-          (eventTopic) =>
+          (eventTopic: ContractEventTopic) =>
             (!filterTopic.type || eventTopic.type === filterTopic.type) &&
             (!filterTopic.value || eventTopic.value === filterTopic.value)
         )
