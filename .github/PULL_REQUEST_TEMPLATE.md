@@ -25,5 +25,5 @@ Closes #
 - [ ] Tests pass locally (`pytest` / `pnpm test` / `cargo test`)
 - [ ] Documentation updated (if applicable)
 - [ ] Conventional Commit message format used
-- [ ] PR is opened against `develop`, not `main`
+- [ ] PR is opened against `dev`
 - [ ] No secrets, credentials, or `.env` files included
