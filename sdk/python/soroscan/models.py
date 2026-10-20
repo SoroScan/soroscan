@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Generic, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 T = TypeVar("T")
 
@@ -120,6 +120,36 @@ class StructuredEventRequest(BaseModel):
     payload_hash: str = Field(..., max_length=64, description="SHA-256 hash of payload (hex)")
     schema_version: int = Field(..., ge=1, description="Schema version used for validation")
     correlation_id: str = Field(..., max_length=64, description="Correlation identifier")
+
+# ── SC-24: Tagged events ───────────────────────────────────────────────────────
+
+MAX_TAGS = 4
+
+
+class TaggedEventRequest(BaseModel):
+    """Request model for recording a tagged event (SC-24)."""
+
+    contract_id: str = Field(..., max_length=56, description="Target contract address")
+    event_type: str = Field(..., max_length=100, description="Event type name")
+    payload_hash: str = Field(..., max_length=64, description="SHA-256 hash of payload (hex)")
+    tags: list[str] = Field(default_factory=list, description="Classification tags (max 4)")
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, v: list[str]) -> list[str]:
+        if len(v) > MAX_TAGS:
+            raise ValueError(f"At most {MAX_TAGS} tags may be supplied")
+        return v
+
+
+class TaggedEventResponse(BaseModel):
+    """Response from recording a tagged event (SC-24)."""
+
+    status: str = Field(..., description="Submission status")
+    tx_hash: str | None = Field(None, description="Transaction hash if submitted")
+    transaction_status: str | None = Field(None, description="Transaction status")
+    error: str | None = Field(None, description="Error message if failed")
+    tags: list[str] = Field(default_factory=list, description="Echoed tags")
 
 
 # ── SC-9: Indexer authorization ───────────────────────────────────────────────
