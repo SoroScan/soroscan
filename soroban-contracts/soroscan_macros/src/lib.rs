@@ -9,6 +9,35 @@ extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use quote::quote;
+use syn::parse::Parser;
+use syn::punctuated::Punctuated;
+use syn::{Expr, Token};
+
+fn emit_soroscan_event_impl(input: proc_macro2::TokenStream) -> Result<proc_macro2::TokenStream, syn::Error> {
+    let parser = Punctuated::<Expr, Token![,]>::parse_terminated;
+    let args = parser.parse2(input.clone())?;
+
+    if args.len() != 3 {
+        return Err(syn::Error::new_spanned(
+            input,
+            "Expected: emit_soroscan_event!(env, event_type, payload)",
+        ));
+    }
+
+    let env_expr = &args[0];
+    let event_type = &args[1];
+    let payload = &args[2];
+
+    Ok(quote! {
+        {
+            use soroban_sdk::symbol_short;
+            #env_expr.events().publish(
+                (symbol_short!("soroscan"), #event_type),
+                #payload
+            )
+        }
+    })
+}
 
 /// Emit a standardized SoroScan event with topics and payload.
 ///
@@ -41,38 +70,36 @@ use quote::quote;
 #[proc_macro]
 #[allow(clippy::needless_pass_by_value)]
 pub fn emit_soroscan_event(input: TokenStream) -> TokenStream {
-    // Parse the input as three comma-separated tokens
-    let input_str = input.to_string();
-    let tokens: Vec<&str> = input_str.split(',').map(|s| s.trim()).collect();
+    emit_soroscan_event_impl(input.into())
+        .unwrap_or_else(|err| err.to_compile_error())
+        .into()
+}
 
-    if tokens.len() != 3 {
-        return syn::Error::new_spanned(
-            proc_macro2::TokenStream::from(input),
-            "Expected: emit_soroscan_event!(env, event_type, payload)",
-        )
-        .to_compile_error()
-        .into();
+fn emit_soroscan_batch_impl(input: proc_macro2::TokenStream) -> Result<proc_macro2::TokenStream, syn::Error> {
+    let parser = Punctuated::<Expr, Token![,]>::parse_terminated;
+    let args = parser.parse2(input.clone())?;
+
+    if args.len() != 4 {
+        return Err(syn::Error::new_spanned(
+            input,
+            "Expected: emit_soroscan_batch!(env, indexer, event_count, total_count)",
+        ));
     }
 
-    let env_expr = tokens[0];
-    let event_type = tokens[1];
-    let payload = tokens[2];
+    let env_expr = &args[0];
+    let indexer = &args[1];
+    let event_count = &args[2];
+    let total_count = &args[3];
 
-    let env_tokens: proc_macro2::TokenStream = env_expr.parse().unwrap_or_default();
-    let event_tokens: proc_macro2::TokenStream = event_type.parse().unwrap_or_default();
-    let payload_tokens: proc_macro2::TokenStream = payload.parse().unwrap_or_default();
-
-    let expanded = quote! {
+    Ok(quote! {
         {
             use soroban_sdk::symbol_short;
-            #env_tokens.events().publish(
-                (symbol_short!("soroscan"), #event_tokens),
-                #payload_tokens
+            #env_expr.events().publish(
+                (symbol_short!("soroscan"), symbol_short!("batch")),
+                (#indexer, #event_count, #total_count)
             )
         }
-    };
-
-    TokenStream::from(expanded)
+    })
 }
 
 /// Emit a batch of SoroScan events with summary.
@@ -102,39 +129,39 @@ pub fn emit_soroscan_event(input: TokenStream) -> TokenStream {
 #[proc_macro]
 #[allow(clippy::needless_pass_by_value)]
 pub fn emit_soroscan_batch(input: TokenStream) -> TokenStream {
-    let input_str = input.to_string();
-    let tokens: Vec<&str> = input_str.split(',').map(|s| s.trim()).collect();
+    emit_soroscan_batch_impl(input.into())
+        .unwrap_or_else(|err| err.to_compile_error())
+        .into()
+}
 
-    if tokens.len() != 4 {
-        return syn::Error::new_spanned(
-            proc_macro2::TokenStream::from(input),
-            "Expected: emit_soroscan_batch!(env, indexer, event_count, total_count)",
-        )
-        .to_compile_error()
-        .into();
+fn soroscan_topics_impl(input: proc_macro2::TokenStream) -> Result<proc_macro2::TokenStream, syn::Error> {
+    let parser = Punctuated::<syn::Ident, Token![,]>::parse_terminated;
+    let identifiers = parser.parse2(input.clone())?;
+
+    if identifiers.is_empty() {
+        return Err(syn::Error::new_spanned(
+            input,
+            "Expected at least one topic identifier",
+        ));
     }
 
-    let env_expr = tokens[0];
-    let indexer = tokens[1];
-    let event_count = tokens[2];
-    let total_count = tokens[3];
+    let symbol_shorts: Vec<proc_macro2::TokenStream> = identifiers
+        .iter()
+        .map(|id| {
+            quote! {
+                symbol_short!(#id)
+            }
+        })
+        .collect();
 
-    let env_tokens: proc_macro2::TokenStream = env_expr.parse().unwrap_or_default();
-    let indexer_tokens: proc_macro2::TokenStream = indexer.parse().unwrap_or_default();
-    let event_count_tokens: proc_macro2::TokenStream = event_count.parse().unwrap_or_default();
-    let total_count_tokens: proc_macro2::TokenStream = total_count.parse().unwrap_or_default();
-
-    let expanded = quote! {
+    Ok(quote! {
         {
-            use soroban_sdk::symbol_short;
-            #env_tokens.events().publish(
-                (symbol_short!("soroscan"), symbol_short!("batch")),
-                (#indexer_tokens, #event_count_tokens, #total_count_tokens)
-            )
+            use soroban_sdk::{symbol_short, Vec};
+            let mut topics = Vec::new(env);
+            #(topics.push_back(#symbol_shorts);)*
+            topics
         }
-    };
-
-    TokenStream::from(expanded)
+    })
 }
 
 /// Format an event topic vector with consistent naming.
@@ -158,54 +185,13 @@ pub fn emit_soroscan_batch(input: TokenStream) -> TokenStream {
 #[proc_macro]
 #[allow(clippy::needless_pass_by_value)]
 pub fn soroscan_topics(input: TokenStream) -> TokenStream {
-    let input_str = input.to_string();
-    let identifiers: Vec<&str> = input_str.split(',').map(|s| s.trim()).collect();
-
-    if identifiers.is_empty() {
-        return syn::Error::new_spanned(
-            proc_macro2::TokenStream::from(input),
-            "Expected at least one topic identifier",
-        )
-        .to_compile_error()
-        .into();
-    }
-
-    // Validate all identifiers are valid Rust identifiers
-    for id in &identifiers {
-        if !is_valid_identifier(id) {
-            return syn::Error::new_spanned(
-                proc_macro2::TokenStream::from(input),
-                format!("Invalid identifier: {}", id),
-            )
-            .to_compile_error()
-            .into();
-        }
-    }
-
-    // Generate symbol_short! calls for each identifier
-    let symbol_shorts: Vec<proc_macro2::TokenStream> = identifiers
-        .iter()
-        .map(|id| {
-            let id_tokens: proc_macro2::TokenStream = id.parse().unwrap_or_default();
-            quote! {
-                symbol_short!(#id_tokens)
-            }
-        })
-        .collect();
-
-    let expanded = quote! {
-        {
-            use soroban_sdk::{symbol_short, Vec};
-            let mut topics = Vec::new(env);
-            #(topics.push_back(#symbol_shorts);)*
-            topics
-        }
-    };
-
-    TokenStream::from(expanded)
+    soroscan_topics_impl(input.into())
+        .unwrap_or_else(|err| err.to_compile_error())
+        .into()
 }
 
 /// Check if a string is a valid Rust identifier
+#[allow(dead_code)]
 fn is_valid_identifier(s: &str) -> bool {
     if s.is_empty() {
         return false;
@@ -237,5 +223,80 @@ mod tests {
         assert!(!is_valid_identifier("123invalid"));
         assert!(!is_valid_identifier("invalid-type"));
         assert!(!is_valid_identifier("invalid.type"));
+    }
+
+    #[test]
+    fn test_emit_soroscan_event_tuple_payload() {
+        // Issue #1649: tuple payloads with commas must expand without error
+        let input = quote! {
+            env,
+            symbol_short!("swap"),
+            (sender, receiver, amount)
+        };
+        let result = emit_soroscan_event_impl(input);
+        assert!(result.is_ok(), "Failed to parse tuple payload: {:?}", result.err());
+
+        let output = result.unwrap().to_string();
+        assert!(output.contains("publish"));
+        assert!(output.contains("(sender , receiver , amount)") || output.contains("sender , receiver , amount"));
+    }
+
+    #[test]
+    fn test_emit_soroscan_event_single_payload() {
+        let input = quote! {
+            env,
+            symbol_short!("mint"),
+            amount
+        };
+        let result = emit_soroscan_event_impl(input);
+        assert!(result.is_ok());
+        let output = result.unwrap().to_string();
+        assert!(output.contains("publish"));
+    }
+
+    #[test]
+    fn test_emit_soroscan_event_invalid_arg_count() {
+        let input = quote! {
+            env,
+            symbol_short!("mint")
+        };
+        let result = emit_soroscan_event_impl(input);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_emit_soroscan_batch_success() {
+        let input = quote! {
+            env,
+            indexer_addr,
+            5,
+            42
+        };
+        let result = emit_soroscan_batch_impl(input);
+        assert!(result.is_ok());
+        let output = result.unwrap().to_string();
+        assert!(output.contains("batch"));
+    }
+
+    #[test]
+    fn test_emit_soroscan_batch_invalid_arg_count() {
+        let input = quote! {
+            env,
+            indexer_addr,
+            5
+        };
+        let result = emit_soroscan_batch_impl(input);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_soroscan_topics_success() {
+        let input = quote! {
+            swap, from, to, amount
+        };
+        let result = soroscan_topics_impl(input);
+        assert!(result.is_ok());
+        let output = result.unwrap().to_string();
+        assert!(output.contains("symbol_short ! (swap)"));
     }
 }
