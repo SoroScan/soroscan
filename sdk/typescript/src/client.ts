@@ -2,6 +2,7 @@ import type {
   SoroScanClientConfig,
   SoroScanApiErrorResponse,
   ContractHealth,
+  ContractEvent,
   GetEventsParams,
   GetEventsResponse,
   GetEventsByContractsParams,
@@ -11,6 +12,7 @@ import type {
   GetContractsParams,
   GetContractsResponse,
   GetContractParams,
+  GetContractRecentEventsParams,
   Contract,
   GetTransactionsParams,
   GetTransactionsResponse,
@@ -324,6 +326,60 @@ export class SoroScanClient {
     return this.#request<import("./types.js").ContractEvent[]>(
       "GET",
       `/v1/contracts/${encodeURIComponent(contractId)}/events`,
+      { query: { limit } }
+    );
+  }
+
+  /**
+   * Fetch the bounded recent-events ring buffer for a contract (SC-30).
+   *
+   * @param params - Query parameters including contractId and optional limit (1-20, default 10).
+   * @returns Array of recent contract events, newest first.
+   *
+   * @example
+   * const events = await client.getContractRecentEvents({ contractId: 'CCAAA...', limit: 10 });
+   */
+  getContractRecentEvents(
+    params: GetContractRecentEventsParams
+  ): Promise<ContractEvent[]>;
+  /**
+   * Fetch the bounded recent-events ring buffer for a contract (SC-30).
+   *
+   * @param contractId - Contract address to fetch recent events for.
+   * @param limit - Maximum number of events to return (1-20, default 10).
+   * @returns Array of recent contract events, newest first.
+   *
+   * @example
+   * const events = await client.getContractRecentEvents('CCAAA...', 10);
+   */
+  getContractRecentEvents(
+    contractId: string,
+    limit?: number
+  ): Promise<ContractEvent[]>;
+  async getContractRecentEvents(
+    paramsOrContractId: GetContractRecentEventsParams | string,
+    maybeLimit?: number
+  ): Promise<ContractEvent[]> {
+    let contractId: string;
+    let limit: number;
+
+    if (typeof paramsOrContractId === "string") {
+      contractId = paramsOrContractId;
+      limit = maybeLimit ?? 10;
+    } else {
+      contractId = paramsOrContractId.contractId;
+      limit = paramsOrContractId.limit ?? 10;
+    }
+
+    if (limit < 1 || limit > MAX_RECENT_EVENTS_LIMIT) {
+      throw new Error(
+        `limit must be between 1 and ${MAX_RECENT_EVENTS_LIMIT}`
+      );
+    }
+
+    return this.#request<ContractEvent[]>(
+      "GET",
+      `/v1/contracts/${encodeURIComponent(contractId)}/recent-events`,
       { query: { limit } }
     );
   }

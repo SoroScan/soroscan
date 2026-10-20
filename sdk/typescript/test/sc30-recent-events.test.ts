@@ -106,13 +106,32 @@ describe("getContractRecentEvents() — SC-30", () => {
 
   it("throws SoroScanError on 404 not found", async () => {
     mockFetch({ code: "NOT_FOUND", message: "Contract not found" }, 404);
-    await expect(
-      makeClient().getContractRecentEvents({ contractId: CONTRACT_ID })
-    ).rejects.toMatchObject({
-      name: "SoroScanError",
+    const promise = makeClient().getContractRecentEvents({ contractId: CONTRACT_ID });
+    await expect(promise).rejects.toBeInstanceOf(SoroScanError);
+    await expect(promise).rejects.toMatchObject({
       statusCode: 404,
       code: "NOT_FOUND",
     });
+  });
+
+  it("supports positional arguments (contractId, limit)", async () => {
+    mockFetch(MOCK_EVENTS.slice(0, 2));
+    const result = await makeClient().getContractRecentEvents(CONTRACT_ID, 2);
+
+    expect(result).toHaveLength(2);
+    const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
+    expect(url).toContain(`/v1/contracts/${CONTRACT_ID}/recent-events`);
+    expect(url).toContain("limit=2");
+  });
+
+  it("supports positional arguments with default limit", async () => {
+    mockFetch(MOCK_EVENTS);
+    const result = await makeClient().getContractRecentEvents(CONTRACT_ID);
+
+    expect(result).toHaveLength(3);
+    const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
+    expect(url).toContain(`/v1/contracts/${CONTRACT_ID}/recent-events`);
+    expect(url).toContain("limit=10");
   });
 
   it("throws SoroScanError on 500 server error", async () => {
