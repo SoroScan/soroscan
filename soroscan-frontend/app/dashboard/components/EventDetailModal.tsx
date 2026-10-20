@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -16,9 +16,65 @@ interface EventDetailModalProps {
   onClose: () => void;
 }
 
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
   const [copied, setCopied] = useState<string | null>(null);
   const [payloadView, setPayloadView] = useState<'json' | 'hex'>('json');
+  const modalRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+
+    const getFocusable = () =>
+      Array.from(
+        modalRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ?? []
+      );
+
+    const focusable = getFocusable();
+    (focusable[0] ?? modalRef.current)?.focus();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+        return;
+      }
+
+      if (e.key !== 'Tab') return;
+
+      const elements = getFocusable();
+      if (elements.length === 0) {
+        e.preventDefault();
+        return;
+      }
+
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      const active = document.activeElement;
+
+      if (e.shiftKey) {
+        if (active === first || !modalRef.current?.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (active === last || !modalRef.current?.contains(active)) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown, true);
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown, true);
+      previouslyFocusedRef.current?.focus?.();
+    };
+  }, [onClose]);
 
   const payloadJson = JSON.stringify(event.payload, null, 2);
   const payloadHex = toHex(payloadJson);
@@ -45,6 +101,8 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
   return (
     <div className={styles.exportModalOverlay} onClick={handleOverlayClick}>
       <div
+        ref={modalRef}
+        tabIndex={-1}
         className={styles.exportModal}
         role="dialog"
         aria-modal="true"
@@ -266,9 +324,15 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
 }
 
 function toHex(input: string): string {
-  const bytes = new TextEncoder().encode(input);
+  if (typeof TextEncoder !== 'undefined') {
+    const bytes = new TextEncoder().encode(input);
 
-  return Array.from(bytes)
+    return Array.from(bytes)
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join(' ');
+  }
+
+  return Array.from(Buffer.from(input, 'utf-8'))
     .map((byte) => byte.toString(16).padStart(2, '0'))
     .join(' ');
 }
