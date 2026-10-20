@@ -61,6 +61,34 @@ def _contract_to_sdk(contract: TrackedContract) -> dict:
     }
 
 
+MAX_PAGE_SIZE = 200
+DEFAULT_PAGE_SIZE = 20
+
+
+def _parse_first(raw):
+    """Read and bounds-check the ``first`` page-size parameter.
+
+    Returns ``DEFAULT_PAGE_SIZE`` when the parameter is absent. A value that
+    is not an integer is rejected with ``ValueError`` (the caller turns this
+    into HTTP 400) rather than silently falling back to the default, so a
+    caller who asks for a bad page size is told instead of quietly getting a
+    differently sized page than requested.
+
+    Out-of-range values are clamped into ``0..MAX_PAGE_SIZE`` rather than
+    rejected, preserving the endpoint's long-standing contract with the
+    TypeScript SDK: ``first=9999`` returns ``MAX_PAGE_SIZE`` rows and
+    ``first=0`` (or a negative value) returns an empty page. Clamping keeps
+    existing integrations working while still bounding the query.
+    """
+    if raw is None:
+        return DEFAULT_PAGE_SIZE
+    try:
+        first = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError("first must be a valid integer.")
+    return max(0, min(first, MAX_PAGE_SIZE))
+
+
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def list_events(request):
@@ -68,16 +96,22 @@ def list_events(request):
     List contract events in the cursor-based shape expected by the TypeScript SDK.
 
     Query params:
-    - first (int) - Maximum items to return, capped at 200 (default 20)
+    - first (int) - Maximum items to return. Values outside ``0..200`` are
+      clamped into range (``first=9999`` returns 200, ``first=0`` returns an
+      empty page); the default is 20. A non-integer value is rejected with 400.
     - contractId (string) - Filter by Soroban contract ID
     - eventType (string) - Filter by event type label
 
     - 200: Paginated event list with pageInfo cursors
+    - 400: ``first`` was not a valid integer
     """
     try:
-        first = min(int(request.query_params.get("first", 20)), 200)
-    except (TypeError, ValueError):
-        first = 20
+        first = _parse_first(request.query_params.get("first"))
+    except ValueError as exc:
+        return Response(
+            {"code": "INVALID_ARGUMENT", "message": str(exc)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     queryset = ContractEvent.objects.select_related("contract").order_by("-timestamp")
 

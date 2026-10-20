@@ -165,6 +165,39 @@ def _parse_limit(request, default, max_limit=MAX_LIMIT):
     return limit
 
 
+# ``ContractSnapshot.ledger_sequence`` is a ``PositiveBigIntegerField``.
+# PostgreSQL ``bigint`` tops out at 9223372036854775807, so a larger literal
+# survives ``int()`` but blows up at query time with a DataError (HTTP 500).
+# Rejecting above this bound turns that 500 into a 400 the caller can act on.
+MAX_LEDGER_SEQUENCE = 9_223_372_036_854_775_807
+
+
+def _parse_ledger_bound(raw, name):
+    """Read and bounds-check an optional ledger-range filter.
+
+    Returns ``None`` when the parameter is absent (meaning "no bound on this
+    side"), and raises ``DRFValidationError`` (HTTP 400) when it is not an
+    integer, is negative, or exceeds ``MAX_LEDGER_SEQUENCE``.
+
+    A bare ``int()`` on the raw value is not enough:
+
+    * a non-numeric or empty value raises ``ValueError`` out of ``int()``, and
+    * an out-of-range literal survives ``int()`` but is rejected by PostgreSQL
+      when the queryset is filtered, surfacing as a 500 rather than a 400.
+    """
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise DRFValidationError({name: f"{name} must be a valid integer."})
+    if value < 0:
+        raise DRFValidationError({name: f"{name} must be >= 0."})
+    if value > MAX_LEDGER_SEQUENCE:
+        raise DRFValidationError({name: f"{name} must be <= {MAX_LEDGER_SEQUENCE}."})
+    return value
+
+
 class AdminActionSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="user.username", read_only=True)
 
@@ -417,16 +450,28 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["get"], url_path="snapshots")
     def snapshots(self, request, pk=None):
-        """List contract state snapshots, optionally filtered by ledger range."""
+        """List contract state snapshots, optionally filtered by ledger range.
+
+        ``ledger_min`` and ``ledger_max`` are optional inclusive bounds on
+        ``ledger_sequence``. Omitting either means "no bound on that side".
+        Each bound must be a non-negative integer no larger than
+        ``MAX_LEDGER_SEQUENCE``; anything else is rejected with 400 instead of
+        raising a 500 out of a bare ``int()``.
+        """
         contract = self.get_object()
         qs = ContractSnapshot.objects.filter(contract=contract).prefetch_related("changes")
 
-        ledger_min = request.query_params.get("ledger_min")
-        ledger_max = request.query_params.get("ledger_max")
+        ledger_min = _parse_ledger_bound(request.query_params.get("ledger_min"), "ledger_min")
+        ledger_max = _parse_ledger_bound(request.query_params.get("ledger_max"), "ledger_max")
+        if ledger_min is not None and ledger_max is not None and ledger_min > ledger_max:
+            raise DRFValidationError(
+                {"ledger_min": "ledger_min must be <= ledger_max."}
+            )
+
         if ledger_min is not None:
-            qs = qs.filter(ledger_sequence__gte=int(ledger_min))
+            qs = qs.filter(ledger_sequence__gte=ledger_min)
         if ledger_max is not None:
-            qs = qs.filter(ledger_sequence__lte=int(ledger_max))
+            qs = qs.filter(ledger_sequence__lte=ledger_max)
 
         serializer = ContractSnapshotSerializer(qs.order_by("-ledger_sequence"), many=True)
         return Response(serializer.data)
