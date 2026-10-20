@@ -1,4 +1,5 @@
 """Pydantic models for SoroScan API responses."""
+from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Generic, TypeVar
