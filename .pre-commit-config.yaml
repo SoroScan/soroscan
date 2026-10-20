@@ -1,10 +1,10 @@
 exclude: '(?x)^(
-    .*/node_modules/|
-    .*/\.venv.*/|
-    .*/\.git/|
-    .*/\.cache/|
-    .*/dist/|
-    .*/build/
+    .*node_modules/|
+    .*\.venv.*/|
+    .*\.git/|
+    .*\.cache/|
+    .*dist/|
+    .*build/
 )'
 repos:
 -   repo: https://github.com/pre-commit/pre-commit-hooks
