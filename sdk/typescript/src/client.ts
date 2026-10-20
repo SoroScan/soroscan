@@ -600,6 +600,24 @@ export class SoroScanClient {
       `/v1/webhooks/${encodeURIComponent(webhookId)}`
     );
   }
+
+  /**
+   * Trigger a test delivery for an existing webhook subscription.
+   *
+   * The backend sends a synthetic test event to the webhook's target URL and
+   * returns immediately. The response status string mirrors the Python SDK
+   * (`"test_webhook_queued"`).
+   *
+   * @example
+   * const result = await client.testWebhook("wh_001");
+   * console.log(result.status); // "test_webhook_queued"
+   */
+  async testWebhook(webhookId: string): Promise<{ status: string }> {
+    return this.#request<{ status: string }>(
+      "POST",
+      `/api/webhooks/${encodeURIComponent(webhookId)}/test/`
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
