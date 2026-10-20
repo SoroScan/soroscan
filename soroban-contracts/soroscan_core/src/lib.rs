@@ -430,6 +430,10 @@ impl SoroScanCore {
     ) -> Result<u64, ContractError> {
         indexer.require_auth();
 
+        if Self::is_paused(env.clone()) {
+            return Err(ContractError::ContractPaused);
+        }
+
         if schema_version == 0 {
             return Err(ContractError::InvalidSchemaVersion);
         }

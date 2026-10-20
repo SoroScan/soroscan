@@ -501,6 +501,46 @@ fn paused_indexer_cannot_record_tagged_or_structured_events() {
 }
 
 #[test]
+fn paused_contract_cannot_record_structured_events() {
+    let env = Env::default();
+    let (contract_id, admin, indexer) = setup(&env);
+    let client = SoroScanCoreClient::new(&env, &contract_id);
+
+    client.pause(&admin);
+    assert!(client.is_paused());
+
+    let target = Address::generate(&env);
+    let payload_hash = BytesN::from_array(&env, &[0u8; 32]);
+    let correlation_id = BytesN::from_array(&env, &[1u8; 32]);
+
+    assert_eq!(
+        client.try_record_structured_event(
+            &indexer,
+            &target,
+            &symbol_short!("escrow"),
+            &payload_hash,
+            &1,
+            &correlation_id,
+        ),
+        Err(Ok(ContractError::ContractPaused))
+    );
+
+    // Unpausing allows structured events to be recorded again
+    client.unpause(&admin);
+    assert!(!client.is_paused());
+
+    let count = client.record_structured_event(
+        &indexer,
+        &target,
+        &symbol_short!("escrow"),
+        &payload_hash,
+        &1,
+        &correlation_id,
+    );
+    assert_eq!(count, 1);
+}
+
+#[test]
 fn record_tagged_event_rejects_too_many_tags() {
     let env = Env::default();
     let (contract_id, _, indexer) = setup(&env);
