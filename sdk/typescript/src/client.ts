@@ -8,6 +8,8 @@ import type {
   GetEventsByContractsResponse,
   RecordStructuredEventParams,
   RecordStructuredEventResponse,
+  RecordTaggedEventParams,
+  RecordTaggedEventResponse,
   GetContractsParams,
   GetContractsResponse,
   GetContractParams,
@@ -344,35 +346,6 @@ export class SoroScanClient {
   }
 
   // ─── Transactions ──────────────────────────────────────────────────────────
-
-  /**
-   * Submit an SC-38 structured event. The correlation ID makes retry handling
-   * explicit: the contract rejects a repeated ID without publishing twice.
-   */
-  async recordStructuredEvent(
-    params: RecordStructuredEventParams
-  ): Promise<RecordStructuredEventResponse> {
-    const response = await this.#request<{
-      status: "submitted" | "failed";
-      tx_hash?: string;
-      transaction_status: string;
-      error?: string;
-    }>("POST", "/api/record/structured/", {
-      body: {
-        contract_id: params.contractId,
-        event_type: params.eventType,
-        payload_hash: params.payloadHash,
-        schema_version: params.schemaVersion,
-        correlation_id: params.correlationId,
-      },
-    });
-    return {
-      status: response.status,
-      txHash: response.tx_hash,
-      transactionStatus: response.transaction_status,
-      error: response.error,
-    };
-  }
 
   /**
    * Submit an SC-24 tagged event.
