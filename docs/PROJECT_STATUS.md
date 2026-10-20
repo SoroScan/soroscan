@@ -323,7 +323,7 @@ Status:            ✅ EXCEEDS TARGET
 ### CI/CD Pipeline
 
 **GitHub Actions Workflows:**
-1. `django-tests.yml` — Runs pytest, coverage analysis, linting
+1. `django.yml` — Runs pytest, coverage analysis, linting (consolidates the former `django-tests.yml`; see issue #1678)
 2. `frontend-ci.yml` — Runs Jest, ESLint, Next.js build
 3. `migration-check.yml` — Validates migration integrity
 
