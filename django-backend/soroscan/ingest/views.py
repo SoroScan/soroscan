@@ -33,6 +33,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.utils.urls import remove_query_param, replace_query_param
 
 import requests as http_requests
 
@@ -742,13 +743,32 @@ class ContractEventViewSet(viewsets.ReadOnlyModelViewSet):
 
         queryset = queryset.order_by(filters["ordering"], "-id")
         count = queryset.count()
-        offset = (filters["page"] - 1) * filters["page_size"]
-        events = queryset[offset : offset + filters["page_size"]]
+        page = filters["page"]
+        page_size = filters["page_size"]
+        offset = (page - 1) * page_size
+        events = queryset[offset : offset + page_size]
+
+        base_url = request.build_absolute_uri()
+        next_url = None
+        if offset + page_size < count:
+            next_url = replace_query_param(base_url, "page", page + 1)
+            if page_size != 20:
+                next_url = replace_query_param(next_url, "page_size", page_size)
+
+        previous_url = None
+        if page > 1:
+            if page == 2:
+                previous_url = remove_query_param(base_url, "page")
+            else:
+                previous_url = replace_query_param(base_url, "page", page - 1)
+            if previous_url and page_size != 20:
+                previous_url = replace_query_param(previous_url, "page_size", page_size)
+
         return Response(
             {
                 "count": count,
-                "next": None,
-                "previous": None,
+                "next": next_url,
+                "previous": previous_url,
                 "results": self.get_serializer(events, many=True).data,
                 "contract_ids": filters["contract_ids"],
             }
