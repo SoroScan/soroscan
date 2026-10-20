@@ -54,6 +54,13 @@ def api_client(client, django_user_model):
 - MSW setup for mocking GraphQL and REST requests.
 - Jest configuration for snapshot testing and code coverage.
 
+### Coverage Policy and Thresholds
+
+SoroScan employs a dual-tier coverage architecture across the frontend:
+
+- **Jest Baseline Unit-Test Gate (`soroscan-frontend/jest.config.ts`)**: Enforces local regression thresholds (`lines: 40%`, `statements: 40%`, `functions: 35%`, `branches: 30%`) to guard tested components from regression during local unit runs.
+- **Codecov Pull Request Quality Gate (`codecov.yml`)**: Enforces the project-wide `70%` minimum coverage target across PR patches and combined test runs.
+
 Example component test:
 
 ```tsx
