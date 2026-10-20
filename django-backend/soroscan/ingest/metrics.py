@@ -343,6 +343,7 @@ celery_tasks_active = _get_or_create(
     "soroscan_celery_tasks_active",
     "Celery tasks currently executing",
     ["task_name"],
+    multiprocess_mode="livesum",
 )
 celery_task_duration_seconds = _get_or_create(
     Histogram,
