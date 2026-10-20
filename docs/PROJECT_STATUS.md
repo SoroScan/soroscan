@@ -1,6 +1,6 @@
 # SoroScan — Project Status & Implementation Report
 
-**Last Updated:** May 26, 2026  
+**Last Updated:** October 20, 2026  
 **Project Type:** Blockchain Event Indexer & Monitoring Platform  
 **Status:** Active Development
 
@@ -17,6 +17,7 @@
 7. [Development Setup](#development-setup)
 8. [Deployment & DevOps](#deployment--devops)
 9. [Contributing](#contributing)
+10. [How to Regenerate & Verify Metrics](#how-to-regenerate--verify-metrics)
 
 ---
 
@@ -42,11 +43,11 @@ SoroScan is a **Stellar Soroban event indexer and monitoring platform** that:
 
 ### Key Differentiators
 
-✅ **Production-grade** — 81% test coverage, clean migrations, 265 passing tests  
+✅ **Production-grade** — 81%+ test coverage, 76 clean migrations, 2,500+ passing tests across 130+ backend modules, 90+ frontend suites, and dual SDKs  
 ✅ **Enterprise-ready** — Multi-tenancy, GDPR compliance, HA/DR  
 ✅ **Developer-friendly** — Interactive API docs, SDKs (Python, TypeScript), Webhooks  
 ✅ **Retro aesthetic** — Terminal-inspired UI with phosphor green on deep black  
-✅ **Comprehensive** — 168 fully-documented issues across backend & frontend
+✅ **Comprehensive** — Robust issue tracking and milestone roadmap across backend & frontend
 
 ---
 
@@ -54,7 +55,7 @@ SoroScan is a **Stellar Soroban event indexer and monitoring platform** that:
 
 ### System Diagram
 
-```
+`
 ┌─────────────────────────────────────────────────────────────┐
 │                    Soroban RPC / Horizon                    │
 └────────────────────────────┬────────────────────────────────┘
@@ -89,31 +90,31 @@ SoroScan is a **Stellar Soroban event indexer and monitoring platform** that:
         ▼ (Webhooks)
    Third-Party Systems
    (Data Warehouses, Monitoring, APIs)
-```
+`
 
 ### Core Modules
 
 **Backend (Django + Strawberry GraphQL)**
-- `soroscan/ingest/` — Event ingestion from Horizon
-- `soroscan/graphql/` — GraphQL schema and resolvers
-- `soroscan/api/` — REST API endpoints
-- `soroscan/webhooks/` — Webhook delivery and retry logic
-- `soroscan/models/` — Core data models (Contract, Event, Webhook, etc.)
-- `soroscan/tasks/` — Celery async tasks
+- soroscan/ingest/ — Event ingestion from Horizon
+- soroscan/graphql/ — GraphQL schema and resolvers
+- soroscan/api/ — REST API endpoints
+- soroscan/webhooks/ — Webhook delivery and retry logic
+- soroscan/models/ — Core data models (Contract, Event, Webhook, etc.)
+- soroscan/tasks/ — Celery async tasks
 
 **Frontend (Next.js + Apollo Client)**
-- `app/` — Page routes (event explorer, dashboard, admin)
-- `components/` — Reusable UI components (buttons, cards, tables, etc.)
-- `lib/` — Utilities and GraphQL query builders
-- `context/` — Global state (auth, theme, notifications)
-- `providers/` — Apollo Client setup
+- pp/ — Page routes (event explorer, dashboard, admin)
+- components/ — Reusable UI components (buttons, cards, tables, etc.)
+- lib/ — Utilities and GraphQL query builders
+- context/ — Global state (auth, theme, notifications)
+- providers/ — Apollo Client setup
 
 **Smart Contracts (Rust/Soroban)**
-- `soroban-contracts/soroscan_core/` — Contract verification logic
+- soroban-contracts/soroscan_core/ — Contract verification logic
 
 **SDKs**
-- `sdk/python/` — Python client library
-- `sdk/typescript/` — JavaScript/TypeScript client library
+- sdk/python/ — Python client library
+- sdk/typescript/ — JavaScript/TypeScript client library
 
 ---
 
@@ -124,7 +125,7 @@ SoroScan is a **Stellar Soroban event indexer and monitoring platform** that:
 | Component | Technology | Version |
 |-----------|-----------|---------|
 | Framework | Django | 5.2.10 |
-| Language | Python | 3.12.3 |
+| Language | Python | 3.11+ (declared >=3.10) |
 | GraphQL | Strawberry GraphQL | Latest |
 | Database | PostgreSQL | 15+ |
 | Cache | Redis | 7+ |
@@ -136,32 +137,33 @@ SoroScan is a **Stellar Soroban event indexer and monitoring platform** that:
 
 | Component | Technology | Version |
 |-----------|-----------|---------|
-| Framework | Next.js | 14+ |
-| Language | TypeScript | Latest |
+| Framework | Next.js | 16.1.x (App Router) |
+| UI Library | React | 19.2.x |
+| Language | TypeScript | 5.x |
 | Styling | Tailwind CSS | 3.x |
-| Components | shadcn/ui | Latest |
+| Components | shadcn/ui & Terminal primitives | Latest |
 | Icons | Lucide React | Latest |
-| GraphQL Client | Apollo Client | 4.x |
+| GraphQL Client | Apollo Client | 3.13+ / 4.x |
 | State | Zustand / Context | Latest |
 | i18n | next-intl | Latest |
-| Testing | Jest + React Testing Library | Latest |
+| Testing | Jest + React Testing Library + Playwright | Latest |
 
 ### Infrastructure
 
 | Component | Technology |
 |-----------|-----------|
 | Containerization | Docker + Docker Compose |
-| Orchestration | Kubernetes (k8s manifests provided) |
-| CI/CD | GitHub Actions |
+| Orchestration | Kubernetes (k8s manifests + PodDisruptionBudgets) |
+| CI/CD | GitHub Actions (16 specialized workflows) |
 | Monitoring | Prometheus + Grafana |
 | Logging | Structured logging + Sentry |
-| Package Managers | npm/pnpm (frontend), pip (backend) |
+| Package Managers | pnpm / npm (frontend), pip / poetry (backend), cargo (contracts) |
 
 ### Blockchain
 
 | Component | Technology |
 |-----------|-----------|
-| Smart Contracts | Rust + Soroban SDK |
+| Smart Contracts | Rust 1.85+ + Soroban SDK |
 | Event Source | Stellar Horizon API |
 | RPC | Soroban RPC endpoints |
 
@@ -190,13 +192,14 @@ SoroScan is a **Stellar Soroban event indexer and monitoring platform** that:
 - [x] Event delivery to subscriber endpoints
 - [x] Exponential backoff retry logic
 - [x] Dead-letter queue for failed deliveries
-- [x] HMAC-SHA256 signature verification
+- [x] Dual HMAC-SHA256 and Ed25519 signature verification
 
 #### Authentication & Security
 - [x] JWT token authentication for API
 - [x] Rate limiting on REST and GraphQL
 - [x] CORS configuration
 - [x] Environment variable validation on startup
+- [x] Non-root container security context across deployments
 
 #### Observability
 - [x] Structured logging throughout codebase
@@ -210,44 +213,45 @@ SoroScan is a **Stellar Soroban event indexer and monitoring platform** that:
 - [x] Contract management UI
 - [x] Webhook subscription manager
 - [x] Authentication UI and token management
-- [x] Admin dashboard
+- [x] Admin dashboard with chart metrics and empty states
 - [x] Design system with terminal aesthetic
 - [x] Responsive mobile/tablet layout
 - [x] Dark mode (terminal-inspired)
 
 #### Testing
-- [x] 265 unit and integration tests
-- [x] 81% code coverage (exceeds 80% requirement)
+- [x] 2,500+ unit and integration tests across backend, frontend, and SDKs
+- [x] 81%+ code coverage (exceeds 80% requirement)
 - [x] GraphQL resolver tests
-- [x] Model and task tests
+- [x] Model, task, and ingestion pipeline tests
 - [x] API endpoint tests
-- [x] Frontend component tests with Jest
-- [x] End-to-end testing with Playwright (framework ready)
+- [x] Frontend component tests with Jest (97 suites)
+- [x] Reliability suites (Chaos engineering & Failover tests)
+- [x] End-to-end testing with Playwright & contract testing with Pact
 
 #### DevOps & Infrastructure
 - [x] Docker Compose setup for local development
-- [x] Kubernetes manifests for production
-- [x] GitHub Actions CI/CD pipeline
-- [x] Database migrations (19 migrations, all clean)
-- [x] Environment configuration via `.env`
+- [x] Kubernetes manifests and PodDisruptionBudgets for production
+- [x] 16 GitHub Actions CI/CD workflows with automated linting and tests
+- [x] Database migrations (76 migrations, fully tracked and reversible)
+- [x] Environment configuration via .env
 
 #### Documentation
 - [x] README files for each module
-- [x] API documentation (OpenAPI/Swagger ready)
+- [x] Interactive API documentation
 - [x] SDK documentation (Python, TypeScript)
-- [x] CONTRIBUTING.md for contributors
-- [x] Getting started guides
+- [x] CONTRIBUTING.md and onboarding guides
+- [x] Architecture Decision Records (ADRs)
 
 #### SDKs
-- [x] Python client SDK (published)
-- [x] TypeScript/JavaScript client SDK (published)
-- [x] SDK examples and tests
+- [x] Python client SDK (published with full type hints)
+- [x] TypeScript/JavaScript client SDK (published with npm provenance)
+- [x] SDK examples and verification tests
 
 ---
 
 ### 🚧 In Progress / Planned Features
 
-#### Enterprise & Multi-Tenancy (Issues #95-#106)
+#### Enterprise & Multi-Tenancy
 - [ ] Multi-tenancy organization management
 - [ ] Role-based access control (RBAC)
 - [ ] Data governance and GDPR compliance
@@ -282,102 +286,66 @@ SoroScan is a **Stellar Soroban event indexer and monitoring platform** that:
 - [ ] Webhook event schema explorer
 - [ ] Rate limit status endpoint
 
-#### Alerting & Notifications
-- [ ] Advanced alert rule builder
-- [ ] Escalation policies
-- [ ] Multi-channel notifications (email, Slack, PagerDuty)
-- [ ] Alert delivery guarantees
-- [ ] Incident response automation
-
-#### Component Library (Beginner Issues)
-- [ ] 20 reusable frontend components (buttons, inputs, tables, etc.)
-- [ ] 20 beginner-friendly backend tasks (logging, monitoring, tooling)
-
 ---
 
 ## Testing & Quality
 
 ### Test Coverage
 
-```
-Total Tests:       265
-Passing:           265 (100% pass rate)
-Coverage:          81%
+`
+Total Tests:       2,500+
+Passing:           2,500+ (100% pass rate)
+Coverage:          81%+
 Target:            80%
 Status:            ✅ EXCEEDS TARGET
-```
+`
 
 ### Test Categories
 
-| Category | Count | Status |
-|----------|-------|--------|
-| GraphQL Resolvers | 45 | ✅ Passing |
-| REST API Endpoints | 35 | ✅ Passing |
-| Models | 60 | ✅ Passing |
-| Celery Tasks | 40 | ✅ Passing |
-| Webhooks | 35 | ✅ Passing |
-| Authentication | 20 | ✅ Passing |
-| Frontend Components | 7 | ✅ Passing |
-| Integration Tests | 13 | ✅ Passing |
+| Category | Modules / Suites | Test Functions | Status |
+|----------|-----------------|----------------|--------|
+| Django Backend (Models, Tasks, Ingest, APIs, GraphQL) | 133 files | ~1,480+ | ✅ Passing |
+| Frontend Components & Pages (Jest / RTL) | 97 suites | ~800+ | ✅ Passing |
+| Python SDK (sdk/python) | 27 files | ~222+ | ✅ Passing |
+| Webhook Simulator & Integration | 5 files | ~38+ | ✅ Passing |
+| Reliability (Chaos & Failover suites) | Root suites | ~28+ | ✅ Passing |
+| Contract Testing (Pact / Soroban E2E) | Integration suites | Automated in CI | ✅ Passing |
 
 ### CI/CD Pipeline
 
-**GitHub Actions Workflows:**
-1. `django-tests.yml` — Runs pytest, coverage analysis, linting
-2. `frontend-ci.yml` — Runs Jest, ESLint, Next.js build
-3. `migration-check.yml` — Validates migration integrity
+**Core GitHub Actions Workflows (16 total):**
+1. django-tests.yml — Runs pytest, coverage analysis, linting, and migration rollback checks (migration-rollbacks)
+2. frontend-ci.yml — Runs Jest, ESLint, and Next.js production build
+3. chaos-tests.yml — Automated chaos engineering and resilience verification
+4. failover-tests.yml — Database and broker failover resilience tests
+5. load-tests.yml — k6 soak and stress testing scenarios
+6. pact-tests.yml — Consumer-driven contract testing for SDKs and Django provider
+7. sdk-integration-tests.yml & sdk-release.yml — SDK verification and automated npm release
+8. soroban-e2e.yml — Soroban smart contract verification with Rust 1.85+
+9. markdown-lint.yml — Markdown and MDX linting across repository
+10. changelog.yml — Automated git-cliff changelog generation
 
 **Status:** ✅ All checks passing
 
 ### Code Quality
 
-- **Linting:** ESLint (frontend), Pylint (backend)
-- **Formatting:** Prettier (frontend), Black (backend)
-- **Type Checking:** TypeScript strict mode, Pylance
-- **Pre-commit Hooks:** Husky configured
+- **Linting:** ESLint (frontend), Flake8 / Pylint (backend), Markdownlint-cli2 (docs), Actionlint (workflows)
+- **Formatting:** Prettier (frontend), Black (backend), rustfmt (contracts)
+- **Type Checking:** TypeScript strict mode, Mypy / Pylance
+- **Pre-commit Hooks:** .pre-commit-config.yaml with Gitleaks secret scanning
 
 ---
 
 ## Issues & Roadmap
 
-### Issue Inventory
+### Issue Tracking
 
-| Category | Count | Status |
-|----------|-------|--------|
-| Backend Issues (#1-#106) | 106 | All documented |
-| Frontend Issues (FE-1 to FE-62) | 62 | All documented |
-| Beginner Issues (B1-B20, F1-F20) | 40 | All documented |
-| **Total** | **208** | **Ready for implementation** |
+Active issues are tracked publicly via [GitHub Issues](https://github.com/SoroScan/soroscan/issues).
 
-### Issue Distribution
-
-**Backend Issues by Category:**
-- Core features: #1-#40 (high priority)
-- Infrastructure & DevOps: #41-#60 (medium priority)
-- Observability & Monitoring: #61-#80 (medium priority)
-- Beginner tasks: #B1-#B20 (trivial-medium)
-- **Strategic enterprise features:** #95-#106 (high priority)
-
-**Frontend Issues by Category:**
-- Core features: FE-1-FE-25 (critical path)
-- Components & UX: FE-26-FE-50 (medium priority)
-- **Strategic enterprise UIs:** FE-51-FE-62 (high priority)
-
-### Execution Phases
-
-**Phase 1: Foundation (Issues #1-#12, FE-1-FE-6)**
-- Docker setup, authentication, GraphQL foundation
-- Core event explorer, design system
-
-**Phase 2: Core Features (Issues #13-#40, FE-7-FE-20)**
-- SDKs, Kubernetes, GraphQL subscriptions
-- Contract management, admin dashboard
-
-**Phase 3: Advanced (Issues #41-#80, FE-21-FE-50)**
-- Analytics, performance optimization, components
-
-**Phase 4: Enterprise (Issues #95-#106, FE-51-FE-62)**
-- Multi-tenancy, compliance, HA/DR, advanced monitoring
+- **Good First Issues:** [Open Beginner Issues](https://github.com/SoroScan/soroscan/issues?q=is%3Aissue+is%3Aopen+label%3Agood-first-issue)
+- **Backend Issues:** Filter by label rea/backend
+- **Frontend Issues:** Filter by label rea/frontend
+- **Documentation Issues:** Filter by label documentation
 
 ---
 
@@ -385,21 +353,25 @@ Status:            ✅ EXCEEDS TARGET
 
 ### Prerequisites
 
-```bash
+`bash
 # Backend
-- Python 3.12.3
+- Python 3.11+ (or >=3.10)
 - PostgreSQL 15+
 - Redis 7+
 - Docker & Docker Compose
 
 # Frontend
-- Node.js 18+ (pnpm recommended)
-- pnpm 8+
-```
+- Node.js 20+
+- pnpm 9+
+
+# Smart Contracts
+- Rust 1.85+ & Cargo
+- soroban-cli
+`
 
 ### Quick Start
 
-```bash
+`bash
 # Clone repo
 git clone https://github.com/SoroScan/soroscan.git
 cd soroscan
@@ -407,7 +379,7 @@ cd soroscan
 # Backend
 cd django-backend
 python -m venv venv
-source venv/bin/activate  # or `venv\Scripts\activate` on Windows
+source venv/bin/activate  # or env\Scripts\activate on Windows
 pip install -r requirements.txt
 python manage.py migrate
 python manage.py runserver
@@ -418,12 +390,14 @@ pnpm install
 pnpm dev
 
 # Docker Compose (all services)
-docker-compose up --build
-```
+docker compose up --build
+`
 
 ### Database Migrations
 
-```bash
+The repository currently includes **76 migrations** (75 migration modules + __init__.py) under django-backend/soroscan/ingest/migrations/:
+
+`bash
 # Apply migrations
 python manage.py migrate
 
@@ -433,45 +407,27 @@ python manage.py makemigrations
 # Check migration status
 python manage.py showmigrations
 
-# Revert to previous
-python manage.py migrate <app_name> 0018_previous
-```
+# Test rollback safety
+python manage.py migrate ingest 0055_previous
+`
 
 ### Running Tests
 
-```bash
+`bash
 # Backend
 cd django-backend
-pytest  # Run all tests
+pytest  # Run all backend tests
 pytest --cov=soroscan --cov-report=term-missing  # With coverage
 
 # Frontend
 cd soroscan-frontend
 pnpm test  # Run Jest tests
 pnpm test:e2e  # Run Playwright tests
-```
 
-### Environment Variables
-
-Key variables (see `ENVIRONMENT.md` for full list):
-
-```bash
-# Database
-DATABASE_URL=postgresql://user:pass@localhost:5432/soroscan
-REDIS_URL=redis://localhost:6379/0
-
-# Stellar/Soroban
-STELLAR_TESTNET_RPC_URL=https://soroban-testnet.stellar.org/
-STELLAR_MAINNET_RPC_URL=https://soroban.stellar.org/
-
-# Security
-SECRET_KEY=your-secret-key-here
-DEBUG=False
-ALLOWED_HOSTS=localhost,127.0.0.1
-
-# GraphQL
-GRAPHQL_PLAYGROUND=True  # Development only
-```
+# Reliability & Chaos
+pytest tests/chaos/tests/
+pytest tests/failover/tests/
+`
 
 ---
 
@@ -479,63 +435,34 @@ GRAPHQL_PLAYGROUND=True  # Development only
 
 ### Docker
 
-```bash
+`bash
 # Build images
 docker build -f django-backend/Dockerfile -t soroscan-backend .
 docker build -f soroscan-frontend/Dockerfile.frontend -t soroscan-frontend .
 
 # Run with Compose
-docker-compose up -d
+docker compose up -d
 
 # Check logs
-docker-compose logs -f backend
-docker-compose logs -f frontend
-```
+docker compose logs -f backend
+docker compose logs -f frontend
+`
 
 ### Kubernetes
 
-Manifests provided in `/k8s/`:
+Manifests and high-availability resources provided in /k8s/:
 
-```bash
-# Deploy to Kubernetes (requires cluster)
+`bash
+# Deploy to Kubernetes
 kubectl apply -f k8s/namespace.yaml
 kubectl apply -f k8s/configmap.yaml
 kubectl apply -f k8s/secret-reference.yaml
 kubectl apply -f k8s/backend-deployment.yaml
 kubectl apply -f k8s/worker-deployment.yaml
+kubectl apply -f k8s/pdb.yaml
 kubectl apply -f k8s/service.yaml
 kubectl apply -f k8s/ingress.yaml
-
-# Check deployment
-kubectl get pods -n soroscan
-kubectl logs -f deployment/soroscan-backend -n soroscan
-```
-
-### Monitoring
-
-**Prometheus Metrics:**
-- Endpoint: `http://localhost:8000/metrics`
-- Scraped by Prometheus every 30 seconds
-
-**Grafana Dashboards:**
-- Example dashboard in `k8s/grafana-dashboard.json`
-
-**Alerting:**
-- Sentry integration for error tracking
-- Custom alerts via Prometheus rules
-
-### Backup & Recovery
-
-**Automated Backups:**
-- Daily PostgreSQL dumps (Kubernetes CronJob)
-- Backup stored in cloud storage (configurable)
-- Recovery tested quarterly
-
-**Health Checks:**
-```bash
-GET /health  → Returns {"status": "ok"}
-GET /ready   → Checks DB and Redis connectivity
-```
+`
 
 ---
 
@@ -543,95 +470,38 @@ GET /ready   → Checks DB and Redis connectivity
 
 ### For New Contributors
 
-1. **Pick a beginner issue** from `backlogs/ALT_ISSUES.md` (B1-B20 or F1-F20)
-2. **Read the issue** — all have clear acceptance criteria
-3. **Set up dev environment** — see Development Setup above
-4. **Create a branch:** `git checkout -b fix/issue-name`
-5. **Implement & test:** All tests must pass
-6. **Submit PR** — link to issue, describe changes
-
-### For Experienced Contributors
-
-1. **Choose from** `backlogs/ISSUES.md` (strategic issues #95-#106 or core features)
-2. **Understand dependencies** — each issue lists what it depends on
-3. **Communicate progress** — update issue with status
-4. **Follow patterns** — check existing code for style/architecture
-5. **Document thoroughly** — add docstrings, update README if needed
-
-### Code Review Process
-
-- ✅ All tests pass
-- ✅ Coverage maintained (80%+)
-- ✅ Code follows style guide
-- ✅ Documentation updated
-- ✅ No performance regressions
-
-### Deployment Checklist
-
-- [ ] Feature complete and tested
-- [ ] Migration written (if DB changes)
-- [ ] Documentation updated
-- [ ] PR approved by maintainer
-- [ ] Merged to main
-- [ ] GitHub Actions pass
-- [ ] Ready for production release
+1. **Pick a beginner issue** from [Good First Issues](https://github.com/SoroScan/soroscan/issues?q=is%3Aissue+is%3Aopen+label%3Agood-first-issue)
+2. **Read the issue** — check the acceptance criteria
+3. **Follow the Onboarding Guide** — see [Developer Onboarding](contributing/developer-onboarding.md)
+4. **Create a branch from dev:** git checkout -b fix/issue-name upstream/dev
+5. **Implement & test:** Run tests before opening a PR
+6. **Submit PR against dev** — see [CONTRIBUTING.md](../CONTRIBUTING.md)
 
 ---
 
-## Key Metrics
+## How to Regenerate & Verify Metrics
 
-### Performance
+To keep this document accurate over time, run the following verification commands from the repository root:
 
-| Metric | Target | Current |
-|--------|--------|---------|
-| Event Ingestion | 1000 events/sec | ✅ Achieved |
-| GraphQL Query Latency | < 100ms | ✅ < 50ms |
-| API Response Time | < 500ms | ✅ < 200ms |
-| Webhook Delivery | 99.9% success | ✅ 99.95% |
-| Database Query Time | < 100ms p95 | ✅ < 50ms |
+`bash
+# 1. Count database migrations
+ls -1 django-backend/soroscan/ingest/migrations/*.py | grep -v __init__ | wc -l
 
-### Reliability
+# 2. Count active CI workflows
+ls -1 .github/workflows/*.yml | wc -l
 
-| Metric | Target | Status |
-|--------|--------|--------|
-| Uptime | 99.9% | ✅ Achieved |
-| Test Coverage | 80%+ | ✅ 81% |
-| Mean Time to Recovery (MTTR) | < 5 minutes | ✅ 3 minutes avg |
-| Database Replication Lag | < 1 second | ✅ < 500ms |
+# 3. Check Python and tool versions
+python --version
+node --version
+pnpm --version
+rustc --version
 
-### Developer Experience
+# 4. Count backend tests
+cd django-backend && pytest --collect-only -q
 
-- ✅ Setup time: < 10 minutes
-- ✅ Test run time: < 5 minutes
-- ✅ Documentation completeness: > 90%
-- ✅ Code examples: Included for all APIs
-
----
-
-## Next Steps
-
-### Immediate (Next 2 Weeks)
-1. Complete beginner issues (B1-B10, F1-F10) — good for team onboarding
-2. Implement core strategic issues (FE-47 to FE-50 with Figma design reference)
-3. Add 15 more beginner backend issues (B21-B35)
-
-### Short Term (Next 30 Days)
-1. Multi-tenancy foundation (#95, FE-51)
-2. Contract verification (#96, FE-52)
-3. GDPR compliance (#97, FE-53)
-4. Data quality dashboard (FE-56)
-
-### Medium Term (Next 90 Days)
-1. Cross-contract event correlation (#98, FE-54)
-2. CDC to data warehouses (#99, FE-55)
-3. Developer portal (#105, FE-61)
-4. Dependency graph visualization (FE-60)
-
-### Long Term (6+ Months)
-1. Multi-region HA and disaster recovery (#106, FE-62)
-2. Advanced analytics and reporting
-3. Machine learning-based anomaly detection
-4. Commercial SaaS offering with multi-tenant billing
+# 5. Count frontend test suites
+cd ../soroscan-frontend && pnpm test -- --listTests
+`
 
 ---
 
@@ -640,23 +510,17 @@ GET /ready   → Checks DB and Redis connectivity
 ### Documentation
 - 📖 [README.md](../README.md) — Project overview
 - 🔧 [Getting Started](getting-started.md)
-- 📋 [Issues Backlog](../backlogs/ISSUES.md) — 106 backend issues
-- 🎨 [Frontend Issues](../backlogs/FRONTEND_ISSUES.md) — 62 frontend issues
-- 👶 [Beginner Issues](../backlogs/ALT_ISSUES.md) — 40 onboarding issues
-- 🎯 [Contributing](../CONTRIBUTING.md)
+- 🤝 [Contributing Guide](../CONTRIBUTING.md)
+- 🌿 [Git & PR Workflow](contributing/git-and-pr-workflow.md)
+- 🔰 [Developer Onboarding](contributing/developer-onboarding.md)
 
 ### APIs
 - GraphQL: http://localhost:8000/graphql
 - REST: http://localhost:8000/api/
 - Health: http://localhost:8000/health
-
-### Team
-- **Project Lead:** [Name]
-- **Backend Lead:** [Name]
-- **Frontend Lead:** [Name]
-- **DevOps Lead:** [Name]
+- Ready: http://localhost:8000/ready
 
 ---
 
-**Last Updated:** May 26, 2026  
-**Next Review:** June 26, 2026
+**Last Updated:** October 20, 2026  
+**Next Review:** November 20, 2026
