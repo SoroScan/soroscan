@@ -1004,6 +1004,10 @@ impl SoroScanCore {
     ) -> Result<u64, ContractError> {
         indexer.require_auth();
 
+        if Self::is_paused(env.clone()) {
+            return Err(ContractError::ContractPaused);
+        }
+
         if tags.len() > MAX_TAGS {
             return Err(ContractError::TooManyTags);
         }
