@@ -415,9 +415,9 @@ export class WebSocketClient {
   }
 
   /**
-   * Send a message, buffering if necessary.
+   * Send a message to the WebSocket server, buffering if not connected.
    */
-  private sendMessage(message: string): void {
+  sendMessage(message: string): void {
     if (this.isConnected()) {
       this.ws!.send(message);
     } else {

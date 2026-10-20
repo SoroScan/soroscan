@@ -243,31 +243,73 @@ describe("WebSocketClient", () => {
   });
 
   describe("Message Buffering", () => {
-    it("should buffer messages when disconnected", async () => {
-      // Implementation: subscribe throws if not connected
-      // This is the intended behavior - messages are buffered internally during reconnection
-      // but user code must subscribe after connection is established
-      expect(() => {
-        client.subscribe({ contractId: "C1234567890" });
-      }).toThrow("not connected");
+    it("should buffer messages when disconnected", () => {
+      expect(client.isConnected()).toBe(false);
+      expect(client.getBufferSize()).toBe(0);
+
+      client.sendMessage(JSON.stringify({ type: "ping", id: 1 }));
+      client.sendMessage(JSON.stringify({ type: "ping", id: 2 }));
+
+      expect(client.getBufferSize()).toBe(2);
     });
 
-    it("should flush buffer on reconnection", async () => {
+    it("should flush buffer on connection open", async () => {
+      client.sendMessage("msg1");
+      client.sendMessage("msg2");
+      expect(client.getBufferSize()).toBe(2);
+
+      const sendSpy = vi.spyOn(MockWebSocket.prototype, "send");
+
+      await client.connect();
+
+      expect(client.isConnected()).toBe(true);
+      expect(client.getBufferSize()).toBe(0);
+      expect(sendSpy).toHaveBeenCalledWith("msg1");
+      expect(sendSpy).toHaveBeenCalledWith("msg2");
+    });
+
+    it("should send directly without buffering when already connected", async () => {
       await client.connect();
       expect(client.isConnected()).toBe(true);
+      expect(client.getBufferSize()).toBe(0);
 
-      // In real scenario, messages would be buffered and flushed
+      const sendSpy = vi.spyOn(MockWebSocket.prototype, "send");
+      client.sendMessage("direct-message");
+
+      expect(sendSpy).toHaveBeenCalledWith("direct-message");
       expect(client.getBufferSize()).toBe(0);
     });
 
-    it("should respect max buffer size", async () => {
+    it("should respect max buffer size by dropping oldest message", async () => {
       const smallClient = new WebSocketClient({
         wsUrl: "wss://api.example.com",
-        maxBufferSize: 5,
+        maxBufferSize: 3,
       });
 
-      // Buffer should be limited to max size
+      smallClient.sendMessage("m1");
+      smallClient.sendMessage("m2");
+      smallClient.sendMessage("m3");
+      expect(smallClient.getBufferSize()).toBe(3);
+
+      smallClient.sendMessage("m4");
+      expect(smallClient.getBufferSize()).toBe(3);
+
+      const sendSpy = vi.spyOn(MockWebSocket.prototype, "send");
+      await smallClient.connect();
+
       expect(smallClient.getBufferSize()).toBe(0);
+      expect(sendSpy).not.toHaveBeenCalledWith("m1");
+      expect(sendSpy).toHaveBeenCalledWith("m2");
+      expect(sendSpy).toHaveBeenCalledWith("m3");
+      expect(sendSpy).toHaveBeenCalledWith("m4");
+
+      smallClient.disconnect();
+    });
+
+    it("subscribe should still throw if not connected", () => {
+      expect(() => {
+        client.subscribe({ contractId: "C1234567890" });
+      }).toThrow("not connected");
     });
   });
 
