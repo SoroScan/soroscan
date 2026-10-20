@@ -2,7 +2,7 @@
 
 ![Rust](https://img.shields.io/badge/Soroban-Rust-orange?style=for-the-badge&logo=rust) ![Django](https://img.shields.io/badge/Backend-Django-green?style=for-the-badge&logo=django) ![GraphQL](https://img.shields.io/badge/API-GraphQL-e535ab?style=for-the-badge&logo=graphql) ![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
 
-[![Django CI](https://github.com/SoroScan/soroscan/actions/workflows/django.yml/badge.svg)](https://github.com/SoroScan/soroscan/actions/workflows/django.yml) [![Soroban CI](https://github.com/SoroScan/soroscan/actions/workflows/soroban.yml/badge.svg)](https://github.com/SoroScan/soroscan/actions/workflows/soroban.yml)
+[![Django CI](https://github.com/SoroScan/soroscan/actions/workflows/django-tests.yml/badge.svg)](https://github.com/SoroScan/soroscan/actions/workflows/django-tests.yml) [![Soroban CI](https://github.com/SoroScan/soroscan/actions/workflows/soroban.yml/badge.svg)](https://github.com/SoroScan/soroscan/actions/workflows/soroban.yml)
 
 > **The Graph for Soroban — index, query, and subscribe to smart contract events.**
 

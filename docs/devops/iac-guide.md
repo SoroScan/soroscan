@@ -184,7 +184,7 @@ Record chart version changes in release notes or changelog entries, including:
 ### Workflow files explained
 
 Document each workflow file and its purpose. Example workflows in this repository:
-- `.github/workflows/django.yml` — backend tests and linting for Django
+- `.github/workflows/django-tests.yml` — backend tests and linting for Django
 - `.github/workflows/frontend-ci.yml` — frontend install, lint, test
 - `.github/workflows/sdk-release.yml` — SDK release process
 

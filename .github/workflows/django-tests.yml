@@ -1,3 +1,5 @@
+# Canonical Django backend CI workflow running migrations check, test suite with coverage, and linting.
+# Unified coverage gate: 80% (aligned with docs/PROJECT_STATUS.md standards).
 name: Django Tests
 
 on:
@@ -84,6 +86,7 @@ jobs:
           LOG_FORMAT: ""
           SENTRY_DSN: ""
         run: |
+          # Single canonical coverage threshold (80%) aligned with docs/PROJECT_STATUS.md requirement
           python -m pytest \
             --cov=soroscan \
             --cov-report=term-missing \
@@ -109,6 +112,11 @@ jobs:
           flags: backend
           name: backend-coverage
           fail_ci_if_error: false
+
+      - name: Lint with ruff
+        working-directory: django-backend
+        run: |
+          python -m ruff check .
 
   migration-rollbacks:
     name: Migration rollback tests
