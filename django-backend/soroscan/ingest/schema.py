@@ -1188,6 +1188,18 @@ class Mutation:
         except TrackedContract.DoesNotExist:
             return None
 
+        from .models import TeamMembership
+
+        # Enforce contract ownership or team membership, consistent with REST viewset
+        is_owner = contract.owner_id == user.id
+        is_team_member = bool(
+            contract.team_id
+            and TeamMembership.objects.filter(team_id=contract.team_id, user=user).exists()
+        )
+
+        if not (is_owner or is_team_member):
+            raise Exception("Not authorized to update this contract")
+
         if name is not None:
             contract.name = name
         if description is not None:

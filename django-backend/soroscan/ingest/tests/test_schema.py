@@ -624,3 +624,52 @@ class TestGraphQLMutations:
         result = schema.execute_sync(mutation, context_value=context)
         assert result.errors is None
         assert result.data["updateContract"] is None
+
+    def test_update_contract_forbidden_for_non_owner(self, contract):
+        other_user = UserFactory()
+        mutation = f"""
+            mutation {{
+                updateContract(
+                    contractId: "{contract.contract_id}",
+                    name: "Unauthorized Update"
+                ) {{
+                    contractId
+                    name
+                }}
+            }}
+        """
+        context = create_context_with_user(other_user)
+        result = schema.execute_sync(mutation, context_value=context)
+        assert result.errors is not None
+        assert "Not authorized to update this contract" in str(result.errors[0])
+        contract.refresh_from_db()
+        assert contract.name != "Unauthorized Update"
+
+    def test_update_contract_allowed_for_team_member(self, contract):
+        from soroscan.ingest.models import Team, TeamMembership
+
+        team_member = UserFactory()
+        team = Team.objects.create(name="Dev Team")
+        TeamMembership.objects.create(
+            team=team, user=team_member, role=TeamMembership.Role.MEMBER
+        )
+        contract.team = team
+        contract.save()
+
+        mutation = f"""
+            mutation {{
+                updateContract(
+                    contractId: "{contract.contract_id}",
+                    name: "Team Member Update"
+                ) {{
+                    contractId
+                    name
+                }}
+            }}
+        """
+        context = create_context_with_user(team_member)
+        result = schema.execute_sync(mutation, context_value=context)
+        assert result.errors is None
+        assert result.data["updateContract"]["name"] == "Team Member Update"
+        contract.refresh_from_db()
+        assert contract.name == "Team Member Update"
