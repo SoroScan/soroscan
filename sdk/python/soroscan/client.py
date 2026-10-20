@@ -287,7 +287,7 @@ class SoroScanClient:
             params["search"] = search
 
         url = urljoin(self.base_url, "/api/contracts/")
-        response = self._client.get(url, headers=self._get_headers(), params=params)
+        response = self._safe_request("GET", url, headers=self._get_headers(), params=params)
         data = self._handle_response(response)
 
         adapter = TypeAdapter(PaginatedResponse[TrackedContract])
@@ -304,7 +304,7 @@ class SoroScanClient:
             Contract details
         """
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/")
-        response = self._client.get(url, headers=self._get_headers())
+        response = self._safe_request("GET", url, headers=self._get_headers())
         data = self._handle_response(response)
         return TrackedContract.model_validate(data)
 
@@ -336,7 +336,7 @@ class SoroScanClient:
         if abi_schema:
             payload["abi_schema"] = abi_schema
 
-        response = self._client.post(url, headers=self._get_headers(), json=payload)
+        response = self._safe_request("POST", url, headers=self._get_headers(), json=payload)
         data = self._handle_response(response)
         return TrackedContract.model_validate(data)
 
@@ -368,7 +368,7 @@ class SoroScanClient:
         if is_active is not None:
             payload["is_active"] = is_active
 
-        response = self._client.patch(url, headers=self._get_headers(), json=payload)
+        response = self._safe_request("PATCH", url, headers=self._get_headers(), json=payload)
         data = self._handle_response(response)
         return TrackedContract.model_validate(data)
 
@@ -380,7 +380,7 @@ class SoroScanClient:
             contract_id: Contract database ID
         """
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/")
-        response = self._client.delete(url, headers=self._get_headers())
+        response = self._safe_request("DELETE", url, headers=self._get_headers())
         if response.status_code != 204:
             self._handle_response(response)
 
@@ -395,7 +395,7 @@ class SoroScanClient:
             Contract statistics
         """
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/stats/")
-        response = self._client.get(url, headers=self._get_headers())
+        response = self._safe_request("GET", url, headers=self._get_headers())
         data = self._handle_response(response)
         return ContractStats.model_validate(data)
 
@@ -416,7 +416,7 @@ class SoroScanClient:
         """
         params: dict[str, Any] = {"limit": limit}
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/events/")
-        response = self._client.get(url, headers=self._get_headers(), params=params)
+        response = self._safe_request("GET", url, headers=self._get_headers(), params=params)
         data = self._handle_response(response)
         return [ContractEvent.model_validate(item) for item in data]
 
@@ -431,7 +431,7 @@ class SoroScanClient:
             Contract health status including error counts and last event time
         """
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/health/")
-        response = self._client.get(url, headers=self._get_headers())
+        response = self._safe_request("GET", url, headers=self._get_headers())
         data = self._handle_response(response)
         return ContractHealth.model_validate(data)
 
@@ -457,7 +457,7 @@ class SoroScanClient:
             raise ValueError(f"limit must be between 1 and {MAX_RECENT_EVENTS_LIMIT}")
 
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/recent-events/")
-        response = self._client.get(url, headers=self._get_headers(), params={"limit": limit})
+        response = self._safe_request("GET", url, headers=self._get_headers(), params={"limit": limit})
         data = self._handle_response(response)
         return [ContractEvent.model_validate(item) for item in data]
 
@@ -509,7 +509,7 @@ class SoroScanClient:
             params["validation_status"] = validation_status
 
         url = urljoin(self.base_url, "/api/events/")
-        response = self._client.get(url, headers=self._get_headers(), params=params)
+        response = self._safe_request("GET", url, headers=self._get_headers(), params=params)
         data = self._handle_response(response)
 
         adapter = TypeAdapter(PaginatedResponse[ContractEvent])
@@ -526,7 +526,7 @@ class SoroScanClient:
             Event details
         """
         url = urljoin(self.base_url, f"/api/events/{event_id}/")
-        response = self._client.get(url, headers=self._get_headers())
+        response = self._safe_request("GET", url, headers=self._get_headers())
         data = self._handle_response(response)
         return ContractEvent.model_validate(data)
 
@@ -545,7 +545,7 @@ class SoroScanClient:
             contract_ids=contract_ids, event_type=event_type, ledger_min=ledger_min,
             ledger_max=ledger_max, ordering=ordering, page=page, page_size=page_size,
         )
-        response = self._client.post(
+        response = self._safe_request("POST", 
             urljoin(self.base_url, "/api/events/by-contracts/"),
             headers=self._get_headers(), json=request.model_dump(exclude_none=True),
         )
@@ -574,7 +574,7 @@ class SoroScanClient:
             event_type=event_type,
             payload_hash=payload_hash,
         )
-        response = self._client.post(url, headers=self._get_headers(), json=request.model_dump())
+        response = self._safe_request("POST", url, headers=self._get_headers(), json=request.model_dump())
         return RecordEventResponse.model_validate(self._handle_response(response))
 
     def record_structured_event(
@@ -593,7 +593,7 @@ class SoroScanClient:
             schema_version=schema_version,
             correlation_id=correlation_id,
         )
-        response = self._client.post(
+        response = self._safe_request("POST", 
             urljoin(self.base_url, "/api/record/structured/"),
             headers=self._get_headers(),
             json=request.model_dump(),
@@ -628,7 +628,7 @@ class SoroScanClient:
             payload_hash=payload_hash,
             tags=tags or [],
         )
-        response = self._client.post(
+        response = self._safe_request("POST", 
             urljoin(self.base_url, "/api/record/tagged/"),
             headers=self._get_headers(),
             json=request.model_dump(),
@@ -647,7 +647,7 @@ class SoroScanClient:
         """
         url = urljoin(self.base_url, "/api/ingest/indexers/add/")
         request = AddIndexerRequest(indexer_address=indexer_address)
-        response = self._client.post(
+        response = self._safe_request("POST", 
             url, headers=self._get_headers(), json=request.model_dump()
         )
         data = self._handle_response(response)
@@ -655,7 +655,7 @@ class SoroScanClient:
     def is_indexer(self, indexer_address: str) -> IsIndexerResponse:
         """Check whether an address is an authorized indexer (SC-15)."""
         url = urljoin(self.base_url, "/api/ingest/indexers/check/")
-        response = self._client.get(
+        response = self._safe_request("GET", 
             url,
             headers=self._get_headers(),
             params={"indexer_address": indexer_address},
@@ -666,7 +666,7 @@ class SoroScanClient:
     def get_admin(self) -> GetAdminResponse:
         """Return the current SoroScan contract admin address (SC-15)."""
         url = urljoin(self.base_url, "/api/ingest/contract/admin/")
-        response = self._client.get(url, headers=self._get_headers())
+        response = self._safe_request("GET", url, headers=self._get_headers())
         data = self._handle_response(response)
         return GetAdminResponse.model_validate(data)
 
@@ -686,7 +686,7 @@ class SoroScanClient:
         """
         url = urljoin(self.base_url, "/api/record-events-batch/")
         request = RecordEventsBatchRequest(events=events)
-        response = self._client.post(
+        response = self._safe_request("POST", 
             url, headers=self._get_headers(), json=request.model_dump()
         )
         data = self._handle_response(response)
@@ -703,7 +703,7 @@ class SoroScanClient:
             IndexerStats with the indexer's address and total events recorded
         """
         url = urljoin(self.base_url, f"/api/indexer-stats/{indexer}/")
-        response = self._client.get(url, headers=self._get_headers())
+        response = self._safe_request("GET", url, headers=self._get_headers())
         data = self._handle_response(response)
         return IndexerStats.model_validate(data)
     def get_contract_status(self) -> ContractStatus:
@@ -714,7 +714,7 @@ class SoroScanClient:
             ContractStatus with paused flag, admin address, and total event count
         """
         url = urljoin(self.base_url, "/api/contract-status/")
-        response = self._client.get(url, headers=self._get_headers())
+        response = self._safe_request("GET", url, headers=self._get_headers())
         data = self._handle_response(response)
         return ContractStatus.model_validate(data)
 
@@ -735,7 +735,7 @@ class SoroScanClient:
         """
         params: dict[str, Any] = {"page": page, "page_size": page_size}
         url = urljoin(self.base_url, "/api/webhooks/")
-        response = self._client.get(url, headers=self._get_headers(), params=params)
+        response = self._safe_request("GET", url, headers=self._get_headers(), params=params)
         data = self._handle_response(response)
 
         adapter = TypeAdapter(PaginatedResponse[WebhookSubscription])
@@ -752,7 +752,7 @@ class SoroScanClient:
             Webhook details
         """
         url = urljoin(self.base_url, f"/api/webhooks/{webhook_id}/")
-        response = self._client.get(url, headers=self._get_headers())
+        response = self._safe_request("GET", url, headers=self._get_headers())
         data = self._handle_response(response)
         return WebhookSubscription.model_validate(data)
 
@@ -779,7 +779,7 @@ class SoroScanClient:
             "target_url": target_url,
             "event_type": event_type,
         }
-        response = self._client.post(url, headers=self._get_headers(), json=payload)
+        response = self._safe_request("POST", url, headers=self._get_headers(), json=payload)
         data = self._handle_response(response)
         return WebhookSubscription.model_validate(data)
 
@@ -811,7 +811,7 @@ class SoroScanClient:
         if is_active is not None:
             payload["is_active"] = is_active
 
-        response = self._client.patch(url, headers=self._get_headers(), json=payload)
+        response = self._safe_request("PATCH", url, headers=self._get_headers(), json=payload)
         data = self._handle_response(response)
         return WebhookSubscription.model_validate(data)
 
@@ -823,7 +823,7 @@ class SoroScanClient:
             webhook_id: Webhook database ID
         """
         url = urljoin(self.base_url, f"/api/webhooks/{webhook_id}/")
-        response = self._client.delete(url, headers=self._get_headers())
+        response = self._safe_request("DELETE", url, headers=self._get_headers())
         if response.status_code != 204:
             self._handle_response(response)
 
@@ -838,7 +838,7 @@ class SoroScanClient:
             Test result
         """
         url = urljoin(self.base_url, f"/api/webhooks/{webhook_id}/test/")
-        response = self._client.post(url, headers=self._get_headers())
+        response = self._safe_request("POST", url, headers=self._get_headers())
         return self._handle_response(response)
 
 
@@ -1072,7 +1072,7 @@ class AsyncSoroScanClient:
             params["search"] = search
 
         url = urljoin(self.base_url, "/api/contracts/")
-        response = await self._client.get(url, headers=self._get_headers(), params=params)
+        response = await self._safe_request("GET", url, headers=self._get_headers(), params=params)
         data = self._handle_response(response)
 
         adapter = TypeAdapter(PaginatedResponse[TrackedContract])
@@ -1089,7 +1089,7 @@ class AsyncSoroScanClient:
             Contract details
         """
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/")
-        response = await self._client.get(url, headers=self._get_headers())
+        response = await self._safe_request("GET", url, headers=self._get_headers())
         data = self._handle_response(response)
         return TrackedContract.model_validate(data)
 
@@ -1121,7 +1121,7 @@ class AsyncSoroScanClient:
         if abi_schema:
             payload["abi_schema"] = abi_schema
 
-        response = await self._client.post(url, headers=self._get_headers(), json=payload)
+        response = await self._safe_request("POST", url, headers=self._get_headers(), json=payload)
         data = self._handle_response(response)
         return TrackedContract.model_validate(data)
 
@@ -1153,7 +1153,7 @@ class AsyncSoroScanClient:
         if is_active is not None:
             payload["is_active"] = is_active
 
-        response = await self._client.patch(url, headers=self._get_headers(), json=payload)
+        response = await self._safe_request("PATCH", url, headers=self._get_headers(), json=payload)
         data = self._handle_response(response)
         return TrackedContract.model_validate(data)
 
@@ -1165,7 +1165,7 @@ class AsyncSoroScanClient:
             contract_id: Contract database ID
         """
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/")
-        response = await self._client.delete(url, headers=self._get_headers())
+        response = await self._safe_request("DELETE", url, headers=self._get_headers())
         if response.status_code != 204:
             self._handle_response(response)
 
@@ -1180,7 +1180,7 @@ class AsyncSoroScanClient:
             Contract statistics
         """
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/stats/")
-        response = await self._client.get(url, headers=self._get_headers())
+        response = await self._safe_request("GET", url, headers=self._get_headers())
         data = self._handle_response(response)
         return ContractStats.model_validate(data)
 
@@ -1201,7 +1201,7 @@ class AsyncSoroScanClient:
         """
         params: dict[str, Any] = {"limit": limit}
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/events/")
-        response = await self._client.get(url, headers=self._get_headers(), params=params)
+        response = await self._safe_request("GET", url, headers=self._get_headers(), params=params)
         data = self._handle_response(response)
         return [ContractEvent.model_validate(item) for item in data]
 
@@ -1216,7 +1216,7 @@ class AsyncSoroScanClient:
             Contract health status including error counts and last event time
         """
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/health/")
-        response = await self._client.get(url, headers=self._get_headers())
+        response = await self._safe_request("GET", url, headers=self._get_headers())
         data = self._handle_response(response)
         return ContractHealth.model_validate(data)
 
@@ -1242,7 +1242,7 @@ class AsyncSoroScanClient:
             raise ValueError(f"limit must be between 1 and {MAX_RECENT_EVENTS_LIMIT}")
 
         url = urljoin(self.base_url, f"/api/contracts/{contract_id}/recent-events/")
-        response = await self._client.get(
+        response = await self._safe_request("GET", 
             url, headers=self._get_headers(), params={"limit": limit}
         )
         data = self._handle_response(response)
@@ -1296,7 +1296,7 @@ class AsyncSoroScanClient:
             params["validation_status"] = validation_status
 
         url = urljoin(self.base_url, "/api/events/")
-        response = await self._client.get(url, headers=self._get_headers(), params=params)
+        response = await self._safe_request("GET", url, headers=self._get_headers(), params=params)
         data = self._handle_response(response)
 
         adapter = TypeAdapter(PaginatedResponse[ContractEvent])
@@ -1313,7 +1313,7 @@ class AsyncSoroScanClient:
             Event details
         """
         url = urljoin(self.base_url, f"/api/events/{event_id}/")
-        response = await self._client.get(url, headers=self._get_headers())
+        response = await self._safe_request("GET", url, headers=self._get_headers())
         data = self._handle_response(response)
         return ContractEvent.model_validate(data)
 
@@ -1332,7 +1332,7 @@ class AsyncSoroScanClient:
             contract_ids=contract_ids, event_type=event_type, ledger_min=ledger_min,
             ledger_max=ledger_max, ordering=ordering, page=page, page_size=page_size,
         )
-        response = await self._client.post(
+        response = await self._safe_request("POST", 
             urljoin(self.base_url, "/api/events/by-contracts/"),
             headers=self._get_headers(), json=request.model_dump(exclude_none=True),
         )
@@ -1361,7 +1361,7 @@ class AsyncSoroScanClient:
             event_type=event_type,
             payload_hash=payload_hash,
         )
-        response = await self._client.post(
+        response = await self._safe_request("POST", 
             url, headers=self._get_headers(), json=request.model_dump()
         )
         data = self._handle_response(response)
@@ -1379,7 +1379,7 @@ class AsyncSoroScanClient:
         """
         url = urljoin(self.base_url, "/api/ingest/indexers/add/")
         request = AddIndexerRequest(indexer_address=indexer_address)
-        response = await self._client.post(
+        response = await self._safe_request("POST", 
             url, headers=self._get_headers(), json=request.model_dump()
         )
         data = self._handle_response(response)
@@ -1387,7 +1387,7 @@ class AsyncSoroScanClient:
     async def is_indexer(self, indexer_address: str) -> IsIndexerResponse:
         """Check whether an address is an authorized indexer (SC-15)."""
         url = urljoin(self.base_url, "/api/ingest/indexers/check/")
-        response = await self._client.get(
+        response = await self._safe_request("GET", 
             url,
             headers=self._get_headers(),
             params={"indexer_address": indexer_address},
@@ -1398,7 +1398,7 @@ class AsyncSoroScanClient:
     async def get_admin(self) -> GetAdminResponse:
         """Return the current SoroScan contract admin address (SC-15)."""
         url = urljoin(self.base_url, "/api/ingest/contract/admin/")
-        response = await self._client.get(url, headers=self._get_headers())
+        response = await self._safe_request("GET", url, headers=self._get_headers())
         data = self._handle_response(response)
         return GetAdminResponse.model_validate(data)
 
@@ -1418,7 +1418,7 @@ class AsyncSoroScanClient:
         """
         url = urljoin(self.base_url, "/api/record-events-batch/")
         request = RecordEventsBatchRequest(events=events)
-        response = await self._client.post(
+        response = await self._safe_request("POST", 
             url, headers=self._get_headers(), json=request.model_dump()
         )
         data = self._handle_response(response)
@@ -1435,7 +1435,7 @@ class AsyncSoroScanClient:
             IndexerStats with the indexer's address and total events recorded
         """
         url = urljoin(self.base_url, f"/api/indexer-stats/{indexer}/")
-        response = await self._client.get(url, headers=self._get_headers())
+        response = await self._safe_request("GET", url, headers=self._get_headers())
         data = self._handle_response(response)
         return IndexerStats.model_validate(data)
     async def get_contract_status(self) -> ContractStatus:
@@ -1446,7 +1446,7 @@ class AsyncSoroScanClient:
             ContractStatus with paused flag, admin address, and total event count
         """
         url = urljoin(self.base_url, "/api/contract-status/")
-        response = await self._client.get(url, headers=self._get_headers())
+        response = await self._safe_request("GET", url, headers=self._get_headers())
         data = self._handle_response(response)
         return ContractStatus.model_validate(data)
 
@@ -1467,7 +1467,7 @@ class AsyncSoroScanClient:
         """
         params: dict[str, Any] = {"page": page, "page_size": page_size}
         url = urljoin(self.base_url, "/api/webhooks/")
-        response = await self._client.get(url, headers=self._get_headers(), params=params)
+        response = await self._safe_request("GET", url, headers=self._get_headers(), params=params)
         data = self._handle_response(response)
 
         adapter = TypeAdapter(PaginatedResponse[WebhookSubscription])
@@ -1484,7 +1484,7 @@ class AsyncSoroScanClient:
             Webhook details
         """
         url = urljoin(self.base_url, f"/api/webhooks/{webhook_id}/")
-        response = await self._client.get(url, headers=self._get_headers())
+        response = await self._safe_request("GET", url, headers=self._get_headers())
         data = self._handle_response(response)
         return WebhookSubscription.model_validate(data)
 
@@ -1511,7 +1511,7 @@ class AsyncSoroScanClient:
             "target_url": target_url,
             "event_type": event_type,
         }
-        response = await self._client.post(url, headers=self._get_headers(), json=payload)
+        response = await self._safe_request("POST", url, headers=self._get_headers(), json=payload)
         data = self._handle_response(response)
         return WebhookSubscription.model_validate(data)
 
@@ -1543,7 +1543,7 @@ class AsyncSoroScanClient:
         if is_active is not None:
             payload["is_active"] = is_active
 
-        response = await self._client.patch(url, headers=self._get_headers(), json=payload)
+        response = await self._safe_request("PATCH", url, headers=self._get_headers(), json=payload)
         data = self._handle_response(response)
         return WebhookSubscription.model_validate(data)
 
@@ -1555,7 +1555,7 @@ class AsyncSoroScanClient:
             webhook_id: Webhook database ID
         """
         url = urljoin(self.base_url, f"/api/webhooks/{webhook_id}/")
-        response = await self._client.delete(url, headers=self._get_headers())
+        response = await self._safe_request("DELETE", url, headers=self._get_headers())
         if response.status_code != 204:
             self._handle_response(response)
 
@@ -1570,5 +1570,5 @@ class AsyncSoroScanClient:
             Test result
         """
         url = urljoin(self.base_url, f"/api/webhooks/{webhook_id}/test/")
-        response = await self._client.post(url, headers=self._get_headers())
+        response = await self._safe_request("POST", url, headers=self._get_headers())
         return self._handle_response(response)
