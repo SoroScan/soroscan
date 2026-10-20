@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { cn } from '@/lib/utils';
+import { EmptyState } from '@/components/ui/empty-state';
 import type { DataQualityMetrics } from './types';
 
 export interface DataQualityScorecardProps {
@@ -38,9 +39,13 @@ export function DataQualityScorecard({
   }
   if (metrics.length === 0) {
     return (
-      <p className="text-sm font-mono text-gray-500 py-4" data-testid="scorecard-empty">
-        No contract quality data available.
-      </p>
+      <EmptyState
+        variant="terminal"
+        title="NO_QUALITY_METRICS"
+        description="No contract quality data available. Register contracts or trigger gap-fill analysis."
+        data-testid="scorecard-empty"
+        className="py-8 border border-green-900/30 rounded-lg bg-gray-950/40"
+      />
     );
   }
 

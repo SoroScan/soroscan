@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { cn } from '@/lib/utils';
+import { EmptyState } from '@/components/ui/empty-state';
 import type { ReconciliationJob } from './types';
 
 export interface ReconciliationHistoryProps {
@@ -30,9 +31,13 @@ function ProgressBar({ percent }: { percent: number }) {
 export function ReconciliationHistory({ jobs, className }: ReconciliationHistoryProps) {
   if (jobs.length === 0) {
     return (
-      <p className="text-sm font-mono text-gray-500 py-4" data-testid="reconciliation-history-empty">
-        No reconciliation jobs found.
-      </p>
+      <EmptyState
+        variant="terminal"
+        title="NO_RECONCILIATION_JOBS"
+        description="No reconciliation jobs found. Submit a reconciliation request to recover missing ledger events."
+        data-testid="reconciliation-history-empty"
+        className="py-8 border border-green-900/30 rounded-lg bg-gray-950/40"
+      />
     );
   }
 

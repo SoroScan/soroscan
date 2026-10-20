@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { getAccessToken } from '@/lib/auth';
+import { EmptyState } from '@/components/ui/empty-state';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -107,10 +108,18 @@ export default function ContractsImportPage() {
       </div>
 
       {error && <p className="text-xs font-mono text-red-400">{error}</p>}
-      {report && (
-        <pre className="text-xs font-mono text-green-200 whitespace-pre-wrap border border-green-900/30 p-3">
+      {report ? (
+        <pre className="text-xs font-mono text-green-200 whitespace-pre-wrap border border-green-900/30 p-3" data-testid="import-report-result">
           {report}
         </pre>
+      ) : (
+        <EmptyState
+          variant="terminal"
+          title="NO_IMPORT_RECORDS"
+          description="No metadata import report available. Choose a CSV or JSON file and execute an import batch."
+          data-testid="import-report-empty"
+          className="py-8 border border-green-900/20"
+        />
       )}
     </div>
   );

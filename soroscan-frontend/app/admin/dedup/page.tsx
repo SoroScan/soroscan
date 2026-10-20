@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { getAccessToken } from '@/lib/auth';
+import { EmptyState } from '@/components/ui/empty-state';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -183,7 +184,17 @@ export default function DedupConfigPage() {
               Add
             </button>
           </div>
-          <p className="text-xs font-mono text-gray-500 mt-2">Selected: {selected.join(', ') || 'none'}</p>
+          {selected.length === 0 ? (
+            <EmptyState
+              variant="terminal"
+              title="NO_FIELDS_SELECTED"
+              description="No uniqueness fields currently selected. Select at least one field to generate deduplication fingerprints."
+              data-testid="dedup-fields-empty"
+              className="py-4 my-2 border border-green-900/20"
+            />
+          ) : (
+            <p className="text-xs font-mono text-gray-500 mt-2">Selected: {selected.join(', ')}</p>
+          )}
         </div>
 
         <button
@@ -214,10 +225,18 @@ export default function DedupConfigPage() {
         >
           Run dedup test
         </button>
-        {testResult && (
-          <pre className="text-xs font-mono text-green-200 whitespace-pre-wrap border border-green-900/30 p-3">
+        {testResult ? (
+          <pre className="text-xs font-mono text-green-200 whitespace-pre-wrap border border-green-900/30 p-3" data-testid="dedup-test-result">
             {testResult}
           </pre>
+        ) : (
+          <EmptyState
+            variant="terminal"
+            title="NO_TEST_RESULTS"
+            description="No fingerprint test executed yet. Provide a sample event payload above and click 'Run dedup test'."
+            data-testid="dedup-test-empty"
+            className="py-6 border border-green-900/20"
+          />
         )}
       </div>
 

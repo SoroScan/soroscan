@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { cn } from '@/lib/utils';
+import { EmptyState } from '@/components/ui/empty-state';
 import type { SyncLogEntry, CDCSyncStatus } from './types';
 
 export interface SyncLogViewerProps {
@@ -59,6 +60,7 @@ export function SyncLogViewer({ logs, className }: SyncLogViewerProps) {
           data-testid="log-filter-table"
           className="h-8 px-3 text-xs font-mono bg-gray-900 border border-green-900 rounded text-green-300 placeholder-gray-600 focus:outline-none focus:border-green-500 w-44"
         />
+
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as CDCSyncStatus | '')}
@@ -67,22 +69,25 @@ export function SyncLogViewer({ logs, className }: SyncLogViewerProps) {
           className="h-8 px-2 text-xs font-mono bg-gray-900 border border-green-900 rounded text-green-300 focus:outline-none focus:border-green-500"
         >
           <option value="">All statuses</option>
-          {(['running', 'idle', 'failed', 'retrying', 'paused'] as const).map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
+          <option value="running">running</option>
+          <option value="idle">idle</option>
+          <option value="failed">failed</option>
+          <option value="retrying">retrying</option>
+          <option value="paused">paused</option>
         </select>
-        <span className="text-[10px] font-mono text-gray-600 ml-auto">
-          {filtered.length} / {logs.length} entries
+
+        <span className="text-xs font-mono text-gray-500 ml-auto" data-testid="log-count">
+          {filtered.length} of {logs.length} entries
         </span>
+
         <button
           type="button"
           onClick={handleExport}
-          disabled={filtered.length === 0}
+          disabled={isExporting || filtered.length === 0}
           data-testid="log-export-button"
-          aria-label="Export sync logs as JSON"
-          className="px-3 py-1.5 text-xs font-mono rounded border border-green-800 bg-gray-900 text-green-400 hover:bg-green-900/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="h-8 px-3 text-xs font-mono rounded border border-green-800 bg-gray-900 text-green-400 hover:bg-green-900/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
-          {isExporting ? '✓' : '↓ Export'}
+          {isExporting ? 'Exporting…' : '↓ Export JSON'}
         </button>
       </div>
 
@@ -95,9 +100,13 @@ export function SyncLogViewer({ logs, className }: SyncLogViewerProps) {
         aria-label="Sync event log"
       >
         {filtered.length === 0 ? (
-          <p className="px-4 py-4 text-xs font-mono text-gray-600" data-testid="log-empty">
-            No log entries match the current filters.
-          </p>
+          <EmptyState
+            variant="terminal"
+            title="NO_LOG_ENTRIES"
+            description="No log entries match the current filters."
+            data-testid="log-empty"
+            className="py-8"
+          />
         ) : (
           <ul className="divide-y divide-gray-800">
             {filtered.map((entry) => (

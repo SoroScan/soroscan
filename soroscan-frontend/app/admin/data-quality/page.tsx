@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { Tabs } from '@/components/ui/tabs';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   DataQualityScorecard, LedgerSequenceGapViewer, EventCountComparison,
   ReconciliationHistory, ManualReconciliationForm, GapFillPreview,
@@ -13,10 +14,10 @@ import type {
 } from '@/components/data-quality';
 
 /** Stubs — replace with real GraphQL calls once Backend #100 ships. */
-async function fetchMetrics(_contractId: string): Promise<DataQualityMetrics | null> { return null; }
+async function fetchMetrics(_contractId: string): Promise<DataQualityMetrics | null> { void _contractId; return null; }
 async function fetchJobs(): Promise<ReconciliationJob[]> { return []; }
-async function fetchEventCounts(_contractId: string, _range: DateRange): Promise<EventCountPoint[]> { return []; }
-async function fetchGapFillPreview(_contractId: string): Promise<GapFillPreviewItem[]> { return []; }
+async function fetchEventCounts(_contractId: string, _range: DateRange): Promise<EventCountPoint[]> { void _contractId; void _range; return []; }
+async function fetchGapFillPreview(_contractId: string): Promise<GapFillPreviewItem[]> { void _contractId; return []; }
 async function fetchAnomalyAlerts(): Promise<AnomalyAlert[]> { return []; }
 
 async function triggerReconciliation(contractId: string, dateRange: DateRange, reason: string) {
@@ -115,7 +116,7 @@ export default function DataQualityPage() {
         <ReconciliationHistory jobs={jobs} />
       </div>
 
-      {selectedContractId && detailTabs.length > 0 && (
+      {selectedContractId && detailTabs.length > 0 ? (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-mono text-green-300">
@@ -126,6 +127,14 @@ export default function DataQualityPage() {
           </div>
           <Tabs items={detailTabs} />
         </div>
+      ) : (
+        <EmptyState
+          variant="terminal"
+          title="NO_CONTRACT_SELECTED"
+          description="Select a contract from the completeness scorecard above to inspect sequence gaps, event count comparisons, and trigger targeted reconciliation."
+          data-testid="data-quality-detail-empty"
+          className="py-8 border border-dashed border-green-900/40 rounded-lg bg-black/20"
+        />
       )}
     </div>
   );

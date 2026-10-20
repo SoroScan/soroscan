@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { cn } from '@/lib/utils';
+import { EmptyState } from '@/components/ui/empty-state';
 import { SyncStatusCard } from './SyncStatusCard';
 import type { CDCSyncProgress } from './types';
 
@@ -71,12 +72,13 @@ export function CDCSyncDashboard({
           Loading sync data…
         </div>
       ) : syncs.length === 0 ? (
-        <div
-          className="text-sm font-mono text-gray-600 py-10 text-center border border-green-900/30 rounded-lg bg-gray-950"
+        <EmptyState
+          variant="terminal"
+          title="NO_CDC_SYNCS"
+          description="No active CDC syncs configured. Switch to 'Add Sync' to configure a real-time sync pipeline."
           data-testid="dashboard-empty"
-        >
-          No active CDC syncs configured.
-        </div>
+          className="py-10 border border-green-900/30 rounded-lg bg-gray-950"
+        />
       ) : (
         <div
           className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"

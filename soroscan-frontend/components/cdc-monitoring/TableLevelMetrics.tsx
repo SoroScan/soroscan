@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { cn } from '@/lib/utils';
+import { EmptyState } from '@/components/ui/empty-state';
 import type { TableSyncMetric } from './types';
 
 export interface TableLevelMetricsProps {
@@ -25,9 +26,13 @@ function formatTs(ts: string | null) {
 export function TableLevelMetrics({ metrics, className }: TableLevelMetricsProps) {
   if (metrics.length === 0) {
     return (
-      <p className="text-sm text-gray-500 font-mono py-4" data-testid="table-metrics-empty">
-        No table metrics available.
-      </p>
+      <EmptyState
+        variant="terminal"
+        title="NO_TABLE_METRICS"
+        description="No table metrics available for the active sync pipeline."
+        data-testid="table-metrics-empty"
+        className="py-8 border border-green-900/30 rounded-lg bg-gray-950/40"
+      />
     );
   }
 
