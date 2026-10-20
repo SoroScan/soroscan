@@ -899,3 +899,46 @@ class TestEventCountCaching:
         with patch.object(cache, 'set') as mock_set:
             get_event_count(contract.contract_id)
             mock_set.assert_called_once_with(f"event_count:{contract.contract_id}", 2, 300)
+
+
+@pytest.mark.django_db
+class TestUploadSourcePermissions:
+    def test_upload_source_non_owner_teamless_returns_403(self, api_client):
+        owner = UserFactory()
+        stranger = UserFactory()
+        contract = TrackedContractFactory(owner=owner, team=None)
+
+        api_client.force_authenticate(user=stranger)
+        url = reverse("contract-upload-source", args=[contract.id])
+        response = api_client.post(url, {})
+
+        assert response.status_code == 403
+        assert response.data == {"error": "Permission denied"}
+
+    def test_upload_source_team_member_allowed(self, api_client):
+        owner = UserFactory()
+        member = UserFactory()
+        team = Team.objects.create(name="Soroban Builders")
+        TeamMembership.objects.create(
+            team=team, user=member, role=TeamMembership.Role.MEMBER
+        )
+        contract = TrackedContractFactory(owner=owner, team=team)
+
+        api_client.force_authenticate(user=member)
+        url = reverse("contract-upload-source", args=[contract.id])
+        response = api_client.post(url, {})
+
+        # Should pass permission check; fails on invalid body (400) rather than 403
+        assert response.status_code == 400
+        assert response.data != {"error": "Permission denied"}
+
+    def test_upload_source_ownerless_teamless_returns_403(self, api_client):
+        user = UserFactory()
+        contract = TrackedContractFactory(owner=None, team=None)
+
+        api_client.force_authenticate(user=user)
+        url = reverse("contract-upload-source", args=[contract.id])
+        response = api_client.post(url, {})
+
+        assert response.status_code == 403
+        assert response.data == {"error": "Permission denied"}

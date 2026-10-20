@@ -460,7 +460,14 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
         contract = self.get_object()
 
         # Check permissions - only contract owner or team members
-        if contract.owner != request.user and not contract.team.members.filter(user=request.user).exists():
+        is_owner = contract.owner is not None and contract.owner == request.user
+        is_team_member = False
+        if contract.team is not None:
+            team_members = getattr(contract.team, "memberships", getattr(contract.team, "members", None))
+            if team_members is not None:
+                is_team_member = team_members.filter(user=request.user).exists()
+
+        if not (is_owner or is_team_member):
             return Response({"error": "Permission denied"}, status=403)
 
         serializer = ContractSourceSerializer(data=request.data)
