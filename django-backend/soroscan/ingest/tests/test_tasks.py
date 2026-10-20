@@ -1193,3 +1193,58 @@ class TestWarmEventCountCache:
         
         # Should warm at most 100 contracts
         assert result["contracts_warmed"] <= 100
+
+
+class TestCeleryBeatSchedule:
+    """Regression tests for Issue #1600: schedule missing periodic tasks in CELERY_BEAT_SCHEDULE."""
+
+    def test_all_required_periodic_tasks_are_scheduled(self):
+        import importlib
+        prod_settings = importlib.import_module("soroscan.settings")
+        schedule = getattr(prod_settings, "CELERY_BEAT_SCHEDULE", {})
+
+        required_tasks = {
+            "check-contract-health": {
+                "expected_task": "soroscan.ingest.tasks.check_contract_health",
+                "expected_schedule": 3600,
+            },
+            "detect-contract-upgrades": {
+                "expected_task": "soroscan.ingest.tasks.detect_contract_upgrades",
+                "expected_schedule": 1800,
+            },
+            "enforce-retention-policies": {
+                "expected_task": "soroscan.ingest.tasks.enforce_retention_policies",
+                "expected_schedule": 86400,
+            },
+            "process-deletion-requests": {
+                "expected_task": "soroscan.ingest.tasks.process_deletion_requests",
+                "expected_schedule": 86400,
+            },
+            "analyze-contract-dependencies": {
+                "expected_task": "ingest.tasks.analyze_contract_dependencies",
+                "expected_schedule": 3600,
+            },
+            "log-daily-platform-stats": {
+                "expected_task": "ingest.tasks.log_daily_platform_stats",
+                "expected_schedule": 86400,
+            },
+        }
+
+        for key, expected in required_tasks.items():
+            assert key in schedule, f"Missing {key} from CELERY_BEAT_SCHEDULE"
+            entry = schedule[key]
+            assert entry.get("task") == expected["expected_task"], (
+                f"Task target mismatch for {key}: expected {expected['expected_task']}, got {entry.get('task')}"
+            )
+            assert entry.get("schedule") == expected["expected_schedule"], (
+                f"Cadence mismatch for {key}: expected {expected['expected_schedule']}, got {entry.get('schedule')}"
+            )
+
+    def test_no_duplicate_task_registrations_in_schedule(self):
+        import importlib
+        prod_settings = importlib.import_module("soroscan.settings")
+        schedule = getattr(prod_settings, "CELERY_BEAT_SCHEDULE", {})
+
+        task_names = [entry["task"] for entry in schedule.values() if "task" in entry]
+        duplicates = [t for t in task_names if task_names.count(t) > 1]
+        assert not duplicates, f"Found duplicate task entries in CELERY_BEAT_SCHEDULE: {set(duplicates)}"

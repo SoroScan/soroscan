@@ -439,6 +439,37 @@ CELERY_BEAT_SCHEDULE = {
         "task": "soroscan.ingest.tasks.emit_db_pool_metrics_task",
         "schedule": 60,
     },
+    # Issue #1600 — schedule missing periodic tasks
+    # Run hourly to evaluate contract health and trigger alerts on degradation
+    "check-contract-health": {
+        "task": "soroscan.ingest.tasks.check_contract_health",
+        "schedule": 3600,
+    },
+    # Run every 30 minutes to detect contract deployments and bytecode upgrades
+    "detect-contract-upgrades": {
+        "task": "soroscan.ingest.tasks.detect_contract_upgrades",
+        "schedule": 1800,
+    },
+    # Run daily to enforce data retention policies and purge expired events
+    "enforce-retention-policies": {
+        "task": "soroscan.ingest.tasks.enforce_retention_policies",
+        "schedule": 86400,
+    },
+    # Run daily to process GDPR data deletion requests and scrub PII fields
+    "process-deletion-requests": {
+        "task": "soroscan.ingest.tasks.process_deletion_requests",
+        "schedule": 86400,
+    },
+    # Run hourly to scan invocation records and update contract dependency graphs
+    "analyze-contract-dependencies": {
+        "task": "ingest.tasks.analyze_contract_dependencies",
+        "schedule": 3600,
+    },
+    # Run daily to aggregate and log platform usage statistics for the past 24 hours
+    "log-daily-platform-stats": {
+        "task": "ingest.tasks.log_daily_platform_stats",
+        "schedule": 86400,
+    },
 }
 
 ANALYTICS_ANOMALY_DROP_PCT = env.int("ANALYTICS_ANOMALY_DROP_PCT", default=50)
