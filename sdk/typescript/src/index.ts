@@ -39,6 +39,9 @@ export type {
   GetEventsByContractsResponse,
   RecordStructuredEventParams,
   RecordStructuredEventResponse,
+  // SC-24: Tagged event recording
+  RecordTaggedEventParams,
+  RecordTaggedEventResponse,
   // Contracts
   ContractType,
   ContractSpec,

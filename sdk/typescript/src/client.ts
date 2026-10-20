@@ -8,6 +8,8 @@ import type {
   GetEventsByContractsResponse,
   RecordStructuredEventParams,
   RecordStructuredEventResponse,
+  RecordTaggedEventParams,
+  RecordTaggedEventResponse,
   GetContractsParams,
   GetContractsResponse,
   GetContractParams,
