@@ -1,0 +1,42 @@
+# SoroScan Code Owners
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Global fallback for any file not matched below
+* @SoroScan/maintainers
+
+# Backend (Django APIs, Ingestion, Reorg, and Database Services)
+/django-backend/ @SoroScan/backend @SoroScan/maintainers
+
+# Frontend (Explorer Next.js Application)
+/soroscan-frontend/ @SoroScan/frontend @SoroScan/maintainers
+
+# Admin Dashboard Next.js Application
+/admin/ @SoroScan/frontend @SoroScan/maintainers
+
+# Soroban Smart Contracts (Rust / Soroban SDK)
+/soroban-contracts/ @SoroScan/contracts @SoroScan/maintainers
+
+# Client SDKs
+/sdk/ @SoroScan/sdk @SoroScan/maintainers
+/sdk/python/ @SoroScan/sdk @SoroScan/maintainers
+/sdk/typescript/ @SoroScan/sdk @SoroScan/maintainers
+
+# Documentation (Guides, Specifications, and Docusaurus Site)
+/docs/ @SoroScan/docs @SoroScan/maintainers
+/soroscan-docs/ @SoroScan/docs @SoroScan/maintainers
+
+# Infrastructure, Deployment, and Containers
+/k8s/ @SoroScan/devops @SoroScan/maintainers
+/deploy/ @SoroScan/devops @SoroScan/maintainers
+Dockerfile* @SoroScan/devops @SoroScan/maintainers
+docker-compose*.yml @SoroScan/devops @SoroScan/maintainers
+
+# CI/CD Workflows and GitHub Repository Settings
+/.github/ @SoroScan/devops @SoroScan/maintainers
+/.github/workflows/ @SoroScan/devops @SoroScan/maintainers
+/.github/CODEOWNERS @SoroScan/maintainers
+
+# Verification, Benchmarks, and Tools
+/tools/ @SoroScan/maintainers
+/load-tests/ @SoroScan/maintainers
+/tests/ @SoroScan/maintainers
