@@ -2,6 +2,8 @@
 // Client configuration
 // ─────────────────────────────────────────────────────────────────────────────
 
+export const DEFAULT_USER_AGENT = 'SoroScan-TS-SDK/1.4.0';
+
 export interface SoroScanClientConfig {
   /** Base URL of the SoroScan API, e.g. "https://api.soroscan.io" */
   baseUrl: string;

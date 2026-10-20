@@ -17,7 +17,7 @@ export {
 export { EventQueryBuilder, ContractQueryBuilder } from "./builder.js";
 export { verifyWebhookSignature } from "./webhookVerification.js";
 export { WebSocketClient } from "./websocket-client.js";
-export { MAX_RECENT_EVENTS_LIMIT } from "./types.js";
+export { MAX_RECENT_EVENTS_LIMIT, DEFAULT_USER_AGENT } from "./types.js";
 export type {
   // Config
   SoroScanClientConfig,

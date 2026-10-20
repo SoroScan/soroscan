@@ -32,7 +32,8 @@ import type {
   GetAdminResponse,
   IsIndexerResponse,
 } from "./types.js";
-import { MAX_RECENT_EVENTS_LIMIT } from "./types.js";
+import { MAX_RECENT_EVENTS_LIMIT, DEFAULT_USER_AGENT } from "./types.js";
+export { DEFAULT_USER_AGENT };
 import { EventQueryBuilder, ContractQueryBuilder } from "./builder.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -82,6 +83,7 @@ export class SoroScanClient {
   readonly #maxRetries: number;
   readonly #initialDelayMs: number;
   readonly #maxDelayMs: number;
+  readonly #userAgent: string;
 
   constructor(config: SoroScanClientConfig) {
     if (!config.baseUrl) {
@@ -93,6 +95,7 @@ export class SoroScanClient {
     this.#maxRetries = Math.max(0, Math.trunc(config.maxRetries ?? 3));
     this.#initialDelayMs = Math.max(0, config.initialDelayMs ?? 250);
     this.#maxDelayMs = Math.max(0, config.maxDelayMs ?? 10_000);
+    this.#userAgent = config.userAgent ?? DEFAULT_USER_AGENT;
   }
 
   // ─── Core fetch ────────────────────────────────────────────────────────────
@@ -111,6 +114,7 @@ export class SoroScanClient {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: "application/json",
+      "User-Agent": this.#userAgent,
     };
     if (this.#apiKey) {
       headers["Authorization"] = `Bearer ${this.#apiKey}`;
@@ -344,35 +348,6 @@ export class SoroScanClient {
   }
 
   // ─── Transactions ──────────────────────────────────────────────────────────
-
-  /**
-   * Submit an SC-38 structured event. The correlation ID makes retry handling
-   * explicit: the contract rejects a repeated ID without publishing twice.
-   */
-  async recordStructuredEvent(
-    params: RecordStructuredEventParams
-  ): Promise<RecordStructuredEventResponse> {
-    const response = await this.#request<{
-      status: "submitted" | "failed";
-      tx_hash?: string;
-      transaction_status: string;
-      error?: string;
-    }>("POST", "/api/record/structured/", {
-      body: {
-        contract_id: params.contractId,
-        event_type: params.eventType,
-        payload_hash: params.payloadHash,
-        schema_version: params.schemaVersion,
-        correlation_id: params.correlationId,
-      },
-    });
-    return {
-      status: response.status,
-      txHash: response.tx_hash,
-      transactionStatus: response.transaction_status,
-      error: response.error,
-    };
-  }
 
   /**
    * Submit an SC-24 tagged event.
