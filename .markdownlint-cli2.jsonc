@@ -1,0 +1,22 @@
+{
+  "config": {
+    "extends": ".markdownlint.json"
+  },
+  "globs": [
+    "**/*.md",
+    "**/*.mdx"
+  ],
+  "ignores": [
+    "**/node_modules/**",
+    "**/.next/**",
+    "**/.venv/**",
+    "**/venv/**",
+    "**/target/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/.kiro/**",
+    "**/.docusaurus/**",
+    "soroscan-docs/build/**",
+    "docs/api-reference/**"
+  ]
+}
