@@ -32,6 +32,7 @@ from soroscan.models import (
     GetEventsByContractsResponse,
     IndexerStats,
     IsIndexerResponse,
+    MAX_TAGS,
     PaginatedResponse,
     RecordEventRequest,
     RecordEventResponse,
@@ -262,6 +263,27 @@ class SoroScanClient:
             raise SoroScanConnectionError(f"Could not connect to {url}: {exc}", url=url) from exc
         except httpx.NetworkError as exc:
             raise SoroScanConnectionError(f"Network error reaching {url}: {exc}", url=url) from exc
+
+    def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        """
+        Execute an HTTP request via _safe_request and handle the response.
+
+        Args:
+            method: HTTP method (GET, POST, PATCH, DELETE, etc.)
+            path: API path (e.g., "/api/contracts/")
+            **kwargs: Additional arguments passed to _safe_request
+
+        Returns:
+            Parsed JSON response data
+
+        Raises:
+            SoroScanConnectionError: On connection/timeout errors
+            SoroScanTimeoutError: On request timeout
+            SoroScanAPIError / SoroScanValidationError / etc.: On HTTP errors
+        """
+        url = urljoin(self.base_url, path)
+        response = self._safe_request(method, url, **kwargs)
+        return self._handle_response(response)
 
     def get_contracts(
         self,
