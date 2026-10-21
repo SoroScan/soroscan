@@ -567,6 +567,19 @@ graph TD
 
 ---
 
+### 5.6 Proactive Cache Warming (Contract Event Counts)
+
+To prevent cold cache penalties on heavily queried smart contracts, SoroScan runs a background cache preheating worker.
+
+- **Celery Task**: `warm_event_count_cache()` (`django-backend/soroscan/ingest/tasks.py`)
+- **Celery Beat Schedule**: `warm-event-count-cache` configured to execute every 300 seconds (5 minutes) in `django-backend/soroscan/settings.py`.
+- **Scope & Behavior**:
+  - Automatically targets the top 100 most active contracts by transaction event count.
+  - Queries contract event counters and pre-populates Redis keys before user queries hit a cold database cache.
+  - Gracefully handles database/redis network timeouts, logs execution metrics, and prevents cache stampede issues on popular tokens and contracts.
+
+---
+
 ## 6. Monitoring & Alerts
 
 Establish the following alerting thresholds in your monitoring infrastructure (e.g., Prometheus / Grafana / Datadog).

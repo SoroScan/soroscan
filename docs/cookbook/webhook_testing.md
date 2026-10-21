@@ -1,13 +1,14 @@
-# Testing SoroScan Webhooks Locally with Webhook.site and ngrok
+# Testing SoroScan Webhooks Locally with Webhook.site, ngrok, and Admin Tester
 
-This tutorial explains how to test SoroScan webhook deliveries during development without deploying a public server.
+This tutorial explains how to test SoroScan webhook deliveries during development and staging.
 
-Two approaches are covered:
+Three approaches are covered:
 
 * **Webhook.site** — the quickest way to receive and inspect a SoroScan webhook without running a local receiver.
 * **ngrok** — exposes a receiver running on your computer through a temporary public URL, allowing you to test the complete webhook delivery flow.
+* **Admin Webhook Tester** — built-in interactive dashboard interface for inspecting request headers, editing payloads, latency timing, and one-click retry.
 
-Webhook.site is useful when you only need to inspect what SoroScan sends. Use ngrok when you also need to test how your own application processes and acknowledges webhook requests.
+Webhook.site is useful when you only need to inspect what SoroScan sends. Use ngrok when you also need to test how your own application processes and acknowledges webhook requests. Use the Admin Webhook Tester for interactive UI inspection and manual retry workflows.
 
 ## Prerequisites
 
@@ -616,6 +617,37 @@ acknowledged    = true
 ```
 
 These fields confirm that SoroScan successfully delivered the event and received the expected acknowledgement.
+
+---
+
+## Option 3: Test with the Admin Webhook Tester
+
+SoroScan provides an integrated testing interface inside the Admin Dashboard located at:
+
+```text
+admin/app/webhook-tester/
+```
+
+This interface allows operators and engineers to manually trigger test webhooks against local or staging endpoints without leaving the browser.
+
+### Key Capabilities
+
+1. **Payload Editor Before Send** (`PayloadEditor.tsx`):
+   - Modify the generated event payload prior to dispatching to test edge cases, schema variations, or missing fields.
+   - Includes real-time syntax checking and one-click JSON formatting.
+
+2. **Full Request and Response Inspection** (`ResponseViewer.tsx`):
+   - **Response Tab**: Displays returned HTTP status codes, response headers, and response bodies from your webhook receiver.
+   - **Request Tab**: Displays the exact outbound HTTP request headers (such as `Content-Type` and signature headers) and raw payload sent over the wire.
+
+3. **Latency and Timing Breakdown**:
+   - Displays round-trip delivery duration (`timings`), making it easy to identify slow receivers or network bottlenecks.
+
+4. **One-Click Retry**:
+   - Re-send test requests using the identical payload via the retry action in the editor footer or response viewer.
+
+5. **Error Recovery & Diagnostics**:
+   - Visual error states provide immediate diagnostics when requests fail due to DNS resolution, connection refused, timeouts, or 5xx server errors.
 
 ---
 

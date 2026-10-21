@@ -59,6 +59,17 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Architecture',
+      items: [
+        'architecture/README',
+        'architecture/UI-DESIGN',
+        'architecture/backfilling',
+        'architecture/deduplication',
+        'architecture/event_decoding',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Examples',
       items: ['examples/query-events', 'examples/webhook-setup'],
     },
