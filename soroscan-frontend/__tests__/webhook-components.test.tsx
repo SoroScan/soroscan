@@ -242,6 +242,30 @@ describe("CreateWebhookModal", () => {
     expect(screen.getByText(/Timeout must be a whole number between 5 and 60 seconds./)).toBeInTheDocument()
   })
 
+  it("associates the timeout error with its input via aria-describedby", () => {
+    render(
+      <CreateWebhookModal isOpen onClose={mockClose} onCreate={mockCreate} />
+    )
+    const timeoutInput = screen.getByLabelText("REQUEST_TIMEOUT (seconds)") as HTMLInputElement
+
+    // Valid state: no error association, aria-invalid is false.
+    expect(timeoutInput).toHaveAttribute("aria-invalid", "false")
+    expect(timeoutInput).not.toHaveAttribute("aria-describedby")
+
+    fireEvent.change(timeoutInput, { target: { value: "3" } })
+    fireEvent.blur(timeoutInput)
+
+    const error = screen.getByRole("alert")
+    expect(error).toHaveAttribute("id", "timeout-input-error")
+    expect(timeoutInput).toHaveAttribute("aria-invalid", "true")
+    expect(timeoutInput).toHaveAttribute("aria-describedby", "timeout-input-error")
+
+    // Recovering clears the association so stale errors are not announced.
+    fireEvent.change(timeoutInput, { target: { value: "30" } })
+    expect(timeoutInput).toHaveAttribute("aria-invalid", "false")
+    expect(timeoutInput).not.toHaveAttribute("aria-describedby")
+  })
+
   it("accepts a valid timeout value", () => {
     render(
       <CreateWebhookModal isOpen onClose={mockClose} onCreate={mockCreate} />

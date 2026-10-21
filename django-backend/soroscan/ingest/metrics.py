@@ -14,6 +14,8 @@ __all__ = [
     "task_duration_seconds",
     "active_contracts_gauge",
     "current_ingestion_rate_gauge",
+    "contract_health_status_gauge",
+    "contract_health_transitions_total",
     # detailed pipeline metrics
     "ingest_errors_total",
     "events_skipped_total",
@@ -33,6 +35,7 @@ __all__ = [
     "archive_events_total",
     "ledgers_scanned_total",
     "events_rate_limited_total",
+    "throttle_rejections_total",
     "events_filtered_total",
     "events_validation_failures_total",
     "webhook_payload_bytes",
@@ -106,6 +109,20 @@ active_contracts_gauge = _get_or_create(
     Gauge,
     "soroscan_tracked_contracts_active",
     "Number of currently active tracked contracts",
+)
+
+contract_health_status_gauge = _get_or_create(
+    Gauge,
+    "soroscan_contract_health_status",
+    "Contract health status (0=healthy, 1=degraded, 2=failed)",
+    ["contract_id"],
+)
+
+contract_health_transitions_total = _get_or_create(
+    Counter,
+    "soroscan_contract_health_transitions_total",
+    "Contract health status transitions",
+    ["from_status", "to_status"],
 )
 
 # ---------------------------------------------------------------------------
@@ -237,6 +254,13 @@ events_rate_limited_total = _get_or_create(
     ["contract_id", "network"],
 )
 
+throttle_rejections_total = _get_or_create(
+    Counter,
+    "soroscan_throttle_rejections_total",
+    "Rejected API requests by throttle reason",
+    ["reason"],
+)
+
 events_filtered_total = _get_or_create(
     Counter,
     "soroscan_events_filtered_total",
@@ -343,6 +367,7 @@ celery_tasks_active = _get_or_create(
     "soroscan_celery_tasks_active",
     "Celery tasks currently executing",
     ["task_name"],
+    multiprocess_mode="livesum",
 )
 celery_task_duration_seconds = _get_or_create(
     Histogram,

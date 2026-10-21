@@ -8,6 +8,7 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
+use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::parse::Parser;
 use syn::punctuated::Punctuated;
@@ -39,6 +40,15 @@ fn parse_args(input: proc_macro2::TokenStream, expected: usize) -> Result<Vec<Ex
     }
 
     Ok(args.into_iter().collect())
+/// Split a macro input into its top-level, comma-separated arguments.
+///
+/// Parsing through `syn`'s expression parser (instead of splitting the
+/// stringified token stream on `,`) is what keeps a compound payload such as a
+/// tuple `(a, b)` together as one argument rather than truncating it at its
+/// first internal comma.
+fn parse_args(input: TokenStream2) -> syn::Result<Vec<Expr>> {
+    let parser = Punctuated::<Expr, Token![,]>::parse_terminated;
+    Ok(parser.parse2(input)?.into_iter().collect())
 }
 
 /// Emit a standardized SoroScan event with topics and payload.
@@ -83,22 +93,34 @@ pub fn emit_soroscan_event(input: TokenStream) -> TokenStream {
             .into();
         }
     };
+    expand_emit_soroscan_event(TokenStream2::from(input))
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+fn expand_emit_soroscan_event(input: TokenStream2) -> syn::Result<TokenStream2> {
+    let args = parse_args(input)?;
+    if args.len() != 3 {
+        return Err(syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "Expected: emit_soroscan_event!(env, event_type, payload)",
+        ));
+    }
 
     let env_expr = &args[0];
     let event_type = &args[1];
     let payload = &args[2];
 
-    let expanded = quote! {
+    Ok(quote! {
         {
             use soroban_sdk::symbol_short;
             (#env_expr).events().publish(
+            #env_expr.events().publish(
                 (symbol_short!("soroscan"), #event_type),
                 #payload
             )
         }
-    };
-
-    TokenStream::from(expanded)
+    })
 }
 
 /// Emit a batch of SoroScan events with summary.
@@ -139,23 +161,35 @@ pub fn emit_soroscan_batch(input: TokenStream) -> TokenStream {
             .into();
         }
     };
+    expand_emit_soroscan_batch(TokenStream2::from(input))
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+fn expand_emit_soroscan_batch(input: TokenStream2) -> syn::Result<TokenStream2> {
+    let args = parse_args(input)?;
+    if args.len() != 4 {
+        return Err(syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "Expected: emit_soroscan_batch!(env, indexer, event_count, total_count)",
+        ));
+    }
 
     let env_expr = &args[0];
     let indexer = &args[1];
     let event_count = &args[2];
     let total_count = &args[3];
 
-    let expanded = quote! {
+    Ok(quote! {
         {
             use soroban_sdk::symbol_short;
             (#env_expr).events().publish(
+            #env_expr.events().publish(
                 (symbol_short!("soroscan"), symbol_short!("batch")),
                 (#indexer, #event_count, #total_count)
             )
         }
-    };
-
-    TokenStream::from(expanded)
+    })
 }
 
 /// Format an event topic vector with consistent naming.
@@ -263,5 +297,49 @@ mod tests {
     fn parses_four_args_for_batch() {
         let args = parse_args(quote!(env, indexer, 5, 42), 4).unwrap();
         assert_eq!(args.len(), 4);
+    }
+
+    #[test]
+    fn test_parse_args_keeps_tuple_payload_as_one_argument() {
+        let input = quote! { env, symbol_short!("swap"), (sender, receiver, amount) };
+        let args = parse_args(input).expect("input should parse");
+
+        assert_eq!(
+            args.len(),
+            3,
+            "tuple payload must not be split on its commas"
+        );
+        match &args[2] {
+            Expr::Tuple(tuple) => assert_eq!(tuple.elems.len(), 3),
+            other => panic!("expected a tuple payload, got {}", quote!(#other)),
+        }
+    }
+
+    #[test]
+    fn test_emit_soroscan_event_expands_tuple_payload() {
+        let input = quote! { env, symbol_short!("swap"), (sender, receiver, amount) };
+        let expanded = expand_emit_soroscan_event(input).expect("tuple payload should expand");
+
+        syn::parse2::<Expr>(expanded).expect("expansion must be valid Rust syntax");
+    }
+
+    #[test]
+    fn test_emit_soroscan_event_rejects_wrong_arity() {
+        let input = quote! { env, symbol_short!("swap") };
+        assert!(expand_emit_soroscan_event(input).is_err());
+    }
+
+    #[test]
+    fn test_emit_soroscan_batch_expands_nested_tuple_argument() {
+        let input = quote! { env, (indexer, sub_indexer), 5, 42 };
+        let expanded = expand_emit_soroscan_batch(input).expect("tuple argument should expand");
+
+        syn::parse2::<Expr>(expanded).expect("expansion must be valid Rust syntax");
+    }
+
+    #[test]
+    fn test_emit_soroscan_batch_rejects_wrong_arity() {
+        let input = quote! { env, indexer, 5 };
+        assert!(expand_emit_soroscan_batch(input).is_err());
     }
 }
