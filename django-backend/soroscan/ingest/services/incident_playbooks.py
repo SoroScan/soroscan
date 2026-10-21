@@ -16,12 +16,14 @@ ALERT_INGESTION_LAG = "event_ingestion_lag"
 ALERT_WEBHOOK_FAILURE_BURST = "webhook_delivery_failure_burst"
 ALERT_DB_POOL_EXHAUSTED = "database_connection_pool_exhausted"
 ALERT_RPC_UNAVAILABLE = "rpc_endpoint_unavailable"
+ALERT_CELERY_BACKLOG = "celery_queue_backlog"
 
 PLAYBOOK_PATHS = {
     ALERT_INGESTION_LAG: "docs/deployment/playbooks/event-ingestion-lag.md",
     ALERT_WEBHOOK_FAILURE_BURST: "docs/deployment/playbooks/webhook-delivery-failure-burst.md",
     ALERT_DB_POOL_EXHAUSTED: "docs/deployment/playbooks/database-connection-pool-exhausted.md",
     ALERT_RPC_UNAVAILABLE: "docs/deployment/playbooks/rpc-endpoint-unavailable.md",
+    ALERT_CELERY_BACKLOG: "docs/deployment/playbooks/celery-queue-backlog.md",
 }
 
 # Alert → recommended automated actions (RemediationRule action types) and
@@ -105,6 +107,27 @@ ALERT_ACTION_MAP: dict[str, dict[str, Any]] = {
             "type": "rpc_endpoint_unavailable",
             "window_minutes": 10,
             "min_errors": 5,
+        },
+    },
+    ALERT_CELERY_BACKLOG: {
+        "prometheus_alert": "SoroScanCeleryQueueDepthHigh",
+        "remediation_condition": "celery_queue_backlog",
+        "severity": "warning",
+        "automated_actions": [
+            {"type": "send_alert"},
+        ],
+        "manual_actions": [
+            "Check Celery queue depths in Redis broker",
+            "Verify worker pod health and concurrency limits",
+            "Scale worker deployment replicas if capacity permits",
+            "Pause or throttle backfill/batch producers if necessary",
+        ],
+        "playbook": PLAYBOOK_PATHS[ALERT_CELERY_BACKLOG],
+        "default_condition": {
+            "type": "celery_queue_backlog",
+            "queue": "default",
+            "depth_threshold": 100,
+            "duration_minutes": 10,
         },
     },
 }
