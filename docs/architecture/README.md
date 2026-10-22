@@ -346,6 +346,7 @@ flowchart TD
 
 - `query_cache_ttl` values are configurable, defaulting to 60 seconds.
 - Event counts are cached for five minutes (`event_count:{contract_id}`).
+- Contract event count cache is proactively warmed for the top 100 active contracts every 5 minutes via Celery Beat (`warm_event_count_cache`). See [Contract Event Count Cache Warming](../features/event-count-cache-warming.md).
 - Decoded ABI payloads are cached for 24 hours (`soroscan:decoded:{event_id}`).
 - API rate limiting counters live in Redis using hourly buckets.
 - Django Channels uses Redis for websocket group membership and broadcasts.

@@ -56,7 +56,7 @@ pnpm run build
 6. ✅ `soroscan-frontend/.env.local.example` - Environment template
 7. ✅ `soroscan-frontend/lib/apollo-client.README.md` - Technical docs
 8. ✅ `soroscan-frontend/APOLLO_INTEGRATION.md` - Integration guide
-9. ✅ `APOLLO_CLIENT_IMPLEMENTATION.md` - Implementation summary
+9. ✅ `docs/archive/implementation-summaries/APOLLO_CLIENT_IMPLEMENTATION.md` - Archived summary
 
 ### Modified Files (4)
 1. ✅ `soroscan-frontend/package.json` - Added @apollo/client dependency

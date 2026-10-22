@@ -1,3 +1,7 @@
+> [!NOTE]
+> **Archived Document**: This document is a historical PR/implementation summary preserved for audit and historical reference.
+> For current active documentation, see `docs/frontend/apollo_guide.md`, `docs/features/`, and `docs/architecture/README.md`.
+
 # Webhook Test UI Improvements - Complete Implementation Summary
 
 **Issue**: #544 - Enhance Webhook Test Interface with Request/Response Inspection  

@@ -22,6 +22,7 @@ spec:
         # Run migrations before starting the backend
         - name: migrate
           image: soroscan/backend:v1.0.0  # Replace with your image registry and tag
+          imagePullPolicy: IfNotPresent
           command: ["python", "manage.py", "migrate", "--noinput"]
           workingDir: /app
           envFrom:
@@ -36,10 +37,18 @@ spec:
             requests:
               cpu: 100m
               memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
         
         # Collect static files
         - name: collectstatic
           image: soroscan/backend:v1.0.0  # Replace with your image registry and tag
+          imagePullPolicy: IfNotPresent
           command: ["python", "manage.py", "collectstatic", "--noinput"]
           workingDir: /app
           envFrom:
@@ -54,10 +63,18 @@ spec:
             requests:
               cpu: 100m
               memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
       
       containers:
         - name: backend
           image: soroscan/backend:v1.0.0  # Replace with your image registry and tag
+          imagePullPolicy: IfNotPresent
           command:
             - gunicorn
             - soroscan.wsgi:application
