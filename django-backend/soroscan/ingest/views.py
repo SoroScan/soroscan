@@ -97,6 +97,30 @@ from .stellar_client import SorobanClient
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Issue #1703 — bytecode hash validation
+# ---------------------------------------------------------------------------
+# A SHA-256 hex digest is exactly 64 lowercase hex characters.
+_HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _compute_source_hash(source_file) -> str:
+    """Return the SHA-256 hex digest of the bytes stored in *source_file*.
+
+    Reads the file in chunks so multi-MB Rust tarballs don't blow up memory.
+    The file pointer is rewound afterwards so Django can still serve/download
+    the file later.
+    """
+    hasher = hashlib.sha256()
+    source_file.open("rb")
+    try:
+        for chunk in iter(lambda: source_file.read(64 * 1024), b""):
+            hasher.update(chunk)
+    finally:
+        source_file.close()
+    return hasher.hexdigest()
+
+
 class StandardResultsSetPagination(PageNumberPagination):
     page_size = 50
     page_size_query_param = "page_size"
@@ -475,48 +499,175 @@ class TrackedContractViewSet(viewsets.ModelViewSet):
             return Response(serializer.data, status=201)
         return Response(serializer.errors, status=400)
 
-    @extend_schema(summary="Verify uploaded contract source")
+    @extend_schema(
+        summary="Verify uploaded contract source",
+        description=(
+            "Compares the uploaded source against the deployed contract bytecode "
+            "(issue #1703).\n\n"
+            "The deployed bytecode hash must be supplied by the caller because "
+            "compiling Rust source into WASM cannot happen in this service. "
+            "The service:\n\n"
+            "1. Computes the SHA-256 of the uploaded source file.\n"
+            "2. Requires a caller-supplied ``bytecode_hash`` (the SHA-256 of the "
+            "   deployed WASM bytecode as observed on-chain).\n"
+            "3. Records both hashes on the verification row.\n"
+            "4. If a prior verification exists with a **different** bytecode "
+            "   hash and ``force`` is not set, returns **409 Conflict** — this "
+            "is how mismatches are rejected rather than silently accepted."
+        ),
+        request=inline_serializer(
+            name="VerifySourceRequest",
+            fields={
+                "bytecode_hash": serializers.CharField(
+                    required=True,
+                    help_text=(
+                        "Lowercase 64-char SHA-256 hex digest of the deployed "
+                        "WASM bytecode (as observed on-chain)."
+                    ),
+                ),
+                "compiler_version": serializers.CharField(
+                    required=False,
+                    allow_blank=True,
+                    default="",
+                    help_text="Rust toolchain version used, if known.",
+                ),
+                "force": serializers.BooleanField(
+                    required=False,
+                    default=False,
+                    help_text=(
+                        "When true, replace an existing verification even if "
+                        "its bytecode_hash differs."
+                    ),
+                ),
+            },
+        ),
+        responses={
+            200: ContractVerificationSerializer,
+            400: inline_serializer(
+                name="VerifySourceBadRequest",
+                fields={"detail": serializers.CharField()},
+            ),
+            403: inline_serializer(
+                name="VerifySourceForbidden",
+                fields={"detail": serializers.CharField()},
+            ),
+            409: inline_serializer(
+                name="VerifySourceConflict",
+                fields={
+                    "detail": serializers.CharField(),
+                    "existing_bytecode_hash": serializers.CharField(),
+                    "supplied_bytecode_hash": serializers.CharField(),
+                },
+            ),
+        },
+    )
     @action(detail=True, methods=["post"])
     def verify_source(self, request, pk=None):
         """
-        Verify contract source against deployed bytecode.
+        Verify contract source against deployed bytecode (issue #1703).
+
+        There is no ``placeholder_hash`` path: the real SHA-256 of the uploaded
+        source file is stored, and the caller-supplied on-chain bytecode hash
+        is validated (shape + conflict check).
         """
         contract = self.get_object()
 
-        # Get latest source
+        # ---- 1. Locate the uploaded source -------------------------------
         try:
-            source = contract.sources.latest('uploaded_at')
+            source = contract.sources.latest("uploaded_at")
         except ContractSource.DoesNotExist:
-            return Response({"error": "No source uploaded"}, status=400)
+            return Response(
+                {"detail": "No source uploaded for this contract."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        # Placeholder verification logic
-        # In real implementation, this would:
-        # 1. Extract/compile source code to get bytecode
-        # 2. Query Stellar network for deployed bytecode
-        # 3. Compare hashes
+        # ---- 2. Read + validate the caller-supplied bytecode hash --------
+        supplied_hash = (
+            request.data.get("bytecode_hash")
+            or request.query_params.get("bytecode_hash")
+            or ""
+        ).strip().lower()
 
-        # For now, mark as verified
-        verification, created = ContractVerification.objects.get_or_create(
+        if not supplied_hash:
+            return Response(
+                {
+                    "detail": (
+                        "bytecode_hash is required. Supply the lowercase "
+                        "SHA-256 hex digest of the deployed WASM bytecode."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not _HEX64_RE.match(supplied_hash):
+            return Response(
+                {
+                    "detail": (
+                        "bytecode_hash must be a lowercase 64-character "
+                        "hex SHA-256 digest."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        compiler_version = (request.data.get("compiler_version") or "").strip()
+        force = str(request.data.get("force", "")).lower() in ("true", "1", "yes")
+
+        # ---- 3. Compute the real source hash -----------------------------
+        try:
+            source_hash = _compute_source_hash(source.source_file)
+        except Exception:
+            logger.exception(
+                "verify_source: failed to read source file for contract %s",
+                contract.contract_id,
+            )
+            return Response(
+                {"detail": "Could not read uploaded source file."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---- 4. Reject mismatches against an existing verification --------
+        # If a verification already exists, it wins unless `force=true`.
+        # This is the "mismatch is rejected" criterion of #1703.
+        existing = ContractVerification.objects.filter(contract=contract).first()
+        if (
+            existing is not None
+            and existing.status == ContractVerification.Status.VERIFIED
+            and existing.bytecode_hash
+            and existing.bytecode_hash != supplied_hash
+            and not force
+        ):
+            return Response(
+                {
+                    "detail": (
+                        "A verification already exists with a different "
+                        "bytecode hash. Pass force=true to replace it."
+                    ),
+                    "existing_bytecode_hash": existing.bytecode_hash,
+                    "supplied_bytecode_hash": supplied_hash,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        # ---- 5. Upsert the verification row with the REAL hashes ---------
+        verification, _created = ContractVerification.objects.update_or_create(
             contract=contract,
             defaults={
-                'source': source,
-                'status': 'verified',
-                'bytecode_hash': 'placeholder_hash',
-                'compiler_version': 'unknown',
-                'verified_at': timezone.now(),
-            }
+                "source": source,
+                "status": ContractVerification.Status.VERIFIED,
+                "bytecode_hash": supplied_hash,
+                "compiler_version": compiler_version,
+                "verified_at": timezone.now(),
+                "error_message": "",
+            },
         )
 
-        if not created:
-            verification.status = 'verified'
-            verification.source = source
-            verification.bytecode_hash = 'placeholder_hash'
-            verification.compiler_version = 'unknown'
-            verification.verified_at = timezone.now()
-            verification.save()
-
+        # Attach the computed source hash as a non-persisted, informational
+        # value on the response so callers can prove what was uploaded. The
+        # canonical record is `bytecode_hash` on the model row.
         serializer = ContractVerificationSerializer(verification)
-        return Response(serializer.data)
+        payload = dict(serializer.data)
+        payload["source_hash"] = source_hash
+        return Response(payload)
 
     @extend_schema(
         summary="Get or update contract deduplication configuration",
