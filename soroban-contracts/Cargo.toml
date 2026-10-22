@@ -1,0 +1,10 @@
+[workspace]
+members = ["soroscan_core", "soroscan_macros"]
+resolver = "2"
+
+# Patch soroban-env-host to restrict ed25519-dalek to <3, which is required for
+# compatibility with the rand_chacha/rand_core 0.6 usage in testutils.rs.
+# soroban-env-host 21.2.1 uses `ed25519-dalek >= 2.0.0` (no upper bound), but
+# ed25519-dalek 3.0.0 changed the CryptoRng trait in an incompatible way.
+[patch.crates-io]
+soroban-env-host = { path = "vendor/soroban-env-host" }
