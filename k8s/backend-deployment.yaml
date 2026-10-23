@@ -18,6 +18,8 @@ spec:
         app: soroscan
         component: backend
     spec:
+      serviceAccountName: soroscan
+      automountServiceAccountToken: false
       initContainers:
         # Run migrations before starting the backend
         - name: migrate

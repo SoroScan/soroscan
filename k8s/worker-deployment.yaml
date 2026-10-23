@@ -19,6 +19,8 @@ spec:
         component: worker-high
         metrics: "true"
     spec:
+      serviceAccountName: soroscan
+      automountServiceAccountToken: false
       containers:
         - name: worker
           image: soroscan/backend:v1.0.0
@@ -78,6 +80,8 @@ spec:
         component: worker-default
         metrics: "true"
     spec:
+      serviceAccountName: soroscan
+      automountServiceAccountToken: false
       containers:
         - name: worker
           image: soroscan/backend:v1.0.0
@@ -137,6 +141,8 @@ spec:
         component: worker-low
         metrics: "true"
     spec:
+      serviceAccountName: soroscan
+      automountServiceAccountToken: false
       containers:
         - name: worker
           image: soroscan/backend:v1.0.0
@@ -196,6 +202,8 @@ spec:
         component: worker-backfill
         metrics: "true"
     spec:
+      serviceAccountName: soroscan
+      automountServiceAccountToken: false
       containers:
         - name: worker-backfill
           image: soroscan/backend:v1.0.0
