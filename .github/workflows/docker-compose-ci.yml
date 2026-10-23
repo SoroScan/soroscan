@@ -1,0 +1,89 @@
+name: Docker Compose CI
+
+'on':
+  push:
+    branches: [main, dev]
+    paths:
+      - 'docker-compose*.yml'
+      - 'tools/webhook-simulator/docker-compose.yml'
+      - 'django-backend/**'
+      - 'soroscan-frontend/**'
+      - 'tools/webhook-simulator/**'
+      - '.github/workflows/docker-compose-ci.yml'
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - 'docker-compose*.yml'
+      - 'tools/webhook-simulator/docker-compose.yml'
+      - 'django-backend/**'
+      - 'soroscan-frontend/**'
+      - 'tools/webhook-simulator/**'
+      - '.github/workflows/docker-compose-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-compose:
+    name: Validate Compose Configurations
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup environment file for Compose validation
+        run: |
+          cp django-backend/.env.example django-backend/.env
+
+      - name: Validate root docker-compose.yml
+        run: |
+          docker compose config -q
+          echo "Services declared in docker-compose.yml:"
+          docker compose config --services
+
+      - name: Validate chaos docker-compose.chaos.yml
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.chaos.yml config -q
+          echo "Services declared in chaos compose stack:"
+          docker compose -f docker-compose.yml -f docker-compose.chaos.yml config --services
+
+      - name: Validate webhook-simulator docker-compose.yml
+        run: |
+          docker compose -f tools/webhook-simulator/docker-compose.yml config -q
+          echo "Services declared in webhook simulator compose:"
+          docker compose -f tools/webhook-simulator/docker-compose.yml config --services
+
+  build-images:
+    name: Build ${{ matrix.name }} Image
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: backend
+            context: ./django-backend
+            file: ./django-backend/Dockerfile
+            tags: soroscan-backend:ci
+            scope: backend
+          - name: frontend
+            context: .
+            file: soroscan-frontend/Dockerfile.frontend
+            tags: soroscan-frontend:ci
+            scope: frontend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.name }} Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: false
+          tags: ${{ matrix.tags }}
+          cache-from: type=gha,scope=${{ matrix.scope }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.scope }}
