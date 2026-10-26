@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { BackfillModal } from "../BackfillModal";
 
 jest.mock("@/components/terminal/Modal", () => ({
