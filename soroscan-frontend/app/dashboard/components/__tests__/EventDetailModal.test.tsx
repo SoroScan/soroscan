@@ -24,7 +24,9 @@ jest.mock("@/components/events/CopyEventLink", () => ({
 }));
 
 jest.mock("../JsonHighlight", () => ({
-  JsonHighlight: ({ data }: any) => <div data-testid="json-highlight">{JSON.stringify(data)}</div>,
+  JsonHighlight: ({ data }: { data: unknown }) => (
+    <div data-testid="json-highlight">{JSON.stringify(data)}</div>
+  ),
 }));
 
 const mockEvent: EventRecord = {

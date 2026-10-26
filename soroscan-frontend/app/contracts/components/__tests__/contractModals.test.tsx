@@ -1,9 +1,20 @@
+import type { ComponentProps, ReactNode } from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { DeleteConfirmModal } from "../DeleteConfirmModal";
 import { RegisterModal } from "../RegisterModal";
 
 jest.mock("@/components/terminal/Modal", () => ({
-  Modal: ({ isOpen, onClose, title, children }: any) =>
+  Modal: ({
+    isOpen,
+    onClose,
+    title,
+    children,
+  }: {
+    isOpen: boolean;
+    onClose: () => void;
+    title?: string;
+    children: ReactNode;
+  }) =>
     isOpen ? (
       <div role="dialog" aria-label={title}>
         <button onClick={onClose}>Close</button>
@@ -13,17 +24,17 @@ jest.mock("@/components/terminal/Modal", () => ({
 }));
 
 jest.mock("@/components/terminal/Input", () => ({
-  Input: ({ label, value, onChange, ...props }: any) => (
+  Input: ({ label, ...props }: ComponentProps<"input"> & { label?: string }) => (
     <label>
       {label}
-      <input value={value} onChange={onChange} {...props} />
+      <input {...props} />
     </label>
   ),
 }));
 
 jest.mock("@/components/terminal/Button", () => ({
-  Button: ({ children, onClick, type = "button", ...props }: any) => (
-    <button type={type} onClick={onClick} {...props}>
+  Button: ({ children, type = "button", ...props }: ComponentProps<"button">) => (
+    <button type={type} {...props}>
       {children}
     </button>
   ),
