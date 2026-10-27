@@ -8,7 +8,48 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
+use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
+use syn::parse::Parser;
+use syn::punctuated::Punctuated;
+use syn::{Expr, Token};
+
+/// Parse a comma-separated list of expressions from a function-like macro's
+/// input stream.
+///
+/// The previous implementation turned the input into a string and split on
+/// `','`, which corrupts any argument that itself contains a comma — most
+/// importantly a tuple payload like `(sender, receiver, amount)`, which was
+/// split into three phantom arguments. Parsing with `syn` keeps each argument
+/// structurally intact, so nested commas inside parentheses, brackets, and
+/// braces stay part of the argument they belong to.
+fn parse_args(input: proc_macro2::TokenStream, expected: usize) -> Result<Vec<Expr>, syn::Error> {
+    let parser = Punctuated::<Expr, Token![,]>::parse_terminated;
+    let args = parser.parse2(input).map_err(|err| {
+        syn::Error::new(
+            err.span(),
+            format!("Expected exactly {expected} comma-separated arguments"),
+        )
+    })?;
+
+    if args.len() != expected {
+        return Err(syn::Error::new(
+            proc_macro2::Span::call_site(),
+            format!("Expected {expected} arguments, got {}", args.len()),
+        ));
+    }
+
+    Ok(args.into_iter().collect())
+/// Split a macro input into its top-level, comma-separated arguments.
+///
+/// Parsing through `syn`'s expression parser (instead of splitting the
+/// stringified token stream on `,`) is what keeps a compound payload such as a
+/// tuple `(a, b)` together as one argument rather than truncating it at its
+/// first internal comma.
+fn parse_args(input: TokenStream2) -> syn::Result<Vec<Expr>> {
+    let parser = Punctuated::<Expr, Token![,]>::parse_terminated;
+    Ok(parser.parse2(input)?.into_iter().collect())
+}
 
 /// Emit a standardized SoroScan event with topics and payload.
 ///
@@ -41,38 +82,45 @@ use quote::quote;
 #[proc_macro]
 #[allow(clippy::needless_pass_by_value)]
 pub fn emit_soroscan_event(input: TokenStream) -> TokenStream {
-    // Parse the input as three comma-separated tokens
-    let input_str = input.to_string();
-    let tokens: Vec<&str> = input_str.split(',').map(|s| s.trim()).collect();
-
-    if tokens.len() != 3 {
-        return syn::Error::new_spanned(
-            proc_macro2::TokenStream::from(input),
-            "Expected: emit_soroscan_event!(env, event_type, payload)",
-        )
-        .to_compile_error()
-        .into();
-    }
-
-    let env_expr = tokens[0];
-    let event_type = tokens[1];
-    let payload = tokens[2];
-
-    let env_tokens: proc_macro2::TokenStream = env_expr.parse().unwrap_or_default();
-    let event_tokens: proc_macro2::TokenStream = event_type.parse().unwrap_or_default();
-    let payload_tokens: proc_macro2::TokenStream = payload.parse().unwrap_or_default();
-
-    let expanded = quote! {
-        {
-            use soroban_sdk::symbol_short;
-            #env_tokens.events().publish(
-                (symbol_short!("soroscan"), #event_tokens),
-                #payload_tokens
+    let args = match parse_args(input.into(), 3) {
+        Ok(args) => args,
+        Err(err) => {
+            return syn::Error::new(
+                err.span(),
+                "Expected: emit_soroscan_event!(env, event_type, payload)",
             )
+            .to_compile_error()
+            .into();
         }
     };
+    expand_emit_soroscan_event(TokenStream2::from(input))
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
 
-    TokenStream::from(expanded)
+fn expand_emit_soroscan_event(input: TokenStream2) -> syn::Result<TokenStream2> {
+    let args = parse_args(input)?;
+    if args.len() != 3 {
+        return Err(syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "Expected: emit_soroscan_event!(env, event_type, payload)",
+        ));
+    }
+
+    let env_expr = &args[0];
+    let event_type = &args[1];
+    let payload = &args[2];
+
+    Ok(quote! {
+        {
+            use soroban_sdk::symbol_short;
+            (#env_expr).events().publish(
+            #env_expr.events().publish(
+                (symbol_short!("soroscan"), #event_type),
+                #payload
+            )
+        }
+    })
 }
 
 /// Emit a batch of SoroScan events with summary.
@@ -102,39 +150,46 @@ pub fn emit_soroscan_event(input: TokenStream) -> TokenStream {
 #[proc_macro]
 #[allow(clippy::needless_pass_by_value)]
 pub fn emit_soroscan_batch(input: TokenStream) -> TokenStream {
-    let input_str = input.to_string();
-    let tokens: Vec<&str> = input_str.split(',').map(|s| s.trim()).collect();
-
-    if tokens.len() != 4 {
-        return syn::Error::new_spanned(
-            proc_macro2::TokenStream::from(input),
-            "Expected: emit_soroscan_batch!(env, indexer, event_count, total_count)",
-        )
-        .to_compile_error()
-        .into();
-    }
-
-    let env_expr = tokens[0];
-    let indexer = tokens[1];
-    let event_count = tokens[2];
-    let total_count = tokens[3];
-
-    let env_tokens: proc_macro2::TokenStream = env_expr.parse().unwrap_or_default();
-    let indexer_tokens: proc_macro2::TokenStream = indexer.parse().unwrap_or_default();
-    let event_count_tokens: proc_macro2::TokenStream = event_count.parse().unwrap_or_default();
-    let total_count_tokens: proc_macro2::TokenStream = total_count.parse().unwrap_or_default();
-
-    let expanded = quote! {
-        {
-            use soroban_sdk::symbol_short;
-            #env_tokens.events().publish(
-                (symbol_short!("soroscan"), symbol_short!("batch")),
-                (#indexer_tokens, #event_count_tokens, #total_count_tokens)
+    let args = match parse_args(input.into(), 4) {
+        Ok(args) => args,
+        Err(err) => {
+            return syn::Error::new(
+                err.span(),
+                "Expected: emit_soroscan_batch!(env, indexer, event_count, total_count)",
             )
+            .to_compile_error()
+            .into();
         }
     };
+    expand_emit_soroscan_batch(TokenStream2::from(input))
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
 
-    TokenStream::from(expanded)
+fn expand_emit_soroscan_batch(input: TokenStream2) -> syn::Result<TokenStream2> {
+    let args = parse_args(input)?;
+    if args.len() != 4 {
+        return Err(syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "Expected: emit_soroscan_batch!(env, indexer, event_count, total_count)",
+        ));
+    }
+
+    let env_expr = &args[0];
+    let indexer = &args[1];
+    let event_count = &args[2];
+    let total_count = &args[3];
+
+    Ok(quote! {
+        {
+            use soroban_sdk::symbol_short;
+            (#env_expr).events().publish(
+            #env_expr.events().publish(
+                (symbol_short!("soroscan"), symbol_short!("batch")),
+                (#indexer, #event_count, #total_count)
+            )
+        }
+    })
 }
 
 /// Format an event topic vector with consistent naming.
@@ -158,46 +213,48 @@ pub fn emit_soroscan_batch(input: TokenStream) -> TokenStream {
 #[proc_macro]
 #[allow(clippy::needless_pass_by_value)]
 pub fn soroscan_topics(input: TokenStream) -> TokenStream {
-    let input_str = input.to_string();
-    let identifiers: Vec<&str> = input_str.split(',').map(|s| s.trim()).collect();
+    let parser = Punctuated::<Expr, Token![,]>::parse_terminated;
+    let parsed = match parser.parse2(input.into()) {
+        Ok(punct) => punct,
+        Err(err) => {
+            return syn::Error::new(err.span(), "Expected at least one topic identifier")
+                .to_compile_error()
+                .into();
+        }
+    };
 
-    if identifiers.is_empty() {
-        return syn::Error::new_spanned(
-            proc_macro2::TokenStream::from(input),
+    if parsed.is_empty() {
+        return syn::Error::new(
+            proc_macro2::Span::call_site(),
             "Expected at least one topic identifier",
         )
         .to_compile_error()
         .into();
     }
 
-    // Validate all identifiers are valid Rust identifiers
-    for id in &identifiers {
-        if !is_valid_identifier(id) {
-            return syn::Error::new_spanned(
-                proc_macro2::TokenStream::from(input),
-                format!("Invalid identifier: {}", id),
-            )
-            .to_compile_error()
-            .into();
+    // Every element must be a plain identifier so it can become symbol_short!(ident).
+    let mut identifiers: Vec<syn::Ident> = Vec::with_capacity(parsed.len());
+    for expr in &parsed {
+        match expr {
+            Expr::Path(path) if path.qself.is_none() && path.path.get_ident().is_some() => {
+                identifiers.push(path.path.get_ident().unwrap().clone());
+            }
+            other => {
+                return syn::Error::new_spanned(
+                    other,
+                    "Invalid identifier: topic names must be plain identifiers",
+                )
+                .to_compile_error()
+                .into();
+            }
         }
     }
-
-    // Generate symbol_short! calls for each identifier
-    let symbol_shorts: Vec<proc_macro2::TokenStream> = identifiers
-        .iter()
-        .map(|id| {
-            let id_tokens: proc_macro2::TokenStream = id.parse().unwrap_or_default();
-            quote! {
-                symbol_short!(#id_tokens)
-            }
-        })
-        .collect();
 
     let expanded = quote! {
         {
             use soroban_sdk::{symbol_short, Vec};
             let mut topics = Vec::new(env);
-            #(topics.push_back(#symbol_shorts);)*
+            #(topics.push_back(symbol_short!(#identifiers));)*
             topics
         }
     };
@@ -205,37 +262,84 @@ pub fn soroscan_topics(input: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
-/// Check if a string is a valid Rust identifier
-fn is_valid_identifier(s: &str) -> bool {
-    if s.is_empty() {
-        return false;
-    }
-
-    let first_char = s.chars().next().unwrap();
-    if !first_char.is_alphabetic() && first_char != '_' {
-        return false;
-    }
-
-    s.chars().all(|c| c.is_alphanumeric() || c == '_')
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quote::quote;
 
     #[test]
-    fn test_is_valid_identifier_valid() {
-        assert!(is_valid_identifier("swap"));
-        assert!(is_valid_identifier("transfer_v2"));
-        assert!(is_valid_identifier("_private"));
-        assert!(is_valid_identifier("EVENT_TYPE123"));
+    fn parses_three_plain_args() {
+        let args = parse_args(quote!(env, symbol_short!("swap"), payload), 3).unwrap();
+        assert_eq!(args.len(), 3);
     }
 
     #[test]
-    fn test_is_valid_identifier_invalid() {
-        assert!(!is_valid_identifier(""));
-        assert!(!is_valid_identifier("123invalid"));
-        assert!(!is_valid_identifier("invalid-type"));
-        assert!(!is_valid_identifier("invalid.type"));
+    fn keeps_tuple_payload_intact() {
+        // A tuple payload contains commas; naive string-splitting would have
+        // seen 5 args and failed. syn keeps it as one expression.
+        let args = parse_args(quote!(env, symbol_short!("swap"), (a, b, c)), 3).unwrap();
+        assert_eq!(args.len(), 3);
+        assert!(matches!(args[2], Expr::Tuple(_)));
+    }
+
+    #[test]
+    fn rejects_wrong_argument_count() {
+        assert!(parse_args(quote!(env, payload), 3).is_err());
+        assert!(parse_args(quote!(env, a, b, c), 3).is_err());
+    }
+
+    #[test]
+    fn rejects_empty_input() {
+        assert!(parse_args(quote!(), 3).is_err());
+    }
+
+    #[test]
+    fn parses_four_args_for_batch() {
+        let args = parse_args(quote!(env, indexer, 5, 42), 4).unwrap();
+        assert_eq!(args.len(), 4);
+    }
+
+    #[test]
+    fn test_parse_args_keeps_tuple_payload_as_one_argument() {
+        let input = quote! { env, symbol_short!("swap"), (sender, receiver, amount) };
+        let args = parse_args(input).expect("input should parse");
+
+        assert_eq!(
+            args.len(),
+            3,
+            "tuple payload must not be split on its commas"
+        );
+        match &args[2] {
+            Expr::Tuple(tuple) => assert_eq!(tuple.elems.len(), 3),
+            other => panic!("expected a tuple payload, got {}", quote!(#other)),
+        }
+    }
+
+    #[test]
+    fn test_emit_soroscan_event_expands_tuple_payload() {
+        let input = quote! { env, symbol_short!("swap"), (sender, receiver, amount) };
+        let expanded = expand_emit_soroscan_event(input).expect("tuple payload should expand");
+
+        syn::parse2::<Expr>(expanded).expect("expansion must be valid Rust syntax");
+    }
+
+    #[test]
+    fn test_emit_soroscan_event_rejects_wrong_arity() {
+        let input = quote! { env, symbol_short!("swap") };
+        assert!(expand_emit_soroscan_event(input).is_err());
+    }
+
+    #[test]
+    fn test_emit_soroscan_batch_expands_nested_tuple_argument() {
+        let input = quote! { env, (indexer, sub_indexer), 5, 42 };
+        let expanded = expand_emit_soroscan_batch(input).expect("tuple argument should expand");
+
+        syn::parse2::<Expr>(expanded).expect("expansion must be valid Rust syntax");
+    }
+
+    #[test]
+    fn test_emit_soroscan_batch_rejects_wrong_arity() {
+        let input = quote! { env, indexer, 5 };
+        assert!(expand_emit_soroscan_batch(input).is_err());
     }
 }

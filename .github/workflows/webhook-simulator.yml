@@ -2,12 +2,12 @@ name: Webhook Simulator CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - "tools/webhook-simulator/**"
       - ".github/workflows/webhook-simulator.yml"
   pull_request:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - "tools/webhook-simulator/**"
       - ".github/workflows/webhook-simulator.yml"

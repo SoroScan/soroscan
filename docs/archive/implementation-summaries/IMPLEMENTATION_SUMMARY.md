@@ -1,3 +1,7 @@
+> [!NOTE]
+> **Archived Document**: This document is a historical PR/implementation summary preserved for audit and historical reference.
+> For current active documentation, see `docs/frontend/apollo_guide.md`, `docs/features/`, and `docs/architecture/README.md`.
+
 # Implementation Summary: Issues #587, #543, #481, #595
 
 This document summarizes the implementation of four GitHub issues for the SoroScan project.

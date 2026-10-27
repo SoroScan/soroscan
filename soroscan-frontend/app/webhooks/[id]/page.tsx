@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, FlaskConical, Trash2, Eye, EyeOff } from "lucide-react"
+import { ArrowLeft, FlaskConical, Trash2, Eye, EyeOff, Copy, Check } from "lucide-react"
 import { Navbar } from "@/components/terminal/landing/Navbar"
 import { Footer } from "@/components/terminal/landing/Footer"
 import { Card } from "@/components/terminal/Card"
@@ -210,6 +210,7 @@ export default function WebhookDetailPage() {
   const [testResult, setTestResult] = React.useState<{ ok: boolean; code: number; ms: number } | null>(null)
   const [deleteOpen, setDeleteOpen] = React.useState(false)
   const [secretVisible, setSecretVisible] = React.useState(false)
+  const [secretCopied, setSecretCopied] = React.useState(false)
   const [timeoutInput, setTimeoutInput] = React.useState("30")
   const [timeoutError, setTimeoutError] = React.useState<string | null>(null)
   const [saveMessage, setSaveMessage] = React.useState<string | null>(null)
@@ -333,6 +334,17 @@ export default function WebhookDetailPage() {
     setWebhook({ ...webhook, timeoutSeconds: nextTimeout })
     setTimeoutError(null)
     setSaveMessage("Timeout updated successfully.")
+  }
+
+  const handleCopySecret = async () => {
+    if (!webhook) return
+    try {
+      await navigator.clipboard.writeText(webhook.secret)
+      setSecretCopied(true)
+      setTimeout(() => setSecretCopied(false), 2000)
+    } catch {
+      // clipboard API may be unavailable in non-secure contexts; fail silently
+    }
   }
 
   const handleTest = async () => {
@@ -543,6 +555,14 @@ export default function WebhookDetailPage() {
                         title={secretVisible ? "Hide secret" : "Reveal secret"}
                       >
                         {secretVisible ? <EyeOff size={12} /> : <Eye size={12} />}
+                      </button>
+                      <button
+                        onClick={() => void handleCopySecret()}
+                        className="text-terminal-cyan hover:text-terminal-green transition-colors"
+                        title={secretCopied ? "Copied!" : "Copy secret"}
+                        aria-label={secretCopied ? "Secret copied to clipboard" : "Copy signing secret to clipboard"}
+                      >
+                        {secretCopied ? <Check size={12} /> : <Copy size={12} />}
                       </button>
                     </span>
                   }
