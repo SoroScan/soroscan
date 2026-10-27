@@ -648,15 +648,16 @@ Key observability points:
 
 ## Design Decision Records (ADRs)
 
-A more detailed set of architecture decisions lives in [`docs/architecture/adr.md`](./adr.md).
+The canonical set of architecture decisions lives in [`docs/adrs/`](../adrs/README.md) (ADR index). The former inline `docs/architecture/adr.md` set was consolidated into that directory in issue #1685; `adr.md` is now a redirect with an old-to-new number mapping.
 
-Summary of key decisions:
+Summary of key decisions (see the linked ADRs for full context):
 
-- Soroban RPC is used because Horizon alone does not expose all contract event metadata and fine-grained ledger query capabilities.
-- PostgreSQL was chosen for its transactional consistency, JSONB support, and mature Django tooling.
-- Strawberry GraphQL enables typed schema generation with Django model integration.
-- exponential backoff was selected for webhook retries to protect downstream subscribers and avoid thundering herd effects.
-- Redis was chosen as a shared low-latency store for caching, rate limiting, and WebSocket pub/sub.
+- Soroban RPC is used because Horizon alone does not expose all contract event metadata and fine-grained ledger query capabilities ([ADR 0001](../adrs/0001-event-ingestion-architecture.md)).
+- PostgreSQL was chosen for its transactional consistency, JSONB support, and mature Django tooling ([ADR 0003](../adrs/0003-database-schema-rationale.md)).
+- Strawberry GraphQL enables typed schema generation with Django model integration ([ADR 0007](../adrs/0007-strawberry-graphql.md)).
+- exponential backoff was selected for webhook retries to protect downstream subscribers and avoid thundering herd effects ([ADR 0004](../adrs/0004-webhook-delivery-system.md)).
+- Redis was chosen as a shared low-latency store for caching, rate limiting, and WebSocket pub/sub ([ADR 0008](../adrs/0008-redis-cache-and-channels.md)).
+- Django is the backend application framework ([ADR 0006](../adrs/0006-django-backend.md)).
 
 ## Code References
 

@@ -38,7 +38,7 @@ pnpm run build
 ```
 **Status**: PASSING (production build successful)
 
-### Backend CI (`.github/workflows/django-tests.yml`)
+### Backend CI (`.github/workflows/django.yml`)
 
 #### ✅ No Breaking Changes
 - Only added `CORS_ALLOW_CREDENTIALS = True` to settings
