@@ -2,6 +2,9 @@ import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { LanguageSelector } from "@/components/ui/LanguageSelector";
 
+type TestLocation = { href: string };
+const testWindow = window as unknown as { location: TestLocation };
+
 const pushMock = jest.fn();
 let mockPathname = "/";
 
@@ -16,13 +19,13 @@ describe("LanguageSelector", () => {
   const originalLocation = window.location;
 
   beforeEach(() => {
-    delete (window as any).location;
-    window.location = { href: "" } as any;
+    delete (testWindow as Partial<{ location: TestLocation }>).location;
+    testWindow.location = { href: "" };
     mockPathname = "/";
   });
 
   afterEach(() => {
-    window.location = originalLocation;
+    testWindow.location = originalLocation;
   });
 
   it("renders a select with both supported locales", () => {
@@ -44,7 +47,7 @@ describe("LanguageSelector", () => {
     render(<LanguageSelector />);
     const select = screen.getByLabelText(/switch language/i);
     fireEvent.change(select, { target: { value: "es" } });
-    expect((window.location as any).href).toBe("/es/contracts");
+    expect(testWindow.location.href).toBe("/es/contracts");
   });
 
   it("strips the locale prefix when switching back to the default locale", () => {
@@ -52,7 +55,7 @@ describe("LanguageSelector", () => {
     render(<LanguageSelector />);
     const select = screen.getByLabelText(/switch language/i);
     fireEvent.change(select, { target: { value: "en" } });
-    expect((window.location as any).href).toBe("/contracts");
+    expect(testWindow.location.href).toBe("/contracts");
   });
 
   it("navigates to the bare /es root when on the default-locale homepage", () => {
@@ -60,6 +63,6 @@ describe("LanguageSelector", () => {
     render(<LanguageSelector />);
     const select = screen.getByLabelText(/switch language/i);
     fireEvent.change(select, { target: { value: "es" } });
-    expect((window.location as any).href).toBe("/es");
+    expect(testWindow.location.href).toBe("/es");
   });
 });

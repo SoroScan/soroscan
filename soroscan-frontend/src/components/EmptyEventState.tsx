@@ -19,7 +19,7 @@ export const EmptyEventState: React.FC = () => {
       </svg>
       <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">No Events Found</h3>
       <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-        We couldn't find any events matching your query. Try adjusting your search filters or resetting your query.
+        We couldn&apos;t find any events matching your query. Try adjusting your search filters or resetting your query.
       </p>
     </div>
   );
