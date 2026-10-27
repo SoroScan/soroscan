@@ -11,6 +11,14 @@ Machine-readable alert → action mappings live in
 | RPC endpoint unavailable | `SoroScanRpcEndpointUnavailable` | send_alert, pause_contract | [rpc-endpoint-unavailable.md](./rpc-endpoint-unavailable.md) |
 | Celery queue backlog | `SoroScanCeleryQueueBacklog` | send_alert | [celery-queue-backlog.md](./celery-queue-backlog.md) |
 
+## Operational runbooks
+
+These are exercised on a schedule rather than triggered by a single alert:
+
+| Procedure | Cadence | Runbook |
+|-----------|---------|---------|
+| Disaster recovery and restore drill | Quarterly drill, monthly verification | [disaster-recovery-restore-drill.md](./disaster-recovery-restore-drill.md) |
+
 Remediation rules are evaluated every 5 minutes by
 `evaluate_remediation_rules`. Seed defaults with:
 
