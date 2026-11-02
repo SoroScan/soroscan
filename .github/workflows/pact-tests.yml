@@ -21,9 +21,9 @@ jobs:
     name: Consumer tests (TypeScript SDK)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: npm
@@ -38,7 +38,7 @@ jobs:
         run: npm run test:pact
 
       - name: Upload generated pact files
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pact-contracts-typescript
           path: pacts/*.json
@@ -47,9 +47,9 @@ jobs:
     name: Consumer tests (Python SDK)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
@@ -63,7 +63,7 @@ jobs:
         run: pytest tests/test_pact_consumer.py -v
 
       - name: Upload generated pact files
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pact-contracts-python
           path: pacts/*.json
@@ -99,21 +99,21 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download TypeScript pact artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: pact-contracts-typescript
           path: pacts
 
       - name: Download Python pact artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: pact-contracts-python
           path: pacts
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
