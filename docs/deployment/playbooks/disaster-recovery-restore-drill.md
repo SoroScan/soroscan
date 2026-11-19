@@ -67,7 +67,7 @@ that the restore drill measures the actual RTO/RPO instead of assuming them.
 - Restore with `restore_contracts`; this is the fastest way to rebuild contract
   metadata independently of a database snapshot.
 - The recommended cron entry is documented in
-  [`docs/CLI_COMMANDS.md`](../../CLI_COMMANDS.md).
+  [`docs/CLI_COMMANDS.md`](https://github.com/SoroScan/soroscan/blob/main/CLI_COMMANDS.md).
 
 ### Archived events
 
@@ -362,7 +362,7 @@ drill against production.
 ## Related documentation
 
 - [Backups & Disaster Recovery](../backups.md)
-- [Backup tooling README](../../../scripts/backup/README.md)
+- [Backup tooling README](https://github.com/SoroScan/soroscan/blob/main/scripts/backup/README.md)
 - [Data retention and event archival](../../operations/DATA_RETENTION.md)
 - [Incident response playbooks](./README.md)
 - [Runbooks & incident procedures](../runbooks.md)
