@@ -18,16 +18,16 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@1.85
+        uses: dtolnay/rust-toolchain@1.120
         with:
           targets: wasm32-unknown-unknown
           components: clippy, rustfmt
 
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -61,7 +61,7 @@ jobs:
           file target/wasm32-unknown-unknown/release/*.wasm
 
       - name: Upload WASM artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: soroscan-contract
           path: soroban-contracts/soroscan_core/target/wasm32-unknown-unknown/release/*.wasm
