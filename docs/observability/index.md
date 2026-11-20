@@ -2,6 +2,7 @@
 
 This guide explains what to monitor, how to collect logs and metrics, and how to build useful dashboards and alerts for SoroScan.
 
+- [Packaged Grafana Dashboards](./grafana-dashboards.md) — the five dashboard templates in `k8s/grafana-templates/`: import, provisioning, panels and metrics.
 - [Structured Logging Standard](./structured-logging.md) — canonical log format, field naming, levels, error and masking rules.
 
 ## Observability Strategy
@@ -32,6 +33,7 @@ This guide explains what to monitor, how to collect logs and metrics, and how to
 
 ## Grafana Dashboards
 
+- Import the five packaged dashboards described in [Packaged Grafana Dashboards](./grafana-dashboards.md).
 - Design dashboards for system health, API performance, and ingestion status.
 - Create a system health overview, request latency dashboard, and error trend dashboard.
 - Use alerts on key thresholds such as high error rate, request latency regression, or backend queue saturation.

@@ -28,7 +28,7 @@ This page explains how to monitor SoroScan in production: metrics, dashboards, l
   `soroscan_celery_tasks_total`, and `soroscan_celery_task_duration_seconds`
 
 ## Grafana dashboards
-- Import `k8s/grafana-dashboard.json` as a starting point.
+- Import the five packaged templates from `k8s/grafana-templates/`; see [Packaged Grafana Dashboards](../observability/grafana-dashboards.md) for import, provisioning, panels and metrics.
 - Key panels:
   - API latency (p95/p99)
   - Error rate (5xx) per minute

@@ -44,6 +44,11 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Observability',
+      items: ['observability/index', 'observability/grafana-dashboards'],
+    },
+    {
+      type: 'category',
       label: 'SDKs',
       items: ['sdk-python', 'sdk-typescript', 'sdk/sdk-development-guide'],
     },
