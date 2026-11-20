@@ -16,7 +16,8 @@ Never commit a real `.env` file or production secrets.
 
 ## Required variables
 
-The following six variables are validated before every non-test Django startup. The application raises `ImproperlyConfigured` when any of them is missing, even where a fallback value exists later in `settings.py`.
+The following six variables are validated before every non-test Django startup. The application raises
+`ImproperlyConfigured` when any of them is missing, even where a fallback value exists later in `settings.py`.
 
 | Variable                     | Type         | Required | Code fallback                                                         | Description                                                                                                       |
 | ---------------------------- | ------------ | -------: | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
@@ -27,7 +28,8 @@ The following six variables are validated before every non-test Django startup. 
 | `STELLAR_NETWORK_PASSPHRASE` | String       |      Yes | `Test SDF Network ; September 2015`                                   | Stellar network passphrase associated with the primary Soroban RPC endpoint.                                      |
 | `SOROSCAN_CONTRACT_ID`       | String       |      Yes | Empty string                                                          | Deployed SoroScan contract identifier.                                                                            |
 
-Tests using `soroscan.settings_test` do not require these variables because the test settings use in-memory SQLite, cache, Channels, and Celery services.
+Tests using `soroscan.settings_test` do not require these variables because the test settings use in-memory SQLite,
+cache, Channels, and Celery services.
 
 ## Core Django configuration
 
@@ -130,7 +132,8 @@ Values are decimal amounts in U.S. dollars.
 | `MAINNET_RPC_URL`    | URL           |       No | `https://mainnet.stellar.validationcloud.io/v1/public` | RPC URL exposed for the configured mainnet network.                 |
 | `FUTURENET_RPC_URL`  | URL           |       No | `https://soroban-futurenet.stellar.org`                | RPC URL exposed for the configured futurenet network.               |
 
-The required primary variables `SOROBAN_RPC_URL` and `STELLAR_NETWORK_PASSPHRASE` select the backend’s main active network. The three network-specific URL variables configure the network list returned by the API.
+The required primary variables `SOROBAN_RPC_URL` and `STELLAR_NETWORK_PASSPHRASE` select the backend’s main active
+network. The three network-specific URL variables configure the network list returned by the API.
 
 ## GraphQL configuration
 
@@ -317,17 +320,18 @@ SENTRY_TRACES_SAMPLE_RATE=0.1
 
 Treat the following values as secrets:
 
-* `SECRET_KEY`
-* `DATABASE_URL` when it contains credentials
-* `REDIS_URL` when it contains credentials
-* `INDEXER_SECRET_KEY`
-* `WEBHOOK_ED25519_SIGNING_SEED`
-* `EMAIL_HOST_PASSWORD`
-* `AWS_ACCESS_KEY_ID`
-* `AWS_SECRET_ACCESS_KEY`
-* `SENTRY_DSN`
+- `SECRET_KEY`
+- `DATABASE_URL` when it contains credentials
+- `REDIS_URL` when it contains credentials
+- `INDEXER_SECRET_KEY`
+- `WEBHOOK_ED25519_SIGNING_SEED`
+- `EMAIL_HOST_PASSWORD`
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `SENTRY_DSN`
 
-For production, store secrets in a managed secret store or Kubernetes Secret rather than committing them to source control.
+For production, store secrets in a managed secret store or Kubernetes Secret rather than committing them to source
+control.
 
 ## Validation
 

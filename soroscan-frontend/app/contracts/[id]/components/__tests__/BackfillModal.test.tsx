@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { ComponentProps, ReactNode } from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { BackfillModal } from "../BackfillModal";
