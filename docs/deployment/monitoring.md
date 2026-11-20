@@ -29,6 +29,13 @@ This page explains how to monitor SoroScan in production: metrics, dashboards, l
 
 ## Grafana dashboards
 - Import `k8s/grafana-dashboard.json` as a starting point.
+- The repo also ships five ready-to-import dashboard templates in
+  `k8s/grafana-templates/`: system health, event ingestion, webhook delivery,
+  performance analysis, and the Celery task queue. See
+  [Grafana Dashboards](../observability/grafana-dashboards.md) for each
+  dashboard's purpose, panels, Prometheus queries, and import/provisioning steps.
+- `k8s/grafana-datasource.yaml` and `k8s/grafana-dashboard-provider.yaml`
+  provision the Prometheus datasource and the file-based dashboard provider.
 - Key panels:
   - API latency (p95/p99)
   - Error rate (5xx) per minute
