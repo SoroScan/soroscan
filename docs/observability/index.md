@@ -1,8 +1,10 @@
 # Monitoring, Logging & Observability Guide
 
-This guide explains what to monitor, how to collect logs and metrics, and how to build useful dashboards and alerts for SoroScan.
+This guide explains what to monitor, how to collect logs and metrics, and how to build useful dashboards and alerts for
+SoroScan.
 
-- [Structured Logging Standard](./structured-logging.md) — canonical log format, field naming, levels, error and masking rules.
+- [Structured Logging Standard](./structured-logging.md) — canonical log format, field naming, levels, error and masking
+  rules.
 - [Grafana Dashboards](./grafana-dashboards.md) — the five packaged dashboard
   templates, the panels and Prometheus metrics they query, and
   import/provisioning steps.

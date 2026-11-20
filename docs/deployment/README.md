@@ -7,14 +7,15 @@ sidebar_label: Deployment & Ops
 hide_title: false
 ---
 
-import Tabs from '@theme/Tabs';
-import TabItem from '@theme/TabItem';
+import Tabs from '@theme/Tabs'; import TabItem from '@theme/TabItem';
 
-# SoroScan Production Deployment & Operations
+## SoroScan Production Deployment & Operations
 
-This guide covers recommended production deployments for SoroScan, including local Docker Compose, Kubernetes (Helm + Terraform), an AWS/EKS example, monitoring, backups, security, runbooks, and troubleshooting.
+This guide covers recommended production deployments for SoroScan, including local Docker Compose, Kubernetes (Helm +
+Terraform), an AWS/EKS example, monitoring, backups, security, runbooks, and troubleshooting.
 
 **Quick links**
+
 - [Docker Compose](deployment/docker-compose)
 - [Kubernetes (Helm)](deployment/kubernetes)
 - [AWS EKS (Terraform)](deployment/aws)
@@ -65,7 +66,8 @@ flowchart LR
   CELERY --> REDIS
 ```
 
-
 ## Notes and scope
-- These docs provide examples and operational guidance. Adapt resource sizes and retention policies to your workload and compliance needs.
+
+- These docs provide examples and operational guidance. Adapt resource sizes and retention policies to your workload and
+  compliance needs.
 - Files included: sample Helm values, a Terraform EKS snippet, and a Postgres backup example.
