@@ -4,8 +4,6 @@ name: Update Playwright Visual Baselines
 # environment the E2E workflow uses. Download the "linux-visual-baselines"
 # artifact and commit the five *-chromium-linux.png files.
 on:
-  push:
-    branches: [chore/batch-1900-1903]
   workflow_dispatch:
 
 permissions:
