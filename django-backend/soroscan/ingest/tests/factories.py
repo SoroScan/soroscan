@@ -1,4 +1,5 @@
 import factory
+from django.utils import timezone
 from django.contrib.auth import get_user_model
 from factory.django import DjangoModelFactory
 
@@ -82,7 +83,7 @@ class ContractEventFactory(DjangoModelFactory):
     payload_hash = factory.Sequence(lambda n: f"{'a' * 64}")
     ledger = factory.Sequence(lambda n: 1000 + n)
     event_index = factory.Sequence(lambda n: n)
-    timestamp = factory.Faker("date_time")
+    timestamp = factory.LazyFunction(timezone.now)
     tx_hash = factory.Sequence(lambda n: f"{'b' * 64}")
 
 
