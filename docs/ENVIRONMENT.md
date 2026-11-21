@@ -39,6 +39,7 @@ Tests using `soroscan.settings_test` do not require these variables because the 
 | `FRONTEND_BASE_URL`      | URL                  |       No | `http://localhost:3000`                    | Public frontend URL used by backend integrations.                                                         |
 | `SOFTWARE_VERSION`       | String               |       No | Value from `VERSION.md`, otherwise `1.0.0` | Version exposed through API and platform metadata.                                                        |
 | `ENABLE_SILK`            | Boolean              |       No | `False`                                    | Enables the Django Silk profiler and middleware.                                                          |
+| `ADMIN_SECRET_KEY`       | Secret string        |       No | Value of `INDEXER_SECRET_KEY`              | Signing key for admin-level operations; set it separately when admin credentials need an independent key. |
 
 Accepted Boolean values include `True`/`False`, `true`/`false`, `1`/`0`, and `yes`/`no`.
 
@@ -49,6 +50,7 @@ Accepted Boolean values include `True`/`False`, `true`/`false`, `1`/`0`, and `ye
 | `DB_CONN_MAX_AGE`           | Integer seconds |       No | `300`              | Maximum lifetime of a persistent Django database connection.                        |
 | `DB_CONNECT_TIMEOUT`        | Integer seconds |       No | `5`                | PostgreSQL connection timeout. Applied only when PostgreSQL is used.                |
 | `DB_APPLICATION_NAME`       | String          |       No | `soroscan-backend` | PostgreSQL application name shown in database monitoring tools.                     |
+| `DATABASE_STATEMENT_TIMEOUT`| Integer milliseconds |       No | `5000`         | PostgreSQL statement timeout applied to each connection; ignored by SQLite.         |
 | `WEB_CONCURRENCY`           | Integer         |       No | `4`                | Expected number of web worker processes used when calculating database pool limits. |
 | `DB_CONNECTIONS_PER_WORKER` | Integer         |       No | `4`                | Target number of database connections per worker.                                   |
 | `DB_POOL_MIN_SIZE`          | Integer         |       No | `2`                | Minimum database connection-pool target.                                            |
@@ -62,6 +64,9 @@ The calculated pool maximum is bounded by `DB_POOL_HARD_LIMIT`.
 | -------------------------- | --------------- | -------: | ------- | --------------------------------------------------------------------------- |
 | `QUERY_CACHE_TTL_SECONDS`  | Integer seconds |       No | `60`    | Cache lifetime for REST, GraphQL, statistics, search, and timeline results. |
 | `SHUTDOWN_TIMEOUT_SECONDS` | Integer seconds |       No | `30`    | Graceful-shutdown timeout for active application work.                      |
+| `CONTRACTS_LIST_CACHE_TTL_SECONDS` | Integer seconds | No | `30` | Cache lifetime for the REST contracts-list endpoint. |
+| `CELERY_TASK_TIME_LIMIT`   | Integer seconds |       No | `600`   | Hard time limit for a Celery task; the worker terminates tasks that exceed it. |
+| `CELERY_TASK_SOFT_TIME_LIMIT` | Integer seconds | No | `540` | Soft time limit for a Celery task; the task receives a timeout before the hard limit. |
 
 `REDIS_URL` is also used as the Celery broker, Celery result backend, Channels backend, and Django Redis cache.
 
@@ -77,12 +82,15 @@ Rate values follow the `<requests>/<period>` format, such as `60/minute` or `100
 | `RATE_LIMIT_GRAPHQL`         | Rate string |       No | `60/minute`  | GraphQL endpoint rate.                        |
 | `ENDPOINT_RATE_LIMIT_SEARCH` | Rate string |       No | `30/minute`  | Event-search endpoint rate.                   |
 | `ENDPOINT_RATE_LIMIT_STATS`  | Rate string |       No | `100/minute` | Contract-statistics endpoint rate.            |
+| `ENDPOINT_RATE_LIMIT_DB_EXPLAIN` | Rate string | No | `10/minute` | Database-explain endpoint rate. |
+| `RATE_LIMIT_UNAUTHENTICATED_IP` | Rate string | No | `30/minute` | Rate for unauthenticated requests grouped by client IP. |
 
 ## CORS configuration
 
 | Variable          | Type                     | Required | Default | Description                                                                                                              |
 | ----------------- | ------------------------ | -------: | ------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `ALLOWED_ORIGINS` | Comma-separated URL list |       No | Empty   | Frontend origins permitted to make cross-origin requests. When empty, all origins are permitted only while `DEBUG=True`. |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated URL list | No | Empty | Explicit origins permitted by `django-cors-headers`; set this in production instead of relying on debug-only allow-all behavior. |
 
 Example:
 
@@ -139,6 +147,9 @@ The required primary variables `SOROBAN_RPC_URL` and `STELLAR_NETWORK_PASSPHRASE
 | `GRAPHQL_INTROSPECTION_ENABLED` | Boolean          |       No | Same value as `DEBUG` | Enables GraphQL schema introspection. Disable it in production unless explicitly needed. |
 | `GRAPHQL_MAX_COMPLEXITY`        | Integer          |       No | `1000`                | Maximum permitted GraphQL query-complexity score.                                        |
 | `GRAPHQL_N1_DETECTION_ENABLED`  | Boolean          |       No | Same value as `DEBUG` | Enables development-time detection of possible N+1 resolver queries.                     |
+| `GRAPHQL_CACHE_ENABLED`         | Boolean          |       No | `True`                | Enables GraphQL query result caching.                                                     |
+| `GRAPHQL_CACHE_TTL_SECONDS`     | Integer seconds  |       No | `60`                  | Cache lifetime for GraphQL query results.                                                  |
+| `GRAPHQL_N1_DETECTION_THRESHOLD`| Integer queries  |       No | `5`                   | Number of resolver database queries that triggers an N+1 warning.                          |
 | `GRAPHQL_RESOLVER_LOG_LEVEL`    | Log-level string |       No | `INFO`                | Logging level for GraphQL resolver activity.                                             |
 
 ## Contract snapshots
@@ -155,6 +166,7 @@ The required primary variables `SOROBAN_RPC_URL` and `STELLAR_NETWORK_PASSPHRASE
 | `LOG_FORMAT`                    | String               |       No | Empty                          | Set to `json` to enable structured JSON console logs. Any other value uses text logs. |
 | `SLOW_QUERY_THRESHOLD_MS`       | Integer milliseconds |       No | `100`                          | Application slow-query logging threshold.                                             |
 | `DATABASE_SLOW_QUERY_THRESHOLD` | Float seconds        |       No | `1.0`                          | Database-level slow-query threshold.                                                  |
+| `REQUEST_LATENCY_LOG_THRESHOLD_MS` | Integer milliseconds | No | `100` | Requests at or above this duration log a JSON database/CPU timing breakdown. |
 | `SILK_PROFILER_LOG_DIR`         | Filesystem path      |       No | `django-backend/logs/profiler` | Output directory used by the Silk profiler.                                           |
 
 ## Email and alert delivery
