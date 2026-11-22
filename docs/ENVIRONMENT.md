@@ -92,13 +92,34 @@ ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
 
 ## Data retention and deduplication
 
-| Variable                         | Type            | Required | Default | Description                                                          |
-| -------------------------------- | --------------- | -------: | ------- | -------------------------------------------------------------------- |
-| `DEDUP_LOG_RETENTION_DAYS`       | Integer days    |       No | `90`    | Number of days to retain event-deduplication logs.                   |
-| `EVENT_RETENTION_DAYS`           | Integer days    |       No | `30`    | Number of days to retain contract events before archival or pruning. |
-| `ALERT_DEDUP_WINDOW_SECONDS`     | Integer seconds |       No | `300`   | General alert deduplication window.                                  |
-| `WEBHOOK_DEDUP_WINDOW_SECONDS`   | Integer seconds |       No | `300`   | Webhook delivery deduplication window.                               |
-| `DOWNSTREAM_ALERT_DEDUP_SECONDS` | Integer seconds |       No | `3600`  | Deduplication window for downstream dependency alerts.               |
+| Variable                          | Type            | Required | Default | Description                                                                                         |
+| --------------------------------- | --------------- | -------: | ------- | --------------------------------------------------------------------------------------------------- |
+| `DEDUP_LOG_RETENTION_DAYS`        | Integer days    |       No | `90`    | Number of days to retain event-deduplication logs.                                                  |
+| `EVENT_RETENTION_DAYS`            | Integer days    |       No | `30`    | Number of days to retain contract events before archival or pruning.                                |
+| `ALERT_DEDUP_WINDOW_SECONDS`      | Integer seconds |       No | `300`   | General alert deduplication window.                                                                 |
+| `WEBHOOK_DEDUP_WINDOW_SECONDS`    | Integer seconds |       No | `300`   | Webhook delivery deduplication window.                                                              |
+| `DOWNSTREAM_ALERT_DEDUP_SECONDS`  | Integer seconds |       No | `3600`  | Deduplication window for downstream dependency alerts.                                              |
+| `SOROSCAN_EVENT_RETENTION_DAYS`   | Integer days    |       No | `90`    | Age at which PostgreSQL `ContractEvent` partitions are detached for archiving; a no-op on other backends. |
+| `WEBHOOK_DELIVERY_RETENTION_DAYS` | Integer days    |       No | `30`    | Number of days to retain `WebhookDeliveryLog` entries before the cleanup task prunes them.           |
+
+## Contract health checks
+
+The health-check task evaluates active tracked contracts. A contract is marked `degraded` when no new event has been indexed for longer than `HEALTH_DEGRADED_MINUTES` or when ABI decode errors reach `HEALTH_ABI_ERROR_THRESHOLD` within the last hour. A contract is marked `failed` when no new event has been indexed for longer than `HEALTH_FAILED_MINUTES`.
+
+| Variable                     | Type            | Required | Default | Description                                                                                        |
+| ---------------------------- | --------------- | -------: | ------- | -------------------------------------------------------------------------------------------------- |
+| `HEALTH_DEGRADED_MINUTES`    | Integer minutes |       No | `30`    | Minutes without a new event before a tracked contract is marked `degraded` (first warning stage).   |
+| `HEALTH_FAILED_MINUTES`      | Integer minutes |       No | `120`   | Minutes without a new event before a tracked contract is marked `failed` (more severe later stage). |
+| `HEALTH_ABI_ERROR_THRESHOLD` | Integer count   |       No | `5`     | Number of ABI decode errors in the last hour at which a tracked contract is marked `degraded`.      |
+
+## Analytics anomaly detection
+
+The hourly event-aggregation task compares each bucket with the seven-day rolling average for the same hour of day. A drop is reported as an anomaly only when it exceeds `ANALYTICS_ANOMALY_DROP_PCT` and the baseline is at least `ANALYTICS_ANOMALY_MIN_BASELINE` events.
+
+| Variable                         | Type            | Required | Default | Description                                                                                  |
+| -------------------------------- | --------------- | -------: | ------- | -------------------------------------------------------------------------------------------- |
+| `ANALYTICS_ANOMALY_DROP_PCT`     | Integer percent |       No | `50`    | Percentage drop from the rolling hourly average that flags an event-volume anomaly.          |
+| `ANALYTICS_ANOMALY_MIN_BASELINE` | Integer events  |       No | `10`    | Minimum rolling-average event count before a drop is reported (suppresses low-volume noise). |
 
 ## Webhook escalation and signing
 

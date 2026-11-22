@@ -28,8 +28,10 @@ The Django default command line options (`--settings`, `--pythonpath`, `--verbos
 - [Data Integrity & Maintenance](#data-integrity--maintenance)
 - [Export & Import](#export--import)
 - [Contract Management](#contract-management)
+- [Organizations & Billing](#organizations--billing)
 - [Webhooks](#webhooks)
 - [Migrations](#migrations)
+- [Operations](#operations)
 - [Administration & Development](#administration--development)
 - [Automated Cron Execution](#automated-cron-execution)
 
@@ -613,6 +615,112 @@ ID  URL                      Status  Event Count
 
 ---
 
+## Organizations & Billing
+
+### `create_organization`
+
+Creates a new organization and grants the resolved user `owner` membership. The slug is generated from the display name unless one is supplied.
+
+**Syntax**
+
+```bash
+python manage.py create_organization --name <NAME> --owner <USERNAME|EMAIL> [--slug <SLUG>] [--quota N]
+```
+
+**Arguments**
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--name` | Yes | — | Display name for the new organization |
+| `--owner` | Yes | — | Username or unique email of the user who becomes the owner |
+| `--slug` | No | Generated from `--name` | Optional unique organization slug |
+| `--quota` | No | `0` | Monthly event quota; `0` means unset/unlimited |
+
+**Example**
+
+```bash
+python manage.py create_organization --name "Acme Corp" --owner alice@example.com --slug acme --quota 100000
+```
+
+**Expected output**
+
+```
+Created organization id=12 name='Acme Corp' slug=acme owner=alice quota=100000
+```
+
+The command raises a `CommandError` if the owner cannot be resolved or the requested name or slug is not unique.
+
+---
+
+### `add_user_to_org`
+
+Adds a user to an organization, or updates the role of an existing membership.
+
+**Syntax**
+
+```bash
+python manage.py add_user_to_org --organization <ID|SLUG|NAME> --user <USERNAME|EMAIL> [--role <owner|admin|member>]
+```
+
+**Arguments**
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--organization` | Yes | — | Organization id, slug, or unique name |
+| `--user` | Yes | — | Username or unique email of the user to add |
+| `--role` | No | `member` | Membership role to assign: `owner`, `admin`, or `member` |
+
+**Example**
+
+```bash
+python manage.py add_user_to_org --organization acme --user bob@example.com --role admin
+```
+
+**Expected output**
+
+```
+Added bob to acme as admin
+```
+
+If the user is already a member, the command either reports `Updated bob on acme to role=admin` when the role changes, or warns `bob is already an admin of acme` when nothing changes. An unknown organization, user, or invalid role raises a `CommandError`.
+
+---
+
+### `generate_invoice`
+
+Issues an organization invoice for a billing month. The amount defaults to the `OrganizationCostSnapshot` actual cost for that month; pass `--amount` to override it or when no snapshot exists.
+
+**Syntax**
+
+```bash
+python manage.py generate_invoice --organization <ID|SLUG|NAME> [--month YYYY-MM] [--amount USD] [--force]
+```
+
+**Arguments**
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--organization` | Yes | — | Organization id, slug, or unique name |
+| `--month` | No | Current UTC month | Billing period in `YYYY-MM` format |
+| `--amount` | No | Cost snapshot actual cost | Decimal USD amount override; required when no snapshot exists |
+| `--force` | No | `false` | Replace an existing invoice for the same organization and month |
+
+**Example**
+
+```bash
+python manage.py generate_invoice --organization acme --month 2026-08
+```
+
+**Expected output**
+
+```
+Generated invoice INV-2026-08-0001 org=acme period=2026-08 amount_usd=19.99 status=issued
+```
+
+Invalid month or amount values, a missing snapshot without `--amount`, or an existing invoice without `--force` raise a `CommandError`.
+
+---
+
 ## Migrations
 
 ### `migrate`
@@ -716,6 +824,152 @@ Destroying temporary database...
 ```
 
 `--verbosity 2` additionally lists each migration in the plan. The command fails with a `CommandError` if migration conflicts, an inconsistent history, or an application error are detected.
+
+---
+
+## Operations
+
+### `check_redis`
+
+Verifies Redis connectivity by pinging the configured cache, writing a short-lived probe key (10-second TTL), and reading it back. The probe key is deleted afterwards.
+
+**Syntax**
+
+```bash
+python manage.py check_redis
+```
+
+**Arguments**
+
+This command takes no arguments beyond the standard Django options.
+
+**Example**
+
+```bash
+python manage.py check_redis
+```
+
+**Expected output**
+
+```
+Checking Redis connection…
+  ✓ Ping OK  (latency: 1.23 ms)
+  ✓ Cache SET OK
+  ✓ Cache GET OK
+
+Redis is reachable and healthy. Latency: 1.23 ms
+```
+
+**Exit codes**
+
+- `0` — the ping, cache write, and cache read-back all succeeded.
+- `1` — any step failed, including a read-back value that does not match the probe value. The error is written to stderr.
+
+---
+
+### `clear_contract_cache`
+
+Deletes Redis keys matching `soroscan:contract:*`. Use `--dry-run` to preview the keys first.
+
+**Syntax**
+
+```bash
+python manage.py clear_contract_cache [--dry-run]
+```
+
+**Arguments**
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--dry-run` | No | `false` | Print the matching keys without deleting them |
+
+**Example**
+
+```bash
+python manage.py clear_contract_cache --dry-run
+```
+
+**Expected output**
+
+```
+DRY RUN: Would delete 14 cache keys matching 'soroscan:contract:*'
+  soroscan:contract:123
+  ...
+```
+
+In live mode the command prints `Successfully deleted 14 cache keys matching 'soroscan:contract:*'`, or `No contract cache keys found` when there is nothing to clear. The command requires a Redis-backed Django cache because it calls `cache.client.get_client()` directly.
+
+---
+
+### `validate_payload_compression`
+
+Checks the most recent `ContractEvent` payloads for valid Zstandard-compressed JSON without modifying any rows.
+
+**Syntax**
+
+```bash
+python manage.py validate_payload_compression [--limit N]
+```
+
+**Arguments**
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--limit` | No | `1000` | Number of most recent events to check; must be greater than zero |
+
+**Example**
+
+```bash
+python manage.py validate_payload_compression --limit 500
+```
+
+**Expected output**
+
+```
+Checked 500 recent event payload(s): 498 valid, 2 corrupt.
+Valid payloads: 498
+Corrupt payloads: 2
+Corrupt payload: ContractEvent id=1234
+Corrupt payload: ContractEvent id=1290
+```
+
+A `--limit` below `1` raises `CommandError("--limit must be greater than zero.")`.
+
+---
+
+### `reset_api_key`
+
+Rotates an API key secret. The new secret is printed once and the old key stops working immediately. The key can be selected by id, or by the owner's username/email together with the key's display name.
+
+**Syntax**
+
+```bash
+python manage.py reset_api_key (--id N | --username <USERNAME|EMAIL> --name <NAME>) [--no-input]
+```
+
+**Arguments**
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--id` | No | — | Primary key of the `APIKey` to rotate |
+| `--username` | No | — | Username or email of the key owner; used with `--name` |
+| `--name` | No | — | API key display name; used with `--username` |
+| `--no-input` / `--noinput` | No | `false` | Skip the confirmation prompt; required for non-interactive runs |
+
+**Example**
+
+```bash
+python manage.py reset_api_key --id 42 --no-input
+```
+
+**Expected output**
+
+```
+Store this secret now; it will not be shown again.
+Rotated API key id=42 name='Production' user=alice key=<new-secret>
+```
+
+Without `--no-input`, the command prompts for confirmation and aborts if declined. A `CommandError` is raised when the key cannot be resolved uniquely.
 
 ---
 

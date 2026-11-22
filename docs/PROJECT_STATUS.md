@@ -124,7 +124,7 @@ SoroScan is a **Stellar Soroban event indexer and monitoring platform** that:
 | Component | Technology | Version |
 |-----------|-----------|---------|
 | Framework | Django | 5.2.10 |
-| Language | Python | 3.11 in CI |
+| Language | Python | 3.12 in CI |
 | GraphQL | Strawberry GraphQL | 0.289.0 |
 | Database | PostgreSQL | 15 in CI |
 | Cache | Redis | 7 in CI |
@@ -291,7 +291,7 @@ See the [project roadmap](ROADMAP.md) for current priorities and issue status.
 
 ```bash
 # Backend
-- Python 3.11 (version used by backend CI)
+- Python 3.12 (version used by backend CI and the Docker image)
 - PostgreSQL 15+
 - Redis 7+
 - Docker & Docker Compose
