@@ -619,7 +619,8 @@ ID  URL                      Status  Event Count
 
 ### `create_organization`
 
-Creates a new organization and grants the resolved user `owner` membership. The slug is generated from the display name unless one is supplied.
+Creates a new organization and grants the resolved user `owner` membership. The slug is generated
+from the display name unless one is supplied.
 
 **Syntax**
 
@@ -682,13 +683,17 @@ python manage.py add_user_to_org --organization acme --user bob@example.com --ro
 Added bob to acme as admin
 ```
 
-If the user is already a member, the command either reports `Updated bob on acme to role=admin` when the role changes, or warns `bob is already an admin of acme` when nothing changes. An unknown organization, user, or invalid role raises a `CommandError`.
+If the user is already a member, the command either reports `Updated bob on acme to role=admin`
+when the role changes, or warns `bob is already an admin of acme` when nothing changes. An unknown
+organization, user, or invalid role raises a `CommandError`.
 
 ---
 
 ### `generate_invoice`
 
-Issues an organization invoice for a billing month. The amount defaults to the `OrganizationCostSnapshot` actual cost for that month; pass `--amount` to override it or when no snapshot exists.
+Issues an organization invoice for a billing month. The amount defaults to the
+`OrganizationCostSnapshot` actual cost for that month; pass `--amount` to override it or when no
+snapshot exists.
 
 **Syntax**
 
@@ -831,7 +836,8 @@ Destroying temporary database...
 
 ### `check_redis`
 
-Verifies Redis connectivity by pinging the configured cache, writing a short-lived probe key (10-second TTL), and reading it back. The probe key is deleted afterwards.
+Verifies Redis connectivity by pinging the configured cache, writing a short-lived probe key
+(10-second TTL), and reading it back. The probe key is deleted afterwards.
 
 **Syntax**
 
@@ -897,7 +903,10 @@ DRY RUN: Would delete 14 cache keys matching 'soroscan:contract:*'
   ...
 ```
 
-In live mode the command prints `Successfully deleted 14 cache keys matching 'soroscan:contract:*'`, or `No contract cache keys found` when there is nothing to clear. The command requires a Redis-backed Django cache because it calls `cache.client.get_client()` directly.
+In live mode the command prints
+`Successfully deleted 14 cache keys matching 'soroscan:contract:*'`, or `No contract cache keys
+found` when there is nothing to clear. The command requires a Redis-backed Django cache because it
+calls `cache.client.get_client()` directly.
 
 ---
 
@@ -939,7 +948,9 @@ A `--limit` below `1` raises `CommandError("--limit must be greater than zero.")
 
 ### `reset_api_key`
 
-Rotates an API key secret. The new secret is printed once and the old key stops working immediately. The key can be selected by id, or by the owner's username/email together with the key's display name.
+Rotates an API key secret. The new secret is printed once and the old key stops working
+immediately. The key can be selected by id, or by the owner's username/email together with the
+key's display name.
 
 **Syntax**
 
@@ -969,7 +980,8 @@ Store this secret now; it will not be shown again.
 Rotated API key id=42 name='Production' user=alice key=<new-secret>
 ```
 
-Without `--no-input`, the command prompts for confirmation and aborts if declined. A `CommandError` is raised when the key cannot be resolved uniquely.
+Without `--no-input`, the command prompts for confirmation and aborts if declined. A
+`CommandError` is raised when the key cannot be resolved uniquely.
 
 ---
 

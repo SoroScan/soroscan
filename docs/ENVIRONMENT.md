@@ -104,7 +104,10 @@ ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
 
 ## Contract health checks
 
-The health-check task evaluates active tracked contracts. A contract is marked `degraded` when no new event has been indexed for longer than `HEALTH_DEGRADED_MINUTES` or when ABI decode errors reach `HEALTH_ABI_ERROR_THRESHOLD` within the last hour. A contract is marked `failed` when no new event has been indexed for longer than `HEALTH_FAILED_MINUTES`.
+The health-check task evaluates active tracked contracts. A contract is marked `degraded` when no
+new event has been indexed for longer than `HEALTH_DEGRADED_MINUTES` or when ABI decode errors reach
+`HEALTH_ABI_ERROR_THRESHOLD` within the last hour. A contract is marked `failed` when no new event
+has been indexed for longer than `HEALTH_FAILED_MINUTES`.
 
 | Variable                     | Type            | Required | Default | Description                                                                                        |
 | ---------------------------- | --------------- | -------: | ------- | -------------------------------------------------------------------------------------------------- |
@@ -114,7 +117,9 @@ The health-check task evaluates active tracked contracts. A contract is marked `
 
 ## Analytics anomaly detection
 
-The hourly event-aggregation task compares each bucket with the seven-day rolling average for the same hour of day. A drop is reported as an anomaly only when it exceeds `ANALYTICS_ANOMALY_DROP_PCT` and the baseline is at least `ANALYTICS_ANOMALY_MIN_BASELINE` events.
+The hourly event-aggregation task compares each bucket with the seven-day rolling average for the
+same hour of day. A drop is reported as an anomaly only when it exceeds
+`ANALYTICS_ANOMALY_DROP_PCT` and the baseline is at least `ANALYTICS_ANOMALY_MIN_BASELINE` events.
 
 | Variable                         | Type            | Required | Default | Description                                                                                  |
 | -------------------------------- | --------------- | -------: | ------- | -------------------------------------------------------------------------------------------- |
