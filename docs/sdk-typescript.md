@@ -79,6 +79,28 @@ const response = await client.recordTaggedEvent({
 console.log(`Status: ${response.status}, tags: ${response.tags.join(", ")}`);
 ```
 
+### Contract Statistics (SC-42)
+
+`getContractStats(contractId)` returns aggregate statistics for a tracked contract as a typed
+`ContractStats` object. The argument is the contract's **database id** (the `{id}` used by
+`GET /api/ingest/contracts/{id}/stats/`), not its Stellar address. The returned `contractId`
+field is the Stellar address reported by the API.
+
+```typescript
+import { SoroScanClient, type ContractStats } from "@soroscan/sdk";
+
+const stats: ContractStats = await client.getContractStats("42");
+
+console.log(stats.contractId);       // Stellar address
+console.log(stats.totalEvents);      // number of indexed events
+console.log(stats.uniqueEventTypes); // distinct event types
+console.log(stats.latestLedger);     // number | null
+console.log(stats.lastActivity);     // ISO date string | null
+```
+
+Errors use the standard SDK error classes: an unknown contract id throws `SoroScanNotFoundError`
+(HTTP 404), and a malformed response throws `SoroScanValidationError`.
+
 ## Features
 
 - **Strict Typing**: Full TypeScript support for all request and response shapes.
