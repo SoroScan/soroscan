@@ -341,8 +341,8 @@ export class SoroScanClient {
   /**
    * Get the most recent events for a specific contract, newest first (SC-30).
    *
-   * The limit is clamped to the server-side maximum so callers never receive
-   * a 400 for an out-of-range value.
+   * `limit` must be between 1 and `MAX_RECENT_EVENTS_LIMIT` (20). An
+   * out-of-range value is rejected before any request is sent.
    *
    * @example
    * const events = await client.getContractRecentEvents('CCAAA...', 20);
@@ -354,10 +354,16 @@ export class SoroScanClient {
     contractId: string,
     limit: number = 10
   ): Promise<import("./types.js").ContractEvent[]> {
-    const safeLimit = Math.min(
-      MAX_RECENT_EVENTS_LIMIT,
-      Math.max(1, Math.trunc(limit))
-    );
+    if (!Number.isFinite(limit) || limit < 1 || limit > MAX_RECENT_EVENTS_LIMIT) {
+      throw new SoroScanValidationError(
+        `getContractRecentEvents: limit must be between 1 and ${MAX_RECENT_EVENTS_LIMIT}`,
+        "validation_error",
+        { field: "limit", value: limit },
+        "limit",
+        limit
+      );
+    }
+    const safeLimit = Math.trunc(limit);
     return this.#request<import("./types.js").ContractEvent[]>(
       "GET",
       `/api/ingest/contracts/${encodeURIComponent(contractId)}/recent-events/`,
