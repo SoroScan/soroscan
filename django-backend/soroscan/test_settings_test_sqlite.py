@@ -1,9 +1,16 @@
 """SQLite PRAGMA tuning applied by settings_test.py (issue #1575)."""
 
+import unittest
+
 from django.db import connection
 from django.test import SimpleTestCase
 
 
+@unittest.skipUnless(
+    connection.vendor == "sqlite",
+    "PRAGMA tuning only applies to the sqlite test database "
+    "(CI runs against Postgres via TEST_DATABASE_URL)",
+)
 class SqliteTestPragmaTests(SimpleTestCase):
     databases = {"default"}
 
