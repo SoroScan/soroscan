@@ -1,104 +1,128 @@
 "use client";
 
+import { Suspense, useEffect, useState, type FormEvent } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { TransactionTimeline } from "@/components/transaction-timeline/TransactionTimeline";
 import type { TransactionTimelineEvent } from "@/components/transaction-timeline/types";
+import { fetchTransactionEvents, isValidTxHash } from "@/lib/transaction-timeline-api";
 
-const events: TransactionTimelineEvent[] = [
-  {
-    id: "evt-001",
-    transactionId: "tx-7f21",
-    eventType: "Init",
-    title: "Initialize swap request",
-    timestamp: "2026-03-22T21:05:00.000Z",
-    status: "success",
-    contractId: "CA-SWAP-ROUTER",
-    txHash: "7f21a8c9",
-    ledger: 520001,
-    details: {
-      caller: "GABC...P4Q",
-      route: "XLM/USDC",
-    },
-  },
-  {
-    id: "evt-002",
-    transactionId: "tx-7f21",
-    eventType: "Transfer",
-    title: "Transfer input asset",
-    timestamp: "2026-03-22T21:05:02.000Z",
-    status: "success",
-    parentEventId: "evt-001",
-    contractId: "CA-TOKEN-XLM",
-    txHash: "7f21a8c9",
-    ledger: 520001,
-    details: {
-      amount: "250.0000000",
-      asset: "XLM",
-    },
-  },
-  {
-    id: "evt-003",
-    transactionId: "tx-7f21",
-    eventType: "ContractCall",
-    title: "Call liquidity contract",
-    timestamp: "2026-03-22T21:05:04.000Z",
-    status: "pending",
-    parentEventId: "evt-002",
-    contractId: "CA-LIQUIDITY-B",
-    txHash: "7f21a8c9",
-    ledger: 520001,
-    details: {
-      method: "swap_exact_in",
-      minimumOutput: "44.20",
-    },
-  },
-  {
-    id: "evt-004",
-    transactionId: "tx-7f21",
-    eventType: "Approve",
-    title: "Approve settlement",
-    timestamp: "2026-03-22T21:05:06.000Z",
-    status: "error",
-    parentEventId: "evt-003",
-    contractId: "CA-SETTLEMENT",
-    txHash: "7f21a8c9",
-    ledger: 520001,
-    details: {
-      error:
-        "Minimum output threshold not met",
-      code: "SLIPPAGE_LIMIT",
-    },
-  },
-  {
-    id: "evt-005",
-    transactionId: "tx-83ab",
-    eventType: "Mint",
-    title: "Mint position token",
-    timestamp: "2026-03-22T21:07:10.000Z",
-    status: "success",
-    contractId: "CA-POSITION-TOKEN",
-    txHash: "83ab4490",
-    ledger: 520004,
-    details: {
-      tokenId: "position-904",
-      owner: "GBBB...N72",
-    },
-  },
-  {
-    id: "evt-006",
-    transactionId: "tx-83ab",
-    eventType: "Transfer",
-    title: "Transfer position token",
-    timestamp: "2026-03-22T21:07:12.000Z",
-    status: "success",
-    parentEventId: "evt-005",
-    contractId: "CA-POSITION-TOKEN",
-    txHash: "83ab4490",
-    ledger: 520004,
-    details: {
-      destination: "GBBB...N72",
-    },
-  },
-];
+type Result =
+  | { kind: "error"; message: string }
+  | { kind: "loaded"; events: TransactionTimelineEvent[] };
+
+function EventTimelineContent() {
+  const searchParams = useSearchParams();
+  const tx = (searchParams.get("tx") ?? "").trim();
+  // Keyed on the hash so the input and results reset when the URL changes.
+  return <TransactionLookup key={tx} tx={tx} />;
+}
+
+function TransactionLookup({ tx }: { tx: string }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [input, setInput] = useState(tx);
+  const [attempt, setAttempt] = useState(0);
+  // Result of the latest finished request, tagged with the attempt it answers.
+  const [result, setResult] = useState<{ attempt: number; value: Result } | null>(null);
+
+  const valid = tx !== "" && isValidTxHash(tx);
+
+  useEffect(() => {
+    if (!valid) return;
+    let cancelled = false;
+    fetchTransactionEvents(tx)
+      .then((events) => {
+        if (!cancelled) setResult({ attempt, value: { kind: "loaded", events } });
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : "Failed to load transaction.";
+          setResult({ attempt, value: { kind: "error", message } });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tx, valid, attempt]);
+
+  const state = !tx
+    ? { kind: "idle" as const }
+    : !valid
+      ? { kind: "invalid" as const }
+      : result?.attempt === attempt
+        ? result.value
+        : { kind: "loading" as const };
+
+  const retry = () => setAttempt((n) => n + 1);
+
+  const onSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    const value = input.trim();
+    if (value === tx) {
+      retry();
+      return;
+    }
+    router.replace(value ? `${pathname}?tx=${encodeURIComponent(value)}` : pathname);
+  };
+
+  return (
+    <>
+      <form onSubmit={onSubmit} className="flex flex-col gap-2 sm:flex-row">
+        <label htmlFor="tx-hash" className="sr-only">
+          Transaction hash
+        </label>
+        <input
+          id="tx-hash"
+          value={input}
+          onChange={(event) => setInput(event.target.value)}
+          placeholder="Transaction hash (64 hex characters)"
+          spellCheck={false}
+          className="flex-1 rounded border border-terminal-green/30 bg-terminal-black px-3 py-2 text-sm text-terminal-green"
+        />
+        <button
+          type="submit"
+          className="rounded border border-terminal-green/40 px-4 py-2 text-sm text-terminal-green hover:bg-terminal-green/10"
+        >
+          Load
+        </button>
+      </form>
+
+      {state.kind === "idle" && (
+        <p className="text-sm text-terminal-gray">Enter a transaction hash to see its events.</p>
+      )}
+      {state.kind === "invalid" && (
+        <p role="alert" className="text-sm text-terminal-danger">
+          That is not a valid transaction hash. Expected 64 hexadecimal characters.
+        </p>
+      )}
+      {state.kind === "loading" && (
+        <p role="status" className="text-sm text-terminal-gray">
+          Loading transaction events...
+        </p>
+      )}
+      {state.kind === "error" && (
+        <div role="alert" className="space-y-2 text-sm text-terminal-danger">
+          <p>{state.message}</p>
+          <button
+            type="button"
+            onClick={retry}
+            className="rounded border border-terminal-danger/40 px-3 py-1 hover:bg-terminal-danger/10"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+      {state.kind === "loaded" &&
+        (state.events.length === 0 ? (
+          <p className="text-sm text-terminal-gray">
+            No indexed events found for this transaction. It may not exist, or it may not involve a tracked contract.
+          </p>
+        ) : (
+          <TransactionTimeline events={state.events} />
+        ))}
+    </>
+  );
+}
 
 export default function EventTimelinePage() {
   return (
@@ -114,14 +138,14 @@ export default function EventTimelinePage() {
           </h1>
 
           <p className="mt-3 max-w-3xl text-sm text-terminal-gray">
-            Follow events chronologically,
-            inspect causality, filter event types,
-            group activity by logical transaction,
-            and adjust the time scale.
+            Look up a transaction to follow its events chronologically,
+            filter event types and adjust the time scale.
           </p>
         </header>
 
-        <TransactionTimeline events={events} />
+        <Suspense fallback={<p className="text-sm text-terminal-gray">Loading...</p>}>
+          <EventTimelineContent />
+        </Suspense>
       </div>
     </main>
   );
