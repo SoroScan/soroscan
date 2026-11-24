@@ -1,12 +1,18 @@
 # SoroScan: Soroban Event Indexer 🔍
 
-![Rust](https://img.shields.io/badge/Soroban-Rust-orange?style=for-the-badge&logo=rust) ![Django](https://img.shields.io/badge/Backend-Django-green?style=for-the-badge&logo=django) ![GraphQL](https://img.shields.io/badge/API-GraphQL-e535ab?style=for-the-badge&logo=graphql) ![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
+![Rust](https://img.shields.io/badge/Soroban-Rust-orange?style=for-the-badge&logo=rust)
+![Django](https://img.shields.io/badge/Backend-Django-green?style=for-the-badge&logo=django)
+![GraphQL](https://img.shields.io/badge/API-GraphQL-e535ab?style=for-the-badge&logo=graphql)
+![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
 
-[![Django CI](https://github.com/SoroScan/soroscan/actions/workflows/django.yml/badge.svg)](https://github.com/SoroScan/soroscan/actions/workflows/django.yml) [![Soroban CI](https://github.com/SoroScan/soroscan/actions/workflows/soroban.yml/badge.svg)](https://github.com/SoroScan/soroscan/actions/workflows/soroban.yml)
+[![Django CI](https://github.com/SoroScan/soroscan/actions/workflows/django.yml/badge.svg)](https://github.com/SoroScan/soroscan/actions/workflows/django.yml)
+[![Soroban CI](https://github.com/SoroScan/soroscan/actions/workflows/soroban.yml/badge.svg)](https://github.com/SoroScan/soroscan/actions/workflows/soroban.yml)
 
 > **The Graph for Soroban — index, query, and subscribe to smart contract events.**
 
-**SoroScan** is a developer-focused indexing service for Soroban smart contract events on the Stellar blockchain. It combines a Rust-based Soroban smart contract with a Django backend to provide real-time event ingestion, GraphQL/REST APIs, and webhook notifications.
+**SoroScan** is a developer-focused indexing service for Soroban smart contract events on the Stellar blockchain. It
+combines a Rust-based Soroban smart contract with a Django backend to provide real-time event ingestion, GraphQL/REST
+APIs, and webhook notifications.
 
 Built for developers who need reliable event data without running their own infrastructure.
 
@@ -16,7 +22,8 @@ Built for developers who need reliable event data without running their own infr
 
 - **🦀 Soroban Native**: Rust smart contract with admin-controlled indexer whitelist and standardized event emission.
 - **🐍 Django Backend**: Production-ready REST API with Django Rest Framework and PostgreSQL storage.
-- **📊 GraphQL Playground**: Flexible event queries with Strawberry GraphQL — filter by contract, event type, ledger, or time range.
+- **📊 GraphQL Playground**: Flexible event queries with Strawberry GraphQL — filter by contract, event type, ledger, or
+  time range.
 - **🔔 Webhook Subscriptions**: Real-time event notifications with HMAC-signed payloads via Celery + Redis.
 - **⚡ Horizon Integration**: Stream ledger events directly from Stellar's Horizon API using `stellar-sdk`.
 
@@ -38,8 +45,8 @@ SoroScan follows a **hybrid on-chain/off-chain pattern** for maximum flexibility
 ```
 
 1. **Smart Contract**: Emits structured `EventRecord` events with admin-controlled access.
-2. **Ingestion Layer**: Streams events from Horizon/Soroban RPC and persists to PostgreSQL.
-3. **Query Layer**: Exposes data via REST, GraphQL, and push-based webhooks.
+1. **Ingestion Layer**: Streams events from Horizon/Soroban RPC and persists to PostgreSQL.
+1. **Query Layer**: Exposes data via REST, GraphQL, and push-based webhooks.
 
 ---
 
@@ -59,6 +66,31 @@ soroscan/
             ├── stellar_client.py  # Soroban RPC interaction
             └── tasks.py      # Celery webhook dispatcher
 ```
+
+---
+
+## 🏗️ Architecture Decision Records (ADRs)
+
+We document major architectural choices in ADRs to keep track of context, decisions, and consequences. You can read them
+here:
+
+- [ADR-0001: Event Ingestion Architecture](docs/adrs/0001-event-ingestion-architecture.md)
+- [ADR-0002: GraphQL vs REST Tradeoffs](docs/adrs/0002-graphql-vs-rest.md)
+- [ADR-0003: Database Schema Rationale](docs/adrs/0003-database-schema-rationale.md)
+- [ADR-0004: Webhook Delivery System](docs/adrs/0004-webhook-delivery-system.md)
+- [ADR-0005: Multi-Tenancy Design](docs/adrs/0005-multi-tenancy-design.md)
+- [ADR-0006: Django Backend](docs/adrs/0006-django-backend.md)
+- [ADR-0007: Strawberry GraphQL](docs/adrs/0007-strawberry-graphql.md)
+- [ADR-0008: Redis as Shared Cache and Channel Layer](docs/adrs/0008-redis-cache-and-channels.md)
+
+Full index and the ADR template live in [`docs/adrs/README.md`](docs/adrs/README.md).
+
+---
+
+## Environment Configuration
+
+See [ENVIRONMENT.md](docs/ENVIRONMENT.md) for the complete list of required and optional environment variables, their
+types and defaults, and development, testing, and production examples.
 
 ---
 
@@ -94,13 +126,35 @@ That's it! The stack auto-runs migrations on startup and supports live code relo
 
 **Port Conflicts?** Edit `django-backend/.env` and uncomment the port override variables.
 
+### Local Webhook Simulator
+
+Test a webhook receiver without the Django backend, Celery, Redis, or PostgreSQL. The simulator in
+`tools/webhook-simulator/` sends the same JSON envelope and HMAC headers as production deliveries.
+
+```bash
+cd tools/webhook-simulator
+pip install -e .
+webhook-simulator --url http://127.0.0.1:8080/webhook --sample --secret test-secret
+```
+
+Docker:
+
+```bash
+docker compose -f tools/webhook-simulator/docker-compose.yml run --rm webhook-simulator \
+  --url http://host.docker.internal:8080/webhook --sample --secret test-secret
+```
+
+See [tools/webhook-simulator/README.md](tools/webhook-simulator/README.md) and the
+[webhooks cookbook](docs/cookbook/webhooks.md).
+
 ### Manual Setup (Advanced)
 
 <details>
 <summary>Click to expand manual installation steps</summary>
 
 #### Prerequisites
-- Python 3.11+
+
+- Python 3.12+ (the version used by backend CI and the Docker image)
 - PostgreSQL 15+
 - Redis 7+
 
@@ -177,7 +231,7 @@ cd django-backend
 
 # Create Dockerfile if not exists
 cat > Dockerfile <<EOF
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
@@ -222,14 +276,17 @@ Or use External Secrets Operator (see `k8s/secret-reference.yaml`).
 ### 3. Update Configuration
 
 Edit `k8s/configmap.yaml`:
+
 - Set `ALLOWED_HOSTS` to your domain
 - Configure `SOROBAN_RPC_URL` and `STELLAR_NETWORK_PASSPHRASE` for your network
 - Set `CORS_ALLOWED_ORIGINS` if needed
 
 Edit `k8s/backend-deployment.yaml`, `k8s/worker-deployment.yaml`, `k8s/beat-cronjob.yaml`:
+
 - Replace `soroscan/backend:v1.0.0` with your image
 
 Edit `k8s/ingress.yaml`:
+
 - Set your domain in `host` and `tls` sections
 - Configure ingress class and annotations for your ingress controller
 
@@ -238,6 +295,16 @@ Edit `k8s/ingress.yaml`:
 ```bash
 # Apply all manifests
 kubectl apply -f k8s/
+
+## Deployment Docs
+
+For complete production deployment and operations guidance, see the `docs/deployment` section:
+
+- Local Docker Compose: [docs/deployment/docker-compose](docs/deployment/docker-compose)
+- Kubernetes (Helm + Terraform): [docs/deployment/kubernetes](docs/deployment/kubernetes)
+- AWS EKS example: [docs/deployment/aws](docs/deployment/aws)
+- Monitoring, backups, runbooks and troubleshooting: [docs/deployment/monitoring](docs/deployment/monitoring)
+
 
 # Verify deployment
 kubectl get pods -n soroscan
@@ -299,26 +366,29 @@ kubectl scale deployment/soroscan-worker --replicas=3 -n soroscan
 ## 🤝 Contributing
 
 1. Fork the repository and create your feature branch.
-2. Look for issues labeled `good-first-issue` or `help-wanted`.
-3. Submit a PR referencing the issue.
+1. Look for issues labeled `good-first-issue` or `help-wanted`.
+1. Submit a PR referencing the issue.
 
 ---
 
 ## 🗺️ Roadmap
 
 ### Phase 1: Core Infrastructure (Current)
+
 - [x] Soroban smart contract with event emission
 - [x] Django backend with REST API
 - [x] GraphQL schema with Strawberry
 - [x] Webhook subscriptions with Celery
 
 ### Phase 2: Production Readiness
+
 - [x] Docker Compose setup for local development
 - [x] Kubernetes manifests for production deployment
 - [ ] Rate limiting and API authentication
 - [ ] Comprehensive test suite
 
 ### Phase 3: Advanced Features
+
 - [ ] Multi-contract indexing dashboard
 - [ ] Historical backfill from Horizon archives
 - [ ] Real-time WebSocket subscriptions
@@ -329,3 +399,20 @@ kubectl scale deployment/soroscan-worker --replicas=3 -n soroscan
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
+
+---
+
+## 📚 Additional Documentation
+
+- [CELERY.md](docs/cookbook/CELERY.md) — Celery worker queues, concurrency settings, and deployment examples
+- [Architecture Overview](docs/architecture/README.md) — end-to-end system design, data flows, component interaction,
+  and deployment architecture
+- [Architecture Decision Records](docs/adrs/README.md) — rationale for core technology and design choices
+- [DATABASE_TUNING.md](docs/database/DATABASE_TUNING.md) — Recommended configuration settings for high-volume write
+  workloads and indexing optimizations.
+
+## Handsoff notes
+
+<!-- handsoff-issue-1527 -->
+
+- #1527: style: harmonize border radius across admin input fields

@@ -1,10 +1,23 @@
 import { TimelineView } from "@/components/ingest/TimelineView";
+import type { Metadata } from "next";
 
-export default function ContractTimelinePage({
+export async function generateMetadata({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  return {
+    title: "Contract Timeline | SoroScan",
+    description: `Chronological timeline of indexed events for contract ${id}.`,
+  };
+}
+
+export default async function ContractTimelinePage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
 }) {
-  const { id } = params;
+  const { id } = await params;
   return <TimelineView contractId={id} />;
 }
