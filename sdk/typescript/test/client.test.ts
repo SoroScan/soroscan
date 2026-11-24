@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { SoroScanClient, SoroScanError } from "../src/client.js";
+import {
+  SoroScanClient,
+  SoroScanError,
+  SoroScanNotFoundError,
+  DEFAULT_USER_AGENT,
+} from "../src/client.js";
+import { EventQueryBuilder } from "../src/builder.js";
 import type {
   GetEventsResponse,
   GetContractsResponse,
@@ -11,7 +17,9 @@ import type {
   GetLedgersResponse,
   Ledger,
   Transaction,
+  ContractEvent,
 } from "../src/types.js";
+import { z } from "zod";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -185,6 +193,41 @@ describe("Authorization header", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// User-Agent header
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("User-Agent header", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  function sentHeaders(): Record<string, string> {
+    const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit
+    ];
+    return init.headers as Record<string, string>;
+  }
+
+  it("sends the default SDK User-Agent", async () => {
+    mockFetch({ items: [], pageInfo: mockPageInfo, totalCount: 0 });
+    await makeClient().getEvents();
+
+    expect(DEFAULT_USER_AGENT).toBe("SoroScan-TS-SDK/1.4.0");
+    expect(sentHeaders()["User-Agent"]).toBe(DEFAULT_USER_AGENT);
+  });
+
+  it("uses a custom userAgent when provided", async () => {
+    mockFetch({ items: [], pageInfo: mockPageInfo, totalCount: 0 });
+    const client = new SoroScanClient({
+      baseUrl: BASE_URL,
+      userAgent: "my-app/2.0",
+    });
+    await client.getEvents();
+
+    expect(sentHeaders()["User-Agent"]).toBe("my-app/2.0");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Events
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -226,6 +269,31 @@ describe("getEvents()", () => {
     mockFetch(fixture);
     const result = await makeClient().getEvents();
     expect(result.totalCount).toBe(0);
+  });
+
+  it("properly encodes special characters in query parameters", async () => {
+    mockFetch({ items: [], pageInfo: mockPageInfo, totalCount: 0 });
+    await makeClient().getEvents({ 
+      contractId: "CCAAA",
+      eventType: "transfer&receive"  // special chars: & and space-like
+    });
+
+    const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
+    expect(url).toContain("/v1/events");
+    // Verify & is encoded as %26
+    expect(url).toContain("eventType=transfer%26receive");
+  });
+
+  it("encodes query parameters with spaces and symbols", async () => {
+    mockFetch({ items: [], pageInfo: mockPageInfo, totalCount: 0 });
+    await makeClient().getEvents({
+      contractId: "CCAAA",
+      eventType: "transfer?filter=value"
+    });
+
+    const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
+    // Verify ? is encoded as %3F
+    expect(url).toContain("eventType=transfer%3Ffilter%3Dvalue");
   });
 });
 
@@ -407,18 +475,72 @@ describe("deleteWebhook()", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// testWebhook() — #1671
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("testWebhook()", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("sends POST to /api/webhooks/{id}/test/ and returns status", async () => {
+    mockFetch({ status: "test_webhook_queued" });
+    const result = await makeClient("key").testWebhook("wh_001");
+
+    expect(result.status).toBe("test_webhook_queued");
+
+    const [url, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
+    expect(url).toBe(`${BASE_URL}/api/webhooks/wh_001/test/`);
+    expect(init.method).toBe("POST");
+  });
+
+  it("URL-encodes the webhook ID", async () => {
+    mockFetch({ status: "test_webhook_queued" });
+    await makeClient("key").testWebhook("wh/special id");
+
+    const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
+    expect(url).toContain(encodeURIComponent("wh/special id"));
+  });
+
+  it("includes the Authorization header", async () => {
+    mockFetch({ status: "test_webhook_queued" });
+    await makeClient("my-key").testWebhook("wh_001");
+
+    const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
+    expect((init.headers as Record<string, string>)["Authorization"]).toBe(
+      "Bearer my-key",
+    );
+  });
+
+  it("propagates API errors as SoroScanError", async () => {
+    mockFetch({ code: "NOT_FOUND", message: "Webhook not found" }, 404);
+    await expect(makeClient("key").testWebhook("missing_id")).rejects.toMatchObject({
+      statusCode: 404,
+      code: "NOT_FOUND",
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Error handling
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("Error handling", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("throws SoroScanError on 404", async () => {
+  it("throws SoroScanNotFoundError on 404", async () => {
     mockFetch({ code: "NOT_FOUND", message: "Contract not found" }, 404);
-    await expect(
-      makeClient().getContract({ contractId: "CBAD" })
-    ).rejects.toMatchObject({
-      name: "SoroScanError",
+    const error = await makeClient()
+      .getContract({ contractId: "CBAD" })
+      .catch((err: unknown) => err);
+
+    expect(error).toBeInstanceOf(SoroScanError);
+    expect(error).toBeInstanceOf(SoroScanNotFoundError);
+    expect(error).toMatchObject({
       statusCode: 404,
       code: "NOT_FOUND",
       message: "Contract not found",
@@ -454,5 +576,57 @@ describe("Error handling", () => {
       vi.fn().mockRejectedValue(new TypeError("Failed to fetch"))
     );
     await expect(makeClient().getEvents()).rejects.toThrow("Failed to fetch");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EventQueryBuilder.query() with Zod validation (#1419)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("EventQueryBuilder.query()", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("returns events without schema validation", async () => {
+    const eventsResponse: GetEventsResponse = {
+      items: [{ ...mockEvent, value: { amount: "100" } }],
+      pageInfo: mockPageInfo,
+      totalCount: 1,
+    };
+    mockFetch(eventsResponse);
+    const client = makeClient();
+    const builder = new EventQueryBuilder(client);
+    const result = await builder.query({ contractId: "CCAAA" });
+    expect(result).toHaveLength(1);
+    expect(result[0].value).toEqual({ amount: "100" });
+  });
+
+  it("validates payload against Zod schema when provided", async () => {
+    const schema = z.object({ amount: z.string() });
+    const eventsResponse: GetEventsResponse = {
+      items: [{ ...mockEvent, value: { amount: "100" } }],
+      pageInfo: mockPageInfo,
+      totalCount: 1,
+    };
+    mockFetch(eventsResponse);
+    const client = makeClient();
+    const builder = new EventQueryBuilder(client);
+    const result = await builder.query({ contractId: "CCAAA" }, schema);
+    expect(result[0].value).toEqual({ amount: "100" });
+    expect(result[0]).toHaveProperty("value");
+  });
+
+  it("throws when payload does not match schema", async () => {
+    const schema = z.object({ amount: z.number() });
+    const eventsResponse: GetEventsResponse = {
+      items: [{ ...mockEvent, value: { amount: "not-a-number" } }],
+      pageInfo: mockPageInfo,
+      totalCount: 1,
+    };
+    mockFetch(eventsResponse);
+    const client = makeClient();
+    const builder = new EventQueryBuilder(client);
+    await expect(
+      builder.query({ contractId: "CCAAA" }, schema)
+    ).rejects.toThrow();
   });
 });

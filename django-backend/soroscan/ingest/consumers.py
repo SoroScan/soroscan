@@ -3,10 +3,12 @@ WebSocket consumers for real-time event streaming.
 """
 import json
 import logging
+from urllib.parse import parse_qs
 
 from channels.generic.websocket import AsyncWebsocketConsumer
 
 from .models import TrackedContract
+from .telemetry import tracer
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +23,12 @@ class EventConsumer(AsyncWebsocketConsumer):
 
     async def connect(self):
         self.contract_id = self.scope["url_route"]["kwargs"]["contract_id"]
-        self.event_type = self.scope["query_string"].decode().split("event_type=")[-1] if b"event_type=" in self.scope["query_string"] else None
+        # Parse individual query keys; do not consume unrelated parameters.
+        # For repeated event_type keys, use the first supplied value.
+        params = parse_qs(
+            self.scope.get("query_string", b"").decode("utf-8", errors="replace")
+        )
+        self.event_type = params.get("event_type", [None])[0]
 
         try:
             contract = await self.get_contract(self.contract_id)
@@ -68,9 +75,15 @@ class EventConsumer(AsyncWebsocketConsumer):
 
         @database_sync_to_async
         def _get_contract():
-            try:
-                return TrackedContract.objects.get(contract_id=contract_id, is_active=True)
-            except TrackedContract.DoesNotExist:
-                return None
+            with tracer.start_as_current_span(
+                "db.query.contract_lookup",
+                attributes={"contract_id": contract_id},
+            ):
+                try:
+                    return TrackedContract.objects.get(
+                        contract_id=contract_id, is_active=True
+                    )
+                except TrackedContract.DoesNotExist:
+                    return None
 
         return await _get_contract()

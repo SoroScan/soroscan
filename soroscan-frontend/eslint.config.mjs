@@ -12,7 +12,27 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // GraphQL codegen output — do not lint generated files
+    "src/generated/**",
+    // Playwright E2E (Node test runner — not React components)
+    "tests/**",
+    "playwright-report/**",
+    "test-results/**",
   ]),
+  {
+    // Ignore intentionally unused, underscore-prefixed names (e.g. `_, _props`).
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+          destructuredArrayIgnorePattern: "^_",
+        },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;
