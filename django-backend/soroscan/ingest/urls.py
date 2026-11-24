@@ -12,6 +12,7 @@ from .views import (
     TrackedContractViewSet,
     admin_ingest_errors_view,
     audit_trail_view,
+    bulk_import_metadata,
     contract_event_explorer_view,
     contract_event_types_view,
     WebhookSubscriptionViewSet,
@@ -49,4 +50,5 @@ urlpatterns = [
     path("events/restore-archive/", restore_archived_events, name="restore-archive"),
     path("audit-trail/", audit_trail_view, name="audit-trail"),
     path("admin/ingest-errors/", admin_ingest_errors_view, name="admin-ingest-errors"),
+    path("contracts/metadata/bulk-import/", bulk_import_metadata, name="bulk-import-metadata"),
 ]

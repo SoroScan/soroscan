@@ -1,8 +1,10 @@
 """
 API Views for SoroScan event ingestion.
 """
+import csv
 import hashlib
 import hmac
+import io
 import json
 import logging
 import time
@@ -1175,3 +1177,244 @@ def rate_limit_analytics_view(request):
             "api_keys": results,
         }
     )
+
+
+
+@extend_schema(
+    request=inline_serializer(
+        name="BulkImportMetadataRequest",
+        fields={
+            "file": serializers.FileField(required=False),
+            "content": serializers.CharField(required=False),
+            "format": serializers.ChoiceField(choices=["csv", "json"]),
+        },
+    ),
+    responses={
+        200: inline_serializer(
+            name="BulkImportMetadataResponse",
+            fields={
+                "created": serializers.IntegerField(),
+                "updated": serializers.IntegerField(),
+                "errors": serializers.IntegerField(),
+                "error_details": serializers.ListField(child=serializers.CharField(), required=False),
+            },
+        ),
+        400: inline_serializer(
+            name="BulkImportMetadataError",
+            fields={
+                "error": serializers.CharField(),
+            },
+        ),
+        403: inline_serializer(
+            name="BulkImportMetadataForbidden",
+            fields={
+                "detail": serializers.CharField(),
+            },
+        ),
+    },
+)
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def bulk_import_metadata(request):
+    """
+    Bulk import contract metadata from CSV or JSON.
+
+    Request body (multipart/form-data or application/json):
+    - file: Optional file upload (CSV or JSON)
+    - content: Optional raw content string (CSV or JSON)
+    - format: 'csv' or 'json' (required)
+
+    Either 'file' or 'content' must be provided.
+
+    Response:
+    {
+        "created": <int>,      # Number of newly created metadata records
+        "updated": <int>,      # Number of updated existing records
+        "errors": <int>,       # Number of rows with errors
+        "error_details": [...]  # Error messages
+    }
+
+    Staff-only endpoint.
+    """
+    # Check staff permission
+    if not request.user.is_staff:
+        return Response(
+            {"detail": "Only staff users can perform bulk imports."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    # Get format
+    format_choice = request.data.get("format", "").lower()
+    if format_choice not in ["csv", "json"]:
+        return Response(
+            {"error": "Invalid format. Must be 'csv' or 'json'."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Get content from either file or content string
+    content_str = None
+    if "file" in request.FILES:
+        file_obj = request.FILES["file"]
+        try:
+            content_str = file_obj.read().decode("utf-8")
+        except UnicodeDecodeError:
+            return Response(
+                {"error": "File must be valid UTF-8 text."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+    elif "content" in request.data:
+        content_str = request.data.get("content", "").strip()
+    else:
+        return Response(
+            {"error": "Either 'file' or 'content' must be provided."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not content_str:
+        return Response(
+            {"error": "Content cannot be empty."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Parse and import
+    try:
+        result = _bulk_import_metadata_service(content_str, format_choice)
+    except ValueError as exc:
+        return Response(
+            {"error": str(exc)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    except Exception as exc:
+        logger.exception("Bulk import metadata failed")
+        return Response(
+            {"error": f"Import failed: {str(exc)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    response_data = {
+        "created": result["created"],
+        "updated": result["updated"],
+        "errors": result["errors"],
+    }
+    if result.get("error_details"):
+        response_data["error_details"] = result["error_details"]
+
+    return Response(response_data, status=status.HTTP_200_OK)
+
+
+def _bulk_import_metadata_service(content: str, format_choice: str) -> dict:
+    """
+    Parse and import metadata from content string.
+
+    Returns:
+    {
+        "created": <int>,
+        "updated": <int>,
+        "errors": <int>,
+        "error_details": [<str>, ...]
+    }
+
+    Raises ValueError on parse errors or unknown format.
+    """
+    result = {
+        "created": 0,
+        "updated": 0,
+        "errors": 0,
+        "error_details": [],
+    }
+
+    if format_choice == "json":
+        rows = _parse_json_rows(content)
+    elif format_choice == "csv":
+        rows = _parse_csv_rows(content)
+    else:
+        raise ValueError(f"Unknown format: {format_choice}")
+
+    # Process each row
+    for row_num, row in enumerate(rows, start=1):
+        try:
+            contract_id = row.get("contract_id", "").strip()
+            if not contract_id:
+                raise ValueError("Missing contract_id")
+
+            # Fetch contract
+            try:
+                contract = TrackedContract.objects.get(contract_id=contract_id)
+            except TrackedContract.DoesNotExist:
+                raise ValueError(f"TrackedContract not found: {contract_id}")
+
+            # Build metadata
+            metadata_fields = {
+                "name": row.get("name", "").strip(),
+                "description": row.get("description", "").strip(),
+                "documentation_url": row.get("documentation_url", "").strip(),
+                "github_repo": row.get("github_repo", "").strip(),
+                "team_email": row.get("team_email", "").strip(),
+                "tags": _parse_tags(row.get("tags", [])),
+            }
+
+            # Create or update
+            obj, created = ContractMetadata.objects.update_or_create(
+                contract=contract,
+                defaults=metadata_fields,
+            )
+
+            if created:
+                result["created"] += 1
+            else:
+                result["updated"] += 1
+
+        except (ValueError, KeyError) as exc:
+            result["errors"] += 1
+            result["error_details"].append(f"Row {row_num}: {str(exc)}")
+        except Exception as exc:
+            result["errors"] += 1
+            result["error_details"].append(f"Row {row_num}: Unexpected error: {str(exc)}")
+
+    return result
+
+
+def _parse_json_rows(content: str) -> list[dict]:
+    """Parse JSON content, expecting an array of objects. Raise ValueError on parse error."""
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON: {str(exc)}")
+
+    if not isinstance(data, list):
+        raise ValueError("JSON must be an array of objects")
+
+    return data
+
+
+def _parse_csv_rows(content: str) -> list[dict]:
+    """Parse CSV content. Raise ValueError on parse error."""
+    buf = io.StringIO(content)
+    try:
+        reader = csv.DictReader(buf)
+        if reader.fieldnames is None:
+            raise ValueError("CSV is empty or malformed")
+        rows = list(reader)
+    except Exception as exc:
+        raise ValueError(f"Invalid CSV: {str(exc)}")
+
+    if not rows:
+        raise ValueError("CSV contains no data rows")
+
+    return rows
+
+
+def _parse_tags(tags_input) -> list[str]:
+    """
+    Parse tags from various input formats:
+    - list (JSON): return as-is
+    - string (CSV): split on comma
+    - None/empty: return empty list
+    """
+    if tags_input is None or tags_input == "":
+        return []
+    if isinstance(tags_input, list):
+        return [str(t).strip() for t in tags_input]
+    if isinstance(tags_input, str):
+        return [t.strip() for t in tags_input.split(",") if t.strip()]
+    return []
