@@ -7,10 +7,14 @@ Covers:
 - No-ABI / missing event type / malformed XDR scenarios
 - Decoding integration via _upsert_contract_event
 """
+from unittest.mock import patch
+
 import pytest
 from django.test import TestCase
+from stellar_sdk import Keypair, scval
 
 from soroscan.ingest.decoder import (
+    _decode_sc_val,
     decode_event_payload,
     validate_abi_json,
 )
@@ -114,8 +118,109 @@ class DecodeEventPayloadTest(TestCase):
 
     def test_malformed_xdr_raises(self):
         """Invalid XDR string must raise so the caller can set status=failed."""
-        with self.assertRaises(Exception):
-            decode_event_payload("not_valid_xdr!!!", self.TRANSFER_ABI, "transfer")
+        with self.assertLogs("soroscan.ingest.decoder", level="WARNING") as logs:
+            with self.assertRaises(Exception):
+                decode_event_payload(
+                    "not_valid_xdr!!!", self.TRANSFER_ABI, "transfer"
+                )
+        self.assertIn("Failed to parse XDR for event_type=transfer", logs.output[0])
+
+    def test_sc_val_type_hints_decode_to_python_values(self):
+        address = Keypair.random().public_key
+        values = [
+            ("Address", scval.to_address(address), address),
+            ("I128", scval.to_int128(2**127 - 1), 2**127 - 1),
+            ("I128", scval.to_int128(-(2**127)), -(2**127)),
+            ("U128", scval.to_uint128(0), 0),
+            ("U128", scval.to_uint128(2**128 - 1), 2**128 - 1),
+            ("I64", scval.to_int64(2**63 - 1), 2**63 - 1),
+            ("I64", scval.to_int64(-(2**63)), -(2**63)),
+            ("U64", scval.to_uint64(0), 0),
+            ("U64", scval.to_uint64(2**64 - 1), 2**64 - 1),
+            ("I32", scval.to_int32(2**31 - 1), 2**31 - 1),
+            ("I32", scval.to_int32(-(2**31)), -(2**31)),
+            ("U32", scval.to_uint32(0), 0),
+            ("U32", scval.to_uint32(2**32 - 1), 2**32 - 1),
+            ("String", scval.to_string("soroban"), "soroban"),
+            ("Bool", scval.to_bool(True), True),
+            ("Bool", scval.to_bool(False), False),
+            ("Bytes", scval.to_bytes(b"\x00\xff"), "00ff"),
+            ("Symbol", scval.to_symbol("swap"), "swap"),
+            (
+                "Map",
+                scval.to_map({scval.to_symbol("amount"): scval.to_int32(7)}),
+                {"amount": 7},
+            ),
+            (
+                "Vec",
+                scval.to_vec([scval.to_bool(True), scval.to_symbol("nested")]),
+                [True, "nested"],
+            ),
+            ("Map", scval.to_symbol("not_a_map"), "not_a_map"),
+            ("Vec", scval.to_symbol("not_a_vec"), "not_a_vec"),
+        ]
+
+        for type_hint, sc_val, expected in values:
+            with self.subTest(type_hint=type_hint, expected=expected):
+                self.assertEqual(_decode_sc_val(sc_val, type_hint), expected)
+
+    def test_unknown_type_hint_uses_generic_native_conversion(self):
+        sc_val = scval.to_symbol("fallback")
+
+        self.assertEqual(_decode_sc_val(sc_val, "UnknownType"), "fallback")
+
+    def test_unknown_type_hint_falls_back_to_string_if_native_conversion_fails(self):
+        sc_val = scval.to_symbol("fallback")
+
+        with patch(
+            "soroscan.ingest.decoder.scval.to_native",
+            side_effect=ValueError("cannot decode"),
+        ):
+            self.assertEqual(
+                _decode_sc_val(sc_val, "UnknownType"), str(sc_val)
+            )
+
+    def test_mismatched_type_hint_falls_back_to_native_value(self):
+        sc_val = scval.to_string("not an integer")
+
+        self.assertEqual(_decode_sc_val(sc_val, "I32"), "not an integer")
+
+    def test_missing_abi_fields_returns_empty_payload(self):
+        raw_xdr = scval.to_symbol("noop").to_xdr()
+
+        self.assertEqual(
+            decode_event_payload(raw_xdr, [{"name": "noop"}], "noop"), {}
+        )
+
+    def test_non_vec_with_multiple_abi_fields_fills_remaining_fields_with_none(self):
+        raw_xdr = scval.to_int32(7).to_xdr()
+        abi = [
+            {
+                "name": "event",
+                "fields": [
+                    {"name": "first", "type": "I32"},
+                    {"name": "second", "type": "I32"},
+                ],
+            }
+        ]
+
+        self.assertEqual(
+            decode_event_payload(raw_xdr, abi, "event"),
+            {"first": 7, "second": None},
+        )
+
+    def test_extra_vec_values_are_ignored_when_abi_has_fewer_fields(self):
+        raw_xdr = scval.to_vec([scval.to_int32(7), scval.to_int32(8)]).to_xdr()
+        abi = [
+            {
+                "name": "event",
+                "fields": [{"name": "first", "type": "I32"}],
+            }
+        ]
+
+        self.assertEqual(
+            decode_event_payload(raw_xdr, abi, "event"), {"first": 7}
+        )
 
     def test_decode_single_i32(self):
         """Single I32 value should decode into the named field."""
