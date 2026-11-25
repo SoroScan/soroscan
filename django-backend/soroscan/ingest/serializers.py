@@ -9,6 +9,8 @@ from django.utils.text import slugify
 
 from .cache_utils import get_event_count
 from .models import (
+    AlertExecution,
+    AlertRule,
     APIKey,
     ContractDeployment,
     ContractEvent,
@@ -478,6 +480,90 @@ class ContractInvocationSerializer(serializers.ModelSerializer):
     def get_events_count(self, obj) -> int:
         """Return count of related events."""
         return get_event_count(obj.contract_id)
+
+
+_ALERT_ACTION_TYPES = {choice[0] for choice in AlertRule._meta.get_field("action_type").choices}
+
+
+class AlertRuleSerializer(serializers.ModelSerializer):
+    """Alert rule on a contract the requesting user owns."""
+
+    contract_id = serializers.CharField(source="contract.contract_id", read_only=True)
+
+    class Meta:
+        model = AlertRule
+        fields = [
+            "id",
+            "contract",
+            "contract_id",
+            "name",
+            "condition",
+            "channels",
+            "action_type",
+            "action_target",
+            "is_active",
+            "created_at",
+        ]
+        read_only_fields = ["id", "contract_id", "created_at"]
+
+    def validate_contract(self, contract):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is not None and not user.is_staff and contract.owner_id != user.id:
+            raise serializers.ValidationError("You can only create alert rules on contracts you own.")
+        return contract
+
+    def validate_condition(self, value):
+        if not isinstance(value, dict) or not value:
+            raise serializers.ValidationError("condition must be a non-empty object.")
+        _validate_filter_condition_node(value, "condition")
+        return value
+
+    def validate_channels(self, value):
+        if value in (None, ""):
+            return []
+        if not isinstance(value, list):
+            raise serializers.ValidationError("channels must be a list.")
+        for idx, channel in enumerate(value):
+            if not isinstance(channel, dict):
+                raise serializers.ValidationError(f"channels[{idx}] must be an object.")
+            if channel.get("type") not in _ALERT_ACTION_TYPES:
+                raise serializers.ValidationError(
+                    f"channels[{idx}].type must be one of: {', '.join(sorted(_ALERT_ACTION_TYPES))}."
+                )
+            if not str(channel.get("target") or "").strip():
+                raise serializers.ValidationError(f"channels[{idx}].target is required.")
+        return value
+
+    def validate(self, attrs):
+        channels = attrs.get("channels", getattr(self.instance, "channels", []))
+        target = attrs.get("action_target", getattr(self.instance, "action_target", ""))
+        if not channels and not str(target or "").strip():
+            raise serializers.ValidationError(
+                {"action_target": "Provide an action_target or at least one channel."}
+            )
+        contract = attrs.get("contract")
+        if (
+            contract is not None
+            and self.instance is None
+            and AlertRule.objects.filter(contract=contract).count() >= AlertRule.MAX_RULES_PER_CONTRACT
+        ):
+            raise serializers.ValidationError(
+                {"contract": f"A contract can have at most {AlertRule.MAX_RULES_PER_CONTRACT} alert rules."}
+            )
+        return attrs
+
+
+class AlertExecutionSerializer(serializers.ModelSerializer):
+    """Read-only record of one alert delivery attempt."""
+
+    event_type = serializers.CharField(source="event.event_type", read_only=True)
+    ledger = serializers.IntegerField(source="event.ledger", read_only=True)
+
+    class Meta:
+        model = AlertExecution
+        fields = ["id", "rule", "event", "event_type", "ledger", "channel", "status", "response", "created_at"]
+        read_only_fields = fields
 
 
 class WebhookSubscriptionSerializer(serializers.ModelSerializer):

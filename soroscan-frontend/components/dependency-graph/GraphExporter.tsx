@@ -11,7 +11,11 @@ type ExportFormat = "svg" | "png" | "json";
  * SVG/PNG: captures the ReactFlow canvas via the DOM.
  * JSON: serialises the raw contract data.
  */
-export function GraphExporter({ graphId: _graphId = "dependency-graph" }: { graphId?: string }) {
+export function GraphExporter({
+  graphId: _graphId = "dependency-graph",
+}: {
+  graphId?: string;
+}) {
   const contracts = useDependencyGraphStore((s) => s.contracts);
   const nodes = useDependencyGraphStore((s) => s.nodes);
   const edges = useDependencyGraphStore((s) => s.edges);
