@@ -1,0 +1,11 @@
+query DependenciesForContract($contractId: String!) {
+  dependenciesForContract(contractId: $contractId) {
+    contract {
+      contractId
+      name
+    }
+    graphData
+    hasCycles
+    cycleDetails
+  }
+}

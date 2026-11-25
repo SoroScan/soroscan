@@ -15,6 +15,7 @@ export type Scalars = {
   Boolean: { input: boolean; output: boolean; }
   Int: { input: number; output: number; }
   Float: { input: number; output: number; }
+  JSON: { input: any; output: any; }
 };
 
 export type AuthPayload = {
@@ -22,6 +23,14 @@ export type AuthPayload = {
   access: Scalars['String']['output'];
   refresh: Scalars['String']['output'];
   user: User;
+};
+
+export type CallGraph = {
+  __typename?: 'CallGraph';
+  contract?: Maybe<ContractSummary>;
+  cycleDetails?: Maybe<Scalars['JSON']['output']>;
+  graphData?: Maybe<Scalars['JSON']['output']>;
+  hasCycles: Scalars['Boolean']['output'];
 };
 
 export type ContractDependency = {
@@ -51,6 +60,12 @@ export type ContractEvent = {
 export type ContractFilter = {
   name?: InputMaybe<Scalars['String']['input']>;
   vulnerabilityType?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type ContractSummary = {
+  __typename?: 'ContractSummary';
+  contractId: Scalars['String']['output'];
+  name: Scalars['String']['output'];
 };
 
 export type ContractVulnerability = {
@@ -259,6 +274,7 @@ export type Organization = {
 export type Query = {
   __typename?: 'Query';
   contracts: Array<ContractWithDeps>;
+  dependenciesForContract?: Maybe<CallGraph>;
   events: EventConnection;
   me?: Maybe<User>;
   myOrganizations: Array<Organization>;
@@ -273,6 +289,11 @@ export type Query = {
 
 export type QueryContractsArgs = {
   filter?: InputMaybe<ContractFilter>;
+};
+
+
+export type QueryDependenciesForContractArgs = {
+  contractId: Scalars['String']['input'];
 };
 
 
@@ -422,6 +443,13 @@ export type OnContractEventSubscriptionVariables = Exact<{
 
 
 export type OnContractEventSubscription = { __typename?: 'Subscription', contractEvent: { __typename?: 'ContractEvent', id: string, eventType: string, ledgerSequence: number, timestamp: string, payload: string } };
+
+export type DependenciesForContractQueryVariables = Exact<{
+  contractId: Scalars['String']['input'];
+}>;
+
+
+export type DependenciesForContractQuery = { __typename?: 'Query', dependenciesForContract?: { __typename?: 'CallGraph', graphData?: any | null, hasCycles: boolean, cycleDetails?: any | null, contract?: { __typename?: 'ContractSummary', contractId: string, name: string } | null } | null };
 
 export type GetEventsQueryVariables = Exact<{
   contractId: Scalars['String']['input'];
@@ -872,6 +900,55 @@ export function useOnContractEventSubscription(baseOptions: Apollo.SubscriptionH
       }
 export type OnContractEventSubscriptionHookResult = ReturnType<typeof useOnContractEventSubscription>;
 export type OnContractEventSubscriptionResult = Apollo.SubscriptionResult<OnContractEventSubscription>;
+export const DependenciesForContractDocument = gql`
+    query DependenciesForContract($contractId: String!) {
+  dependenciesForContract(contractId: $contractId) {
+    contract {
+      contractId
+      name
+    }
+    graphData
+    hasCycles
+    cycleDetails
+  }
+}
+    `;
+
+/**
+ * __useDependenciesForContractQuery__
+ *
+ * To run a query within a React component, call `useDependenciesForContractQuery` and pass it any options that fit your needs.
+ * When your component renders, `useDependenciesForContractQuery` returns an object from Apollo Client that contains loading, error, and data properties
+ * you can use to render your UI.
+ *
+ * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
+ *
+ * @example
+ * const { data, loading, error } = useDependenciesForContractQuery({
+ *   variables: {
+ *      contractId: // value for 'contractId'
+ *   },
+ * });
+ */
+export function useDependenciesForContractQuery(baseOptions: Apollo.QueryHookOptions<DependenciesForContractQuery, DependenciesForContractQueryVariables> & ({ variables: DependenciesForContractQueryVariables; skip?: boolean; } | { skip: boolean; }) ) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useQuery<DependenciesForContractQuery, DependenciesForContractQueryVariables>(DependenciesForContractDocument, options);
+      }
+export function useDependenciesForContractLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<DependenciesForContractQuery, DependenciesForContractQueryVariables>) {
+          const options = {...defaultOptions, ...baseOptions}
+          return Apollo.useLazyQuery<DependenciesForContractQuery, DependenciesForContractQueryVariables>(DependenciesForContractDocument, options);
+        }
+// @ts-ignore
+export function useDependenciesForContractSuspenseQuery(baseOptions?: Apollo.SuspenseQueryHookOptions<DependenciesForContractQuery, DependenciesForContractQueryVariables>): Apollo.UseSuspenseQueryResult<DependenciesForContractQuery, DependenciesForContractQueryVariables>;
+export function useDependenciesForContractSuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<DependenciesForContractQuery, DependenciesForContractQueryVariables>): Apollo.UseSuspenseQueryResult<DependenciesForContractQuery | undefined, DependenciesForContractQueryVariables>;
+export function useDependenciesForContractSuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<DependenciesForContractQuery, DependenciesForContractQueryVariables>) {
+          const options = baseOptions === Apollo.skipToken ? baseOptions : {...defaultOptions, ...baseOptions}
+          return Apollo.useSuspenseQuery<DependenciesForContractQuery, DependenciesForContractQueryVariables>(DependenciesForContractDocument, options);
+        }
+export type DependenciesForContractQueryHookResult = ReturnType<typeof useDependenciesForContractQuery>;
+export type DependenciesForContractLazyQueryHookResult = ReturnType<typeof useDependenciesForContractLazyQuery>;
+export type DependenciesForContractSuspenseQueryHookResult = ReturnType<typeof useDependenciesForContractSuspenseQuery>;
+export type DependenciesForContractQueryResult = Apollo.QueryResult<DependenciesForContractQuery, DependenciesForContractQueryVariables>;
 export const GetEventsDocument = gql`
     query GetEvents($contractId: String!, $first: Int!) {
   events(contractId: $contractId, first: $first) {

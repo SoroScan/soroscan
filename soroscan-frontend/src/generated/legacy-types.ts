@@ -12,6 +12,7 @@ export type Scalars = {
   Boolean: { input: boolean; output: boolean; }
   Int: { input: number; output: number; }
   Float: { input: number; output: number; }
+  JSON: { input: any; output: any; }
 };
 
 export type AuthPayload = {
@@ -19,6 +20,14 @@ export type AuthPayload = {
   access: Scalars['String']['output'];
   refresh: Scalars['String']['output'];
   user: User;
+};
+
+export type CallGraph = {
+  __typename?: 'CallGraph';
+  contract?: Maybe<ContractSummary>;
+  cycleDetails?: Maybe<Scalars['JSON']['output']>;
+  graphData?: Maybe<Scalars['JSON']['output']>;
+  hasCycles: Scalars['Boolean']['output'];
 };
 
 export type ContractDependency = {
@@ -48,6 +57,12 @@ export type ContractEvent = {
 export type ContractFilter = {
   name?: InputMaybe<Scalars['String']['input']>;
   vulnerabilityType?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type ContractSummary = {
+  __typename?: 'ContractSummary';
+  contractId: Scalars['String']['output'];
+  name: Scalars['String']['output'];
 };
 
 export type ContractVulnerability = {
@@ -256,6 +271,7 @@ export type Organization = {
 export type Query = {
   __typename?: 'Query';
   contracts: Array<ContractWithDeps>;
+  dependenciesForContract?: Maybe<CallGraph>;
   events: EventConnection;
   me?: Maybe<User>;
   myOrganizations: Array<Organization>;
@@ -270,6 +286,11 @@ export type Query = {
 
 export type QueryContractsArgs = {
   filter?: InputMaybe<ContractFilter>;
+};
+
+
+export type QueryDependenciesForContractArgs = {
+  contractId: Scalars['String']['input'];
 };
 
 
@@ -419,6 +440,13 @@ export type OnContractEventSubscriptionVariables = Exact<{
 
 
 export type OnContractEventSubscription = { __typename?: 'Subscription', contractEvent: { __typename?: 'ContractEvent', id: string, eventType: string, ledgerSequence: number, timestamp: string, payload: string } };
+
+export type DependenciesForContractQueryVariables = Exact<{
+  contractId: Scalars['String']['input'];
+}>;
+
+
+export type DependenciesForContractQuery = { __typename?: 'Query', dependenciesForContract?: { __typename?: 'CallGraph', graphData?: any | null, hasCycles: boolean, cycleDetails?: any | null, contract?: { __typename?: 'ContractSummary', contractId: string, name: string } | null } | null };
 
 export type GetEventsQueryVariables = Exact<{
   contractId: Scalars['String']['input'];
