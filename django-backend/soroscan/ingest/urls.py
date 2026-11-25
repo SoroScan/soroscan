@@ -5,6 +5,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    AlertRuleViewSet,
     APIKeyViewSet,
     AnalyticsViewSet,
     ContractEventViewSet,
@@ -48,6 +49,7 @@ router.register(r"contracts", TrackedContractViewSet, basename="contract")
 router.register(r"events", ContractEventViewSet, basename="event")
 router.register(r"invocations", ContractInvocationViewSet, basename="invocation")
 router.register(r"webhooks", WebhookSubscriptionViewSet, basename="webhook")
+router.register(r"alert-rules", AlertRuleViewSet, basename="alert-rule")
 router.register(r"api-keys", APIKeyViewSet, basename="apikey")
 router.register(r"teams", TeamViewSet, basename="team")
 router.register(r"analytics", AnalyticsViewSet, basename="analytics")

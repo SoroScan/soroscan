@@ -43,6 +43,7 @@ from .cache_utils import cache_result, get_or_set_json, query_cache_ttl, stable_
 from .decorators import validate_webhook_signature
 from .telemetry import tracer
 from .models import (  # noqa: E402
+    AlertRule,
     APIKey,
     AdminAction,
     ArchivedEventBatch,
@@ -66,6 +67,8 @@ from .models import (  # noqa: E402
 )
 from .cache_utils import get_cached_contract
 from .serializers import (
+    AlertExecutionSerializer,
+    AlertRuleSerializer,
     APIKeySerializer,
     BulkMetadataImportSerializer,
     ContractDeploymentSerializer,
@@ -1168,6 +1171,51 @@ class ContractInvocationViewSet(viewsets.ReadOnlyModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
+
+
+@extend_schema_view(
+    list=extend_schema(summary="List your alert rules", tags=["Alerts"]),
+    create=extend_schema(summary="Create an alert rule", tags=["Alerts"]),
+    retrieve=extend_schema(summary="Get an alert rule", tags=["Alerts"]),
+    update=extend_schema(summary="Replace an alert rule", tags=["Alerts"]),
+    partial_update=extend_schema(summary="Update an alert rule", tags=["Alerts"]),
+    destroy=extend_schema(summary="Delete an alert rule", tags=["Alerts"]),
+)
+class AlertRuleViewSet(viewsets.ModelViewSet):
+    """
+    Manage alert rules on your contracts.
+
+    - GET/POST /alert-rules/ (filter with ?contract=<id>)
+    - GET/PUT/PATCH/DELETE /alert-rules/{id}/
+    - GET /alert-rules/{id}/executions/ - delivery history
+
+    Rules are scoped to contracts owned by the requesting user; staff see all.
+    """
+
+    serializer_class = AlertRuleSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["contract", "is_active", "action_type"]
+
+    def get_queryset(self):
+        qs = AlertRule.objects.select_related("contract").order_by("-created_at")
+        if self.request.user.is_staff:
+            return qs
+        return qs.filter(contract__owner=self.request.user)
+
+    @extend_schema(
+        summary="List delivery history for an alert rule",
+        tags=["Alerts"],
+        responses=AlertExecutionSerializer(many=True),
+    )
+    @action(detail=True, methods=["get"])
+    def executions(self, request, pk=None):
+        rule = self.get_object()
+        qs = rule.executions.select_related("event").order_by("-created_at")
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            return self.get_paginated_response(AlertExecutionSerializer(page, many=True).data)
+        return Response(AlertExecutionSerializer(qs, many=True).data)
 
 
 class WebhookSubscriptionViewSet(viewsets.ModelViewSet):
