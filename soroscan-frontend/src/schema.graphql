@@ -21,6 +21,7 @@ type Query {
 
   # Contract Dependency Graph (#922)
   contracts(filter: ContractFilter): [ContractWithDeps!]!
+  dependenciesForContract(contractId: String!): CallGraph
 }
 
 input ContractFilter {
@@ -229,4 +230,19 @@ type ContractWithDeps {
   vulnerabilities: [ContractVulnerability!]!
   dependencies: [ContractDependency!]!
   dependents: [ContractDependent!]!
+}
+
+# Mirrors the backend `CallGraphType` (django-backend/soroscan/ingest/schema.py).
+scalar JSON
+
+type ContractSummary {
+  contractId: String!
+  name: String!
+}
+
+type CallGraph {
+  contract: ContractSummary
+  graphData: JSON
+  hasCycles: Boolean!
+  cycleDetails: JSON
 }

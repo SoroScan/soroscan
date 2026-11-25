@@ -119,7 +119,7 @@ export default function DocsPage() {
               <div key={s.step} className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
                 <div className="space-y-3">
                   <div className="flex items-center gap-3">
-                    <span className="text-3xl font-bold text-terminal-green/30 font-terminal-mono">{s.step}</span>
+                    <span className="text-3xl font-bold text-terminal-gray-muted font-terminal-mono">{s.step}</span>
                     <span className="text-sm font-bold text-terminal-green">{s.title}</span>
                   </div>
                   <p className="text-terminal-gray text-sm leading-relaxed">{s.body}</p>

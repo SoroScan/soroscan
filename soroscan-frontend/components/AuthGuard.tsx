@@ -34,9 +34,8 @@ export function AuthGuard({ children }: AuthGuardProps) {
   if (!isClient || !isLoggedIn()) {
     return (
       <div className="min-h-screen bg-terminal-black flex items-center justify-center font-terminal-mono text-terminal-green">
-        <div className="animate-pulse">
-          &gt; AUTHORIZING_SESSION...
-        </div>
+        {/* No opacity animation: it dropped the text below the 4.5:1 contrast minimum. */}
+        <div role="status">&gt; AUTHORIZING_SESSION...</div>
       </div>
     );
   }

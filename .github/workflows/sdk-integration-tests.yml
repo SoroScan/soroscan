@@ -23,7 +23,7 @@ name: SDK Integration Tests
 
 on:
   push:
-    branches: [main, dev]
+    branches: [dev]
     paths:
       - "sdk/**"
       - "django-backend/**"

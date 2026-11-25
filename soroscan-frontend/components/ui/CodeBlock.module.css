@@ -123,7 +123,8 @@
   min-width: 2ch;
   text-align: right;
   user-select: none;
-  color: rgba(123, 168, 181, 0.45);
+  /* 0.8 alpha keeps line numbers above the 4.5:1 contrast threshold. */
+  color: rgba(123, 168, 181, 0.8);
   font-size: 0.72rem;
 }
 
@@ -150,7 +151,7 @@
 }
 
 .body :global(.tok-comment) {
-  color: #4a5568;
+  color: #8492a6;
   font-style: italic;
 }
 

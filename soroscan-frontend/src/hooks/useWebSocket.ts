@@ -9,6 +9,8 @@ export interface SorobanEvent {
   type: string
   data: Record<string, unknown>
   status: "PROCESSED" | "INGESTING" | "ERROR"
+  /** Client-side receive time, for messages that carry no timestamp. */
+  received_at?: string
 }
 
 export type ConnectionStatus = "CONNECTING" | "CONNECTED" | "DISCONNECTED" | "ERROR"
@@ -49,7 +51,7 @@ export function useWebSocket(contractId: string) {
 
     socket.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data) as SorobanEvent
+        const data = { ...JSON.parse(event.data), received_at: new Date().toISOString() } as SorobanEvent
         setEvents((prev) => [data, ...prev].slice(0, 100))
       } catch (err) {
         console.error("Failed to parse WebSocket message:", err)

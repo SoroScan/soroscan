@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { authenticatedFetch } from "@/lib/auth";
 
-type UpgradeStatus = "deployed" | "upgraded" | "migrated";
+type UpgradeStatus = "deployed" | "upgraded";
 
 interface UpgradeEvent {
   id: string;
@@ -10,108 +11,149 @@ interface UpgradeEvent {
   type: UpgradeStatus;
   version: string;
   timestamp: string;
-  deployHash?: string;
-  migrationHash?: string;
+  ledger: number;
+  bytecodeHash: string;
   deployer: string;
-  oldAddress?: string;
-  newAddress?: string;
-  gasUsed: number;
   txHash: string;
-  deployArgs: Record<string, string | number | boolean>;
   notes: string;
 }
 
 interface VersionSnapshot {
   version: string;
-  checksum: string;
-  source: string[];
+  validFromLedger: number;
+  validToLedger: number | null;
+  hasBreakingChanges: boolean;
+  breakingChangeDetails: string;
 }
 
-const upgradeEvents: UpgradeEvent[] = [
-  {
-    id: "ev-1",
-    contract: "SORO_SWAP_ROUTER",
-    type: "deployed",
-    version: "v1.0.0",
-    timestamp: "2026-07-10T08:10:00Z",
-    deployHash: "deploy_17cb77ab0001",
-    deployer: "GAKJ...QWE2",
-    gasUsed: 182140,
-    txHash: "tx_211aa9f1001",
-    deployArgs: { admin: "GAKJ...QWE2", feeBps: 25, network: "mainnet" },
-    notes: "Initial production deployment.",
-  },
-  {
-    id: "ev-2",
-    contract: "SORO_SWAP_ROUTER",
-    type: "upgraded",
-    version: "v1.1.0",
-    timestamp: "2026-07-18T13:45:00Z",
-    deployHash: "deploy_17cb77ab0002",
-    deployer: "GBRT...TQ0L",
-    gasUsed: 201778,
-    txHash: "tx_211aa9f1099",
-    deployArgs: { feeBps: 20, slippageGuard: true },
-    notes: "Optimized fee path; added slippage guard checks.",
-  },
-  {
-    id: "ev-3",
-    contract: "SORO_SWAP_ROUTER",
-    type: "migrated",
-    version: "v2.0.0",
-    timestamp: "2026-07-24T17:30:00Z",
-    migrationHash: "migrate_1de9ffaf9301",
-    deployer: "GBRT...TQ0L",
-    oldAddress: "CBQ7...9MPS",
-    newAddress: "CDR1...4HVN",
-    gasUsed: 245600,
-    txHash: "tx_211aa9f1ff1",
-    deployArgs: { migrateStorage: true, preserveNonce: true },
-    notes: "Storage layout migration with address rollover.",
-  },
-];
+interface CompatibilityWarning {
+  id: string;
+  version: string;
+  ledger: number;
+  detail: string;
+}
 
-const versions: VersionSnapshot[] = [
-  {
-    version: "v1.0.0",
-    checksum: "sha256:3f87...1ad2",
-    source: [
-      "contract Router {",
-      "  fn swap(input, output, amount, minOut) {",
-      "    assert(minOut > 0);",
-      "    emit SwapExecuted(input, output, amount);",
-      "  }",
-      "}",
-    ],
-  },
-  {
-    version: "v1.1.0",
-    checksum: "sha256:ec55...9b73",
-    source: [
-      "contract Router {",
-      "  fn swap(input, output, amount, minOut) {",
-      "    assert(minOut > 0);",
-      "    assert(slippage_check(amount, minOut));",
-      "    emit SwapExecuted(input, output, amount);",
-      "  }",
-      "}",
-    ],
-  },
-  {
-    version: "v2.0.0",
-    checksum: "sha256:0ace...5fe2",
-    source: [
-      "contract RouterV2 {",
-      "  fn swap(input, output, amount, minOut, routeHint) {",
-      "    assert(minOut > 0);",
-      "    assert(slippage_check(amount, minOut));",
-      "    assert(route_hint_valid(routeHint));",
-      "    emit SwapExecuted(input, output, amount, routeHint);",
-      "  }",
-      "}",
-    ],
-  },
-];
+interface DeploymentTimeline {
+  contractId: string;
+  deployments: UpgradeEvent[];
+  versions: VersionSnapshot[];
+  warnings: CompatibilityWarning[];
+}
+
+interface TimelineRequest {
+  contractId: string;
+}
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function requiredArray(record: Record<string, unknown>, key: string): unknown[] {
+  const value = record[key];
+  if (!Array.isArray(value)) {
+    throw new Error(`Deployment API returned an invalid ${key} list.`);
+  }
+  return value;
+}
+
+function requiredString(value: unknown, field: string): string {
+  if (typeof value !== "string" || !value) {
+    throw new Error(`Deployment API returned an invalid ${field}.`);
+  }
+  return value;
+}
+
+function requiredNumber(value: unknown, field: string): number {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim()
+        ? Number(value)
+        : Number.NaN;
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Deployment API returned an invalid ${field}.`);
+  }
+  return parsed;
+}
+
+function adaptDeploymentTimeline(payload: unknown): DeploymentTimeline {
+  const response = asRecord(payload);
+  if (!response) {
+    throw new Error("Deployment API returned an invalid response.");
+  }
+
+  const contractId = requiredString(response.contract_id, "contract ID");
+  const versions: VersionSnapshot[] = requiredArray(response, "abi_versions").map((value) => {
+    const abi = asRecord(value);
+    if (!abi) {
+      throw new Error("Deployment API returned an invalid ABI version.");
+    }
+
+    const versionNumber = requiredNumber(abi.version_number, "ABI version");
+    const validToLedger =
+      abi.valid_to_ledger === null
+        ? null
+        : requiredNumber(abi.valid_to_ledger, "ABI end ledger");
+    if (typeof abi.has_breaking_changes !== "boolean") {
+      throw new Error("Deployment API returned an invalid ABI compatibility status.");
+    }
+
+    return {
+      version: `v${versionNumber}`,
+      validFromLedger: requiredNumber(abi.valid_from_ledger, "ABI start ledger"),
+      validToLedger,
+      hasBreakingChanges: abi.has_breaking_changes,
+      breakingChangeDetails:
+        typeof abi.breaking_change_details === "string" ? abi.breaking_change_details : "",
+    };
+  });
+  const versionByLedger = new Map(
+    versions.map((version) => [version.validFromLedger, version.version]),
+  );
+  const deployments: UpgradeEvent[] = requiredArray(response, "deployments").map((value, index) => {
+    const deployment = asRecord(value);
+    if (!deployment) {
+      throw new Error("Deployment API returned an invalid deployment.");
+    }
+    if (typeof deployment.is_upgrade !== "boolean") {
+      throw new Error("Deployment API returned an invalid deployment type.");
+    }
+
+    const ledger = requiredNumber(deployment.ledger_deployed, "deployment ledger");
+    return {
+      id: String(deployment.id ?? `${contractId}-${ledger}-${index}`),
+      contract: contractId,
+      type: deployment.is_upgrade ? "upgraded" : "deployed",
+      version: versionByLedger.get(ledger) ?? "ABI version unavailable",
+      timestamp: requiredString(deployment.detected_at, "deployment timestamp"),
+      ledger,
+      bytecodeHash: typeof deployment.bytecode_hash === "string" ? deployment.bytecode_hash : "",
+      deployer:
+        typeof deployment.deployer_address === "string" ? deployment.deployer_address : "",
+      txHash: typeof deployment.tx_hash === "string" ? deployment.tx_hash : "",
+      notes: typeof deployment.notes === "string" ? deployment.notes : "",
+    };
+  });
+  const warnings: CompatibilityWarning[] = requiredArray(response, "compatibility_warnings").map((value, index) => {
+    const warning = asRecord(value);
+    if (!warning) {
+      throw new Error("Deployment API returned an invalid compatibility warning.");
+    }
+
+    return {
+      id: `${warning.abi_version ?? "abi"}-${index}`,
+      version: `v${requiredNumber(warning.abi_version, "warning ABI version")}`,
+      ledger: requiredNumber(warning.ledger, "warning ledger"),
+      detail: requiredString(warning.detail, "compatibility warning"),
+    };
+  });
+
+  return { contractId, deployments, versions, warnings };
+}
 
 function daysAgo(fromIso: string): number {
   const ms = Date.now() - new Date(fromIso).getTime();
@@ -131,55 +173,120 @@ function exportAsJson(payload: unknown, filename: string) {
 }
 
 export default function ContractUpgradeTimelinePage() {
+  const [contractInput, setContractInput] = useState("");
+  const [request, setRequest] = useState<TimelineRequest | null>(null);
+  const [timeline, setTimeline] = useState<DeploymentTimeline | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<UpgradeStatus | "all">("all");
-  const [timelineMode, setTimelineMode] = useState<"vertical" | "horizontal">(
-    "vertical",
-  );
-  const [fromDate, setFromDate] = useState("2026-07-01");
-  const [toDate, setToDate] = useState("2026-07-31");
-  const [selectedEventId, setSelectedEventId] = useState(upgradeEvents[0].id);
-  const [leftVersion, setLeftVersion] = useState("v1.0.0");
-  const [rightVersion, setRightVersion] = useState("v2.0.0");
+  const [timelineMode, setTimelineMode] = useState<"vertical" | "horizontal">("vertical");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [selectedEventId, setSelectedEventId] = useState("");
+  const [leftVersion, setLeftVersion] = useState("");
+  const [rightVersion, setRightVersion] = useState("");
+
+  useEffect(() => {
+    const initialContractId = new URLSearchParams(window.location.search)
+      .get("contract_id")
+      ?.trim();
+    if (initialContractId) {
+      setContractInput(initialContractId);
+      setRequest({ contractId: initialContractId });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!request) return;
+    let active = true;
+    const requestedContractId = request.contractId;
+
+    async function loadTimeline() {
+      setLoading(true);
+      setError(null);
+      setTimeline(null);
+      try {
+        const response = await authenticatedFetch(
+          `${API_BASE}/api/ingest/contracts/${encodeURIComponent(requestedContractId)}/deployments/`,
+          { cache: "no-store" },
+        );
+        if (response.status === 404) {
+          throw new Error(`Contract not found: ${requestedContractId}`);
+        }
+        if (!response.ok) {
+          throw new Error(`Failed to load deployment history (HTTP ${response.status}).`);
+        }
+
+        const result = adaptDeploymentTimeline(await response.json());
+        if (active) {
+          setTimeline(result);
+          setSelectedEventId("");
+          setLeftVersion("");
+          setRightVersion("");
+        }
+      } catch (loadError) {
+        if (active) {
+          setError(loadError instanceof Error ? loadError.message : "Failed to load deployment history.");
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    void loadTimeline();
+    return () => {
+      active = false;
+    };
+  }, [request]);
 
   const filteredEvents = useMemo(() => {
-    return upgradeEvents.filter((event) => {
-      if (statusFilter !== "all" && event.type !== statusFilter) {
-        return false;
-      }
+    if (!timeline) return [];
+    return timeline.deployments.filter((event) => {
+      if (statusFilter !== "all" && event.type !== statusFilter) return false;
       const eventDate = new Date(event.timestamp).getTime();
-      const from = new Date(fromDate).getTime();
-      const to = new Date(`${toDate}T23:59:59Z`).getTime();
+      const from = fromDate ? new Date(`${fromDate}T00:00:00Z`).getTime() : Number.NEGATIVE_INFINITY;
+      const to = toDate ? new Date(`${toDate}T23:59:59Z`).getTime() : Number.POSITIVE_INFINITY;
       return eventDate >= from && eventDate <= to;
     });
-  }, [fromDate, statusFilter, toDate]);
+  }, [fromDate, statusFilter, timeline, toDate]);
 
-  const selectedEvent = useMemo(() => {
-    return filteredEvents.find((event) => event.id === selectedEventId) ?? filteredEvents[0];
-  }, [filteredEvents, selectedEventId]);
+  const selectedEvent =
+    filteredEvents.find((event) => event.id === selectedEventId) ?? filteredEvents[0];
+  const leftSnapshot =
+    timeline?.versions.find((version) => version.version === leftVersion) ?? timeline?.versions[0];
+  const rightSnapshot =
+    timeline?.versions.find((version) => version.version === rightVersion) ??
+    timeline?.versions[timeline.versions.length - 1];
+  const latestDeployment = timeline?.deployments[timeline.deployments.length - 1];
 
-  const leftSnapshot = versions.find((version) => version.version === leftVersion);
-  const rightSnapshot = versions.find((version) => version.version === rightVersion);
-
-  const diffRows = useMemo(() => {
-    if (!leftSnapshot || !rightSnapshot) {
-      return [];
+  const submitContract = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const contractId = contractInput.trim();
+    if (!contractId) {
+      setTimeline(null);
+      setRequest(null);
+      setLoading(false);
+      setError("Enter a contract ID to load its deployment history.");
+      const url = new URL(window.location.href);
+      url.searchParams.delete("contract_id");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+      return;
     }
-    const maxLen = Math.max(leftSnapshot.source.length, rightSnapshot.source.length);
-    return Array.from({ length: maxLen }, (_, idx) => {
-      const left = leftSnapshot.source[idx] ?? "";
-      const right = rightSnapshot.source[idx] ?? "";
-      return {
-        line: idx + 1,
-        left,
-        right,
-        changed: left !== right,
-      };
-    });
-  }, [leftSnapshot, rightSnapshot]);
 
-  const latestUpgrade = upgradeEvents
-    .filter((event) => event.type === "upgraded" || event.type === "migrated")
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
+    const url = new URL(window.location.href);
+    url.searchParams.set("contract_id", contractId);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    setError(null);
+    setTimeline(null);
+    setStatusFilter("all");
+    setFromDate("");
+    setToDate("");
+    setRequest({ contractId });
+  };
+
+  const retry = () => {
+    if (request) setRequest({ contractId: request.contractId });
+  };
 
   return (
     <main className="min-h-screen bg-terminal-black p-8 font-terminal-mono text-terminal-green">
@@ -188,211 +295,294 @@ export default function ContractUpgradeTimelinePage() {
           <p className="text-xs tracking-[0.2em] text-terminal-gray">
             [CONTRACT_UPGRADE_TIMELINE]
           </p>
-          <h1 className="text-3xl">Contract Deployment, Upgrade, and Migration History</h1>
-          <div className="inline-flex items-center gap-2 rounded border border-terminal-cyan/40 bg-terminal-cyan/10 px-3 py-1 text-xs text-terminal-cyan">
-            <span className="h-2 w-2 rounded-full bg-terminal-cyan" />
-            Contract upgraded {daysAgo(latestUpgrade.timestamp)} days ago
-          </div>
+          <h1 className="text-3xl">Contract Deployment and Upgrade History</h1>
+          {latestDeployment && (
+            <div className="inline-flex items-center gap-2 rounded border border-terminal-cyan/40 bg-terminal-cyan/10 px-3 py-1 text-xs text-terminal-cyan">
+              <span className="h-2 w-2 rounded-full bg-terminal-cyan" />
+              Latest deployment recorded {daysAgo(latestDeployment.timestamp)} days ago
+            </div>
+          )}
         </header>
 
-        <section className="grid grid-cols-1 gap-3 rounded border border-terminal-green/20 p-4 md:grid-cols-4">
-          <label className="text-xs text-terminal-gray">
-            Status
-            <select
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value as UpgradeStatus | "all")}
-              className="mt-1 w-full rounded border border-terminal-green/30 bg-terminal-black px-2 py-2 text-terminal-green"
-            >
-              <option value="all">All</option>
-              <option value="deployed">Deployed</option>
-              <option value="upgraded">Upgraded</option>
-              <option value="migrated">Migrated</option>
-            </select>
-          </label>
-          <label className="text-xs text-terminal-gray">
-            From
+        <form
+          onSubmit={submitContract}
+          className="flex flex-col gap-3 rounded border border-terminal-green/20 p-4 sm:flex-row sm:items-end"
+        >
+          <label className="flex-1 text-xs text-terminal-gray">
+            Contract ID
             <input
-              type="date"
-              value={fromDate}
-              onChange={(event) => setFromDate(event.target.value)}
-              className="mt-1 w-full rounded border border-terminal-green/30 bg-terminal-black px-2 py-2 text-terminal-green"
+              aria-label="Contract ID"
+              value={contractInput}
+              onChange={(event) => setContractInput(event.target.value)}
+              className="mt-1 w-full rounded border border-terminal-green/30 bg-terminal-black px-3 py-2 text-terminal-green"
+              placeholder="Enter a contract ID"
             />
           </label>
-          <label className="text-xs text-terminal-gray">
-            To
-            <input
-              type="date"
-              value={toDate}
-              onChange={(event) => setToDate(event.target.value)}
-              className="mt-1 w-full rounded border border-terminal-green/30 bg-terminal-black px-2 py-2 text-terminal-green"
-            />
-          </label>
-          <div className="space-y-2">
-            <p className="text-xs text-terminal-gray">Export</p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => exportAsJson(filteredEvents, "contract-upgrades.json")}
-                className="rounded border border-terminal-magenta/40 px-3 py-2 text-xs text-terminal-magenta hover:bg-terminal-magenta/10"
-              >
-                Export JSON
-              </button>
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="rounded border border-terminal-yellow/40 px-3 py-2 text-xs text-terminal-yellow hover:bg-terminal-yellow/10"
-              >
-                Export PDF
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded border border-terminal-green/20 p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm text-terminal-gray">Upgrade Timeline</h2>
-            <div className="flex gap-2 text-xs">
-              <button
-                type="button"
-                onClick={() => setTimelineMode("vertical")}
-                className={`rounded border px-2 py-1 ${
-                  timelineMode === "vertical"
-                    ? "border-terminal-green text-terminal-green"
-                    : "border-terminal-gray/40 text-terminal-gray"
-                }`}
-              >
-                Vertical
-              </button>
-              <button
-                type="button"
-                onClick={() => setTimelineMode("horizontal")}
-                className={`rounded border px-2 py-1 ${
-                  timelineMode === "horizontal"
-                    ? "border-terminal-green text-terminal-green"
-                    : "border-terminal-gray/40 text-terminal-gray"
-                }`}
-              >
-                Horizontal
-              </button>
-            </div>
-          </div>
-          <div
-            className={
-              timelineMode === "vertical"
-                ? "space-y-3"
-                : "grid grid-cols-1 gap-3 md:grid-cols-3"
-            }
+          <button
+            type="submit"
+            className="rounded border border-terminal-cyan/40 px-4 py-2 text-sm text-terminal-cyan hover:bg-terminal-cyan/10"
           >
-            {filteredEvents.map((event) => (
-              <article
-                key={event.id}
-                className="rounded border border-terminal-green/20 bg-black/30 p-3"
-              >
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-terminal-cyan">
-                    {new Date(event.timestamp).toLocaleString()}
-                  </p>
-                  <span className="rounded border border-terminal-green/30 px-2 py-0.5 text-[10px] uppercase">
-                    {event.type}
-                  </span>
-                </div>
-                <p className="mt-2 text-sm">{event.contract}</p>
-                <p className="text-xs text-terminal-gray">Version: {event.version}</p>
-                {event.deployHash && (
-                  <p className="mt-1 text-xs text-terminal-gray">Deploy hash: {event.deployHash}</p>
-                )}
-                {event.oldAddress && event.newAddress && (
-                  <p className="mt-1 text-xs text-terminal-yellow">
-                    {event.oldAddress} -&gt; {event.newAddress}
-                  </p>
-                )}
-                {event.migrationHash && (
-                  <p className="mt-1 text-xs text-terminal-gray">
-                    Migration hash: {event.migrationHash}
-                  </p>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setSelectedEventId(event.id)}
-                  className="mt-3 rounded border border-terminal-cyan/40 px-2 py-1 text-xs text-terminal-cyan hover:bg-terminal-cyan/10"
-                >
-                  View metadata
-                </button>
-              </article>
-            ))}
+            Load timeline
+          </button>
+        </form>
+
+        {loading ? (
+          <div role="status" aria-busy="true" className="py-12 text-center text-terminal-cyan">
+            Loading contract deployment history…
           </div>
-        </section>
-
-        <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <article className="rounded border border-terminal-cyan/20 p-4">
-            <h2 className="mb-3 text-sm text-terminal-cyan">Upgrade Metadata Viewer</h2>
-            {selectedEvent ? (
-              <div className="space-y-2 text-xs">
-                <p>Transaction hash: {selectedEvent.txHash}</p>
-                <p>Gas used: {selectedEvent.gasUsed.toLocaleString()}</p>
-                <p>Deployer: {selectedEvent.deployer}</p>
-                <p>Deploy args:</p>
-                <pre className="overflow-x-auto rounded border border-terminal-cyan/20 bg-black/40 p-2 text-[11px] text-terminal-gray">
-                  {JSON.stringify(selectedEvent.deployArgs, null, 2)}
-                </pre>
-                <p className="text-terminal-gray">{selectedEvent.notes}</p>
-              </div>
-            ) : (
-              <p className="text-xs text-terminal-gray">No event selected for metadata view.</p>
+        ) : error ? (
+          <section role="alert" className="space-y-4 rounded border border-terminal-danger/30 p-6 text-center">
+            <p>{error}</p>
+            {request && (
+              <button
+                type="button"
+                onClick={retry}
+                className="rounded border border-terminal-green/30 px-3 py-2 text-sm"
+              >
+                Retry
+              </button>
             )}
-          </article>
+          </section>
+        ) : !request ? (
+          <section className="rounded border border-terminal-cyan/20 p-6 text-center text-sm text-terminal-gray">
+            Enter a contract ID to view its deployment and ABI history.
+          </section>
+        ) : timeline ? (
+          <>
+            {timeline.warnings.length > 0 && (
+              <section
+                aria-label="Breaking ABI compatibility warnings"
+                className="space-y-3 rounded border border-terminal-yellow/50 bg-terminal-yellow/5 p-4"
+              >
+                <h2 className="text-sm font-bold text-terminal-yellow">
+                  Breaking ABI changes detected
+                </h2>
+                {timeline.warnings.map((warning) => (
+                  <div key={warning.id} className="text-xs text-terminal-yellow">
+                    <p className="font-bold">
+                      {warning.version} · Ledger {warning.ledger}
+                    </p>
+                    <p>{warning.detail}</p>
+                  </div>
+                ))}
+              </section>
+            )}
 
-          <article className="rounded border border-terminal-magenta/20 p-4">
-            <h2 className="mb-3 text-sm text-terminal-magenta">Contract Version Compare</h2>
-            <div className="grid grid-cols-2 gap-3">
-              <select
-                value={leftVersion}
-                onChange={(event) => setLeftVersion(event.target.value)}
-                className="rounded border border-terminal-magenta/30 bg-terminal-black px-2 py-2 text-xs"
+            {timeline.deployments.length === 0 ? (
+              <section
+                data-testid="upgrade-empty-state"
+                className="rounded border border-terminal-cyan/20 p-6 text-center text-sm text-terminal-gray"
               >
-                {versions.map((version) => (
-                  <option key={version.version} value={version.version}>
-                    {version.version}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={rightVersion}
-                onChange={(event) => setRightVersion(event.target.value)}
-                className="rounded border border-terminal-magenta/30 bg-terminal-black px-2 py-2 text-xs"
-              >
-                {versions.map((version) => (
-                  <option key={version.version} value={version.version}>
-                    {version.version}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <p className="mt-2 text-xs text-terminal-gray">
-              {leftSnapshot?.checksum} vs {rightSnapshot?.checksum}
-            </p>
-            <div className="mt-3 max-h-64 overflow-y-auto rounded border border-terminal-magenta/20">
-              <table className="w-full text-[11px]">
-                <thead className="bg-terminal-magenta/10 text-terminal-magenta">
-                  <tr>
-                    <th className="px-2 py-1 text-left">Line</th>
-                    <th className="px-2 py-1 text-left">{leftVersion}</th>
-                    <th className="px-2 py-1 text-left">{rightVersion}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {diffRows.map((row) => (
-                    <tr key={row.line} className={row.changed ? "bg-terminal-yellow/10" : ""}>
-                      <td className="px-2 py-1 text-terminal-gray">{row.line}</td>
-                      <td className="px-2 py-1">{row.left}</td>
-                      <td className="px-2 py-1">{row.right}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </article>
-        </section>
+                No deployments found for contract {timeline.contractId}.
+              </section>
+            ) : (
+              <>
+                <section className="grid grid-cols-1 gap-3 rounded border border-terminal-green/20 p-4 md:grid-cols-4">
+                  <label className="text-xs text-terminal-gray">
+                    Status
+                    <select
+                      value={statusFilter}
+                      onChange={(event) => setStatusFilter(event.target.value as UpgradeStatus | "all")}
+                      className="mt-1 w-full rounded border border-terminal-green/30 bg-terminal-black px-2 py-2 text-terminal-green"
+                    >
+                      <option value="all">All</option>
+                      <option value="deployed">Deployed</option>
+                      <option value="upgraded">Upgraded</option>
+                    </select>
+                  </label>
+                  <label className="text-xs text-terminal-gray">
+                    From
+                    <input
+                      type="date"
+                      value={fromDate}
+                      onChange={(event) => setFromDate(event.target.value)}
+                      className="mt-1 w-full rounded border border-terminal-green/30 bg-terminal-black px-2 py-2 text-terminal-green"
+                    />
+                  </label>
+                  <label className="text-xs text-terminal-gray">
+                    To
+                    <input
+                      type="date"
+                      value={toDate}
+                      onChange={(event) => setToDate(event.target.value)}
+                      className="mt-1 w-full rounded border border-terminal-green/30 bg-terminal-black px-2 py-2 text-terminal-green"
+                    />
+                  </label>
+                  <div className="space-y-2">
+                    <p className="text-xs text-terminal-gray">Export</p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => exportAsJson(filteredEvents, "contract-upgrades.json")}
+                        className="rounded border border-terminal-magenta/40 px-3 py-2 text-xs text-terminal-magenta hover:bg-terminal-magenta/10"
+                      >
+                        Export JSON
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => window.print()}
+                        className="rounded border border-terminal-yellow/40 px-3 py-2 text-xs text-terminal-yellow hover:bg-terminal-yellow/10"
+                      >
+                        Export PDF
+                      </button>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="rounded border border-terminal-green/20 p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h2 className="text-sm text-terminal-gray">Upgrade Timeline</h2>
+                    <div className="flex gap-2 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setTimelineMode("vertical")}
+                        className={`rounded border px-2 py-1 ${
+                          timelineMode === "vertical"
+                            ? "border-terminal-green text-terminal-green"
+                            : "border-terminal-gray/40 text-terminal-gray"
+                        }`}
+                      >
+                        Vertical
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTimelineMode("horizontal")}
+                        className={`rounded border px-2 py-1 ${
+                          timelineMode === "horizontal"
+                            ? "border-terminal-green text-terminal-green"
+                            : "border-terminal-gray/40 text-terminal-gray"
+                        }`}
+                      >
+                        Horizontal
+                      </button>
+                    </div>
+                  </div>
+                  {filteredEvents.length === 0 ? (
+                    <p className="text-xs text-terminal-gray">No deployments match the selected filters.</p>
+                  ) : (
+                    <div
+                      className={
+                        timelineMode === "vertical"
+                          ? "space-y-3"
+                          : "grid grid-cols-1 gap-3 md:grid-cols-3"
+                      }
+                    >
+                      {filteredEvents.map((upgradeEvent) => (
+                        <article
+                          key={upgradeEvent.id}
+                          className="rounded border border-terminal-green/20 bg-black/30 p-3"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs text-terminal-cyan">
+                              {new Date(upgradeEvent.timestamp).toLocaleString()}
+                            </p>
+                            <span className="rounded border border-terminal-green/30 px-2 py-0.5 text-[10px] uppercase">
+                              {upgradeEvent.type}
+                            </span>
+                          </div>
+                          <p className="mt-2 break-all text-sm">{upgradeEvent.contract}</p>
+                          <p className="text-xs text-terminal-gray">Version: {upgradeEvent.version}</p>
+                          <p className="text-xs text-terminal-gray">Ledger: {upgradeEvent.ledger}</p>
+                          {upgradeEvent.bytecodeHash && (
+                            <p className="mt-1 break-all text-xs text-terminal-gray">
+                              Bytecode hash: {upgradeEvent.bytecodeHash}
+                            </p>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setSelectedEventId(upgradeEvent.id)}
+                            className="mt-3 rounded border border-terminal-cyan/40 px-2 py-1 text-xs text-terminal-cyan hover:bg-terminal-cyan/10"
+                          >
+                            View metadata
+                          </button>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  <article className="rounded border border-terminal-cyan/20 p-4">
+                    <h2 className="mb-3 text-sm text-terminal-cyan">Deployment Metadata</h2>
+                    {selectedEvent ? (
+                      <div className="space-y-2 break-all text-xs">
+                        <p>Transaction hash: {selectedEvent.txHash || "Not recorded"}</p>
+                        <p>Deployer: {selectedEvent.deployer || "Not recorded"}</p>
+                        <p>Bytecode hash: {selectedEvent.bytecodeHash || "Not recorded"}</p>
+                        <p>Ledger: {selectedEvent.ledger}</p>
+                        <p>{selectedEvent.notes || "No deployment notes."}</p>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-terminal-gray">No deployment selected for metadata view.</p>
+                    )}
+                  </article>
+
+                  <article className="rounded border border-terminal-magenta/20 p-4">
+                    <h2 className="mb-3 text-sm text-terminal-magenta">Contract ABI Versions</h2>
+                    {timeline.versions.length === 0 ? (
+                      <p className="text-xs text-terminal-gray">No ABI versions recorded.</p>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-2 gap-3">
+                          <select
+                            aria-label="First ABI version"
+                            value={leftSnapshot?.version ?? ""}
+                            onChange={(event) => setLeftVersion(event.target.value)}
+                            className="rounded border border-terminal-magenta/30 bg-terminal-black px-2 py-2 text-xs"
+                          >
+                            {timeline.versions.map((version) => (
+                              <option key={version.version} value={version.version}>
+                                {version.version}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            aria-label="Second ABI version"
+                            value={rightSnapshot?.version ?? ""}
+                            onChange={(event) => setRightVersion(event.target.value)}
+                            className="rounded border border-terminal-magenta/30 bg-terminal-black px-2 py-2 text-xs"
+                          >
+                            {timeline.versions.map((version) => (
+                              <option key={version.version} value={version.version}>
+                                {version.version}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          {[leftSnapshot, rightSnapshot].map((version, index) =>
+                            version ? (
+                              <div
+                                key={`${version.version}-${index}`}
+                                className={`rounded border p-3 text-xs ${
+                                  version.hasBreakingChanges
+                                    ? "border-terminal-yellow/60 bg-terminal-yellow/5"
+                                    : "border-terminal-magenta/20"
+                                }`}
+                              >
+                                <p className="font-bold">{version.version}</p>
+                                <p>Valid from ledger: {version.validFromLedger}</p>
+                                <p>
+                                  Valid to ledger: {version.validToLedger ?? "Current"}
+                                </p>
+                                {version.hasBreakingChanges && (
+                                  <p className="mt-2 font-bold text-terminal-yellow">
+                                    BREAKING ABI CHANGE
+                                    {version.breakingChangeDetails && `: ${version.breakingChangeDetails}`}
+                                  </p>
+                                )}
+                              </div>
+                            ) : null,
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </article>
+                </section>
+              </>
+            )}
+          </>
+        ) : null}
       </div>
     </main>
   );

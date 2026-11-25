@@ -1,11 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-
-interface SpendPoint {
-  date: string;
-  totalUsd: number;
-}
+import { useEffect, useState } from "react";
+import { authenticatedFetch } from "@/lib/auth";
 
 interface CostBucket {
   key: string;
@@ -13,222 +9,256 @@ interface CostBucket {
   spendUsd: number;
 }
 
-const spendTrend90d: SpendPoint[] = [
-  { date: "2026-05-01", totalUsd: 212 },
-  { date: "2026-05-15", totalUsd: 228 },
-  { date: "2026-06-01", totalUsd: 245 },
-  { date: "2026-06-15", totalUsd: 252 },
-  { date: "2026-07-01", totalUsd: 268 },
-  { date: "2026-07-15", totalUsd: 276 },
-  { date: "2026-07-27", totalUsd: 284 },
-];
+interface OperationBucket {
+  key: string;
+  label: string;
+  eventCount: number;
+}
 
-const byContract: CostBucket[] = [
-  { key: "router", label: "SORO_SWAP_ROUTER", spendUsd: 3820 },
-  { key: "vault", label: "LIQUIDITY_VAULT", spendUsd: 2410 },
-  { key: "oracle", label: "PRICE_ORACLE", spendUsd: 1130 },
-];
+interface CostAnalysisData {
+  snapshotCount: number;
+  actualCostUsd: number;
+  projectedCostUsd: number;
+  monthlyBudgetUsd: number | null;
+  byContract: CostBucket[];
+  byOperation: OperationBucket[];
+}
 
-const byOperation: CostBucket[] = [
-  { key: "ingest", label: "Event Ingestion", spendUsd: 3580 },
-  { key: "queries", label: "GraphQL Queries", spendUsd: 2020 },
-  { key: "webhooks", label: "Webhook Delivery", spendUsd: 1760 },
-];
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const currencyFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 4,
+});
 
-const historical12m = [
-  { month: "2025-08", spend: 1940 },
-  { month: "2025-09", spend: 2020 },
-  { month: "2025-10", spend: 2195 },
-  { month: "2025-11", spend: 2360 },
-  { month: "2025-12", spend: 2488 },
-  { month: "2026-01", spend: 2590 },
-  { month: "2026-02", spend: 2725 },
-  { month: "2026-03", spend: 2890 },
-  { month: "2026-04", spend: 3015 },
-  { month: "2026-05", spend: 3175 },
-  { month: "2026-06", spend: 3340 },
-  { month: "2026-07", spend: 3498 },
-];
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function numericValue(value: unknown, field: string): number {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim()
+        ? Number(value)
+        : Number.NaN;
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Cost API returned an invalid ${field}.`);
+  }
+  return parsed;
+}
+
+function adaptCostSnapshots(payload: unknown): CostAnalysisData {
+  const response = asRecord(payload);
+  if (!response || !Array.isArray(response.results)) {
+    throw new Error("Cost API returned an invalid response.");
+  }
+
+  let actualCostUsd = 0;
+  let projectedCostUsd = 0;
+  let monthlyBudgetUsd = 0;
+  let hasBudget = false;
+  let snapshotCount = 0;
+  const contracts = new Map<string, number>();
+  const operations = new Map<string, number>();
+
+  response.results.forEach((value) => {
+    const snapshot = asRecord(value);
+    if (!snapshot) {
+      throw new Error("Cost API returned an invalid organization snapshot.");
+    }
+    snapshotCount += 1;
+
+    actualCostUsd += numericValue(snapshot.actual_cost_usd, "actual cost");
+    projectedCostUsd += numericValue(snapshot.projected_monthly_cost_usd, "projected cost");
+
+    const budget = asRecord(snapshot.budget);
+    if (budget && budget.is_active !== false) {
+      monthlyBudgetUsd += numericValue(budget.monthly_budget_usd, "monthly budget");
+      hasBudget = true;
+    }
+
+    const breakdown = asRecord(snapshot.breakdown);
+    if (!breakdown) {
+      throw new Error("Cost API returned an invalid cost breakdown.");
+    }
+
+    const contractBreakdown = asRecord(breakdown.contracts) ?? {};
+    for (const [contractId, value] of Object.entries(contractBreakdown)) {
+      const contract = asRecord(value);
+      if (!contract) {
+        throw new Error("Cost API returned an invalid contract cost.");
+      }
+      const spend = numericValue(contract.estimated_cost_usd ?? 0, "contract cost");
+      contracts.set(contractId, (contracts.get(contractId) ?? 0) + spend);
+    }
+
+    const operationBreakdown = asRecord(breakdown.event_types) ?? {};
+    for (const [eventType, value] of Object.entries(operationBreakdown)) {
+      const eventCount = numericValue(value, "event count");
+      operations.set(eventType, (operations.get(eventType) ?? 0) + eventCount);
+    }
+
+  });
+
+  return {
+    snapshotCount,
+    actualCostUsd,
+    projectedCostUsd,
+    monthlyBudgetUsd: hasBudget ? monthlyBudgetUsd : null,
+    byContract: Array.from(contracts, ([key, spendUsd]) => ({
+      key,
+      label: key,
+      spendUsd,
+    })).sort((a, b) => b.spendUsd - a.spendUsd),
+    byOperation: Array.from(operations, ([key, eventCount]) => ({
+      key,
+      label: key,
+      eventCount,
+    })).sort((a, b) => b.eventCount - a.eventCount),
+  };
+}
 
 export default function CostAnalysisPage() {
-  const [monthlyBudget, setMonthlyBudget] = useState(4200);
-  const [threshold80, setThreshold80] = useState(true);
-  const [threshold90, setThreshold90] = useState(true);
-  const [threshold100, setThreshold100] = useState(true);
-  const [resetDay, setResetDay] = useState(1);
-  const [historicalFilter, setHistoricalFilter] = useState<"all" | "high">("all");
+  const [data, setData] = useState<CostAnalysisData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const month = new Date().toISOString().slice(0, 7);
 
-  const currentMonthSpend = 3498;
-  const projectedEomSpend = 4022;
-  const budgetUsagePct = (currentMonthSpend / monthlyBudget) * 100;
+  useEffect(() => {
+    let active = true;
 
-  const costPerOperation = useMemo(() => {
-    const operations = 5_200_000;
-    return Number((currentMonthSpend / operations).toFixed(6));
-  }, [currentMonthSpend]);
+    async function loadCosts() {
+      setLoading(true);
+      setError(null);
+      setData(null);
 
-  const filteredHistory = useMemo(() => {
-    if (historicalFilter === "all") {
-      return historical12m;
+      try {
+        const response = await authenticatedFetch(
+          `${API_BASE}/api/ingest/admin/organization-costs/?month=${month}`,
+          { cache: "no-store" },
+        );
+        if (response.status === 403) {
+          throw new Error("Staff access is required to view organization cost analysis.");
+        }
+        if (!response.ok) {
+          throw new Error(`Failed to load organization costs (HTTP ${response.status}).`);
+        }
+
+        const result = adaptCostSnapshots(await response.json());
+        if (active) setData(result);
+      } catch (loadError) {
+        if (active) {
+          setError(loadError instanceof Error ? loadError.message : "Failed to load organization costs.");
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
     }
-    return historical12m.filter((entry) => entry.spend >= 2800);
-  }, [historicalFilter]);
 
-  const maxBarValue = Math.max(...byContract.map((item) => item.spendUsd));
+    void loadCosts();
+    return () => {
+      active = false;
+    };
+  }, [month, reloadKey]);
+
+  const budgetUsage = data?.monthlyBudgetUsd
+    ? (data.actualCostUsd / data.monthlyBudgetUsd) * 100
+    : null;
+  const maxContractSpend = Math.max(0, ...(data?.byContract.map((item) => item.spendUsd) ?? []));
 
   return (
-    <main className="min-h-screen bg-terminal-black p-8 text-terminal-green font-terminal-mono">
+    <main className="min-h-screen bg-terminal-black p-8 font-terminal-mono text-terminal-green">
       <div className="mx-auto max-w-6xl space-y-8">
         <header className="space-y-2">
-          <p className="text-xs text-terminal-gray tracking-[0.2em]">[COST_ANALYSIS_DASHBOARD]</p>
-          <h1 className="text-3xl">Cost Overview and Budget Controls</h1>
+          <p className="text-xs tracking-[0.2em] text-terminal-gray">[COST_ANALYSIS_DASHBOARD]</p>
+          <h1 className="text-3xl">Organization Cost Analysis</h1>
           <p className="text-sm text-terminal-gray">
-            Track spend, compare cost drivers, and configure budget alerts before limits are reached.
+            Current-month usage and cost snapshots for organizations.
           </p>
         </header>
 
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
-          <Tile label="Current Month Spend" value={`$${currentMonthSpend.toLocaleString()}`} />
-          <Tile label="Projected End of Month" value={`$${projectedEomSpend.toLocaleString()}`} />
-          <Tile label="Monthly Budget" value={`$${monthlyBudget.toLocaleString()}`} />
-          <Tile label="Budget Usage" value={`${budgetUsagePct.toFixed(1)}%`} />
-        </section>
-
-        <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <article className="rounded border border-terminal-cyan/20 p-4">
-            <h2 className="mb-3 text-sm text-terminal-cyan">Cost Breakdown by Contract</h2>
-            <div className="space-y-3 text-xs">
-              {byContract.map((item) => (
-                <div key={item.key}>
-                  <div className="flex justify-between">
-                    <span>{item.label}</span>
-                    <span>${item.spendUsd.toLocaleString()}</span>
-                  </div>
-                  <div className="mt-1 h-2 rounded bg-terminal-cyan/10">
-                    <div
-                      className="h-2 rounded bg-terminal-cyan"
-                      style={{ width: `${(item.spendUsd / maxBarValue) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </article>
-
-          <article className="rounded border border-terminal-magenta/20 p-4">
-            <h2 className="mb-3 text-sm text-terminal-magenta">Cost Breakdown by Operation Type</h2>
-            <div className="space-y-2 text-xs">
-              {byOperation.map((item) => (
-                <div
-                  key={item.key}
-                  className="flex items-center justify-between rounded border border-terminal-magenta/20 px-2 py-2"
-                >
-                  <span>{item.label}</span>
-                  <span>${item.spendUsd.toLocaleString()}</span>
-                </div>
-              ))}
-            </div>
-          </article>
-        </section>
-
-        <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <article className="rounded border border-terminal-yellow/20 p-4">
-            <h2 className="mb-3 text-sm text-terminal-yellow">Budget Configuration</h2>
-            <div className="space-y-3 text-xs">
-              <label className="block text-terminal-gray">
-                Monthly budget limit (USD)
-                <input
-                  type="number"
-                  value={monthlyBudget}
-                  onChange={(event) => setMonthlyBudget(Number(event.target.value) || 0)}
-                  className="mt-1 w-full rounded border border-terminal-yellow/30 bg-terminal-black px-3 py-2 text-terminal-green"
-                />
-              </label>
-              <p className="text-terminal-gray">
-                Budget reset schedule: auto-reset on day{" "}
-                <input
-                  type="number"
-                  value={resetDay}
-                  min={1}
-                  max={28}
-                  onChange={(event) => setResetDay(Number(event.target.value) || 1)}
-                  className="mx-2 w-14 rounded border border-terminal-yellow/30 bg-terminal-black px-2 py-1 text-terminal-green"
-                />
-                of each month.
-              </p>
-            </div>
-          </article>
-
-          <article className="rounded border border-terminal-green/20 p-4">
-            <h2 className="mb-3 text-sm text-terminal-gray">Budget Alert Thresholds</h2>
-            <div className="space-y-2 text-xs">
-              <ToggleRow
-                label="80% threshold alert"
-                enabled={threshold80}
-                onToggle={() => setThreshold80((state) => !state)}
-              />
-              <ToggleRow
-                label="90% threshold alert"
-                enabled={threshold90}
-                onToggle={() => setThreshold90((state) => !state)}
-              />
-              <ToggleRow
-                label="100% threshold alert"
-                enabled={threshold100}
-                onToggle={() => setThreshold100((state) => !state)}
-              />
-            </div>
-          </article>
-        </section>
-
-        <section className="rounded border border-terminal-cyan/20 p-4">
-          <h2 className="mb-3 text-sm text-terminal-cyan">Spend Trend (Past 90 Days)</h2>
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-7 text-xs">
-            {spendTrend90d.map((point) => (
-              <div key={point.date} className="rounded border border-terminal-cyan/20 p-2">
-                <p className="text-terminal-gray">{point.date}</p>
-                <p className="text-terminal-cyan">${point.totalUsd}</p>
-              </div>
-            ))}
+        {loading ? (
+          <div role="status" aria-busy="true" className="py-12 text-center text-terminal-cyan">
+            Loading organization costs…
           </div>
-        </section>
-
-        <section className="rounded border border-terminal-magenta/20 p-4">
-          <h2 className="mb-2 text-sm text-terminal-magenta">Cost per Operation Calculator</h2>
-          <p className="text-xs text-terminal-gray">
-            Estimated cost per operation (ingestion/query/webhook): ${costPerOperation}
-          </p>
-        </section>
-
-        <section className="rounded border border-terminal-green/20 overflow-hidden">
-          <div className="flex items-center justify-between border-b border-terminal-green/10 px-3 py-2">
-            <h2 className="text-sm text-terminal-gray">Historical Cost Report (12 Months)</h2>
-            <select
-              value={historicalFilter}
-              onChange={(event) => setHistoricalFilter(event.target.value as "all" | "high")}
-              className="rounded border border-terminal-green/30 bg-terminal-black px-2 py-1 text-xs text-terminal-green"
+        ) : error ? (
+          <section role="alert" className="space-y-4 rounded border border-terminal-danger/30 p-6 text-center">
+            <p>{error}</p>
+            <button
+              type="button"
+              onClick={() => setReloadKey((key) => key + 1)}
+              className="rounded border border-terminal-green/30 px-3 py-2 text-sm"
             >
-              <option value="all">All months</option>
-              <option value="high">Months above $2,800</option>
-            </select>
-          </div>
-          <table className="w-full text-sm">
-            <thead className="bg-terminal-green/5">
-              <tr>
-                <th className="px-3 py-2 text-left">Month</th>
-                <th className="px-3 py-2 text-right">Spend (USD)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredHistory.map((entry) => (
-                <tr key={entry.month} className="border-t border-terminal-green/10">
-                  <td className="px-3 py-2">{entry.month}</td>
-                  <td className="px-3 py-2 text-right">${entry.spend.toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+              Retry
+            </button>
+          </section>
+        ) : !data || data.snapshotCount === 0 ? (
+          <section className="rounded border border-terminal-cyan/20 p-6 text-center text-sm text-terminal-gray">
+            No organization cost snapshots are available for {month}.
+          </section>
+        ) : (
+          <>
+            <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
+              <Tile label="Actual Cost" value={currencyFormatter.format(data.actualCostUsd)} />
+              <Tile label="Projected Month Cost" value={currencyFormatter.format(data.projectedCostUsd)} />
+              <Tile
+                label="Monthly Budget"
+                value={data.monthlyBudgetUsd === null ? "—" : currencyFormatter.format(data.monthlyBudgetUsd)}
+              />
+              <Tile
+                label="Budget Used"
+                value={budgetUsage === null ? "—" : `${budgetUsage.toFixed(1)}%`}
+              />
+            </section>
+
+            <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <article className="rounded border border-terminal-cyan/20 p-4">
+                <h2 className="mb-3 text-sm text-terminal-cyan">Cost Breakdown by Contract</h2>
+                <div className="space-y-3 text-xs">
+                  {data.byContract.length === 0 ? (
+                    <p className="text-terminal-gray">No contract costs recorded for this month.</p>
+                  ) : data.byContract.map((item) => (
+                    <div key={item.key}>
+                      <div className="flex justify-between gap-4">
+                        <span className="break-all">{item.label}</span>
+                        <span>{currencyFormatter.format(item.spendUsd)}</span>
+                      </div>
+                      <div className="mt-1 h-2 rounded bg-terminal-cyan/10">
+                        <div
+                          className="h-2 rounded bg-terminal-cyan"
+                          style={{
+                            width: maxContractSpend > 0 ? `${(item.spendUsd / maxContractSpend) * 100}%` : "0%",
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </article>
+
+              <article className="rounded border border-terminal-magenta/20 p-4">
+                <h2 className="mb-3 text-sm text-terminal-magenta">Events by Operation Type</h2>
+                <div className="space-y-2 text-xs">
+                  {data.byOperation.length === 0 ? (
+                    <p className="text-terminal-gray">No event types recorded for this month.</p>
+                  ) : data.byOperation.map((item) => (
+                    <div
+                      key={item.key}
+                      className="flex items-center justify-between gap-4 rounded border border-terminal-magenta/20 px-2 py-2"
+                    >
+                      <span className="break-all">{item.label}</span>
+                      <span>{item.eventCount.toLocaleString()} events</span>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            </section>
+          </>
+        )}
       </div>
     </main>
   );
@@ -240,32 +270,5 @@ function Tile({ label, value }: { label: string; value: string }) {
       <p className="text-xs text-terminal-gray">{label}</p>
       <p className="mt-2 text-xl">{value}</p>
     </article>
-  );
-}
-
-function ToggleRow({
-  label,
-  enabled,
-  onToggle,
-}: {
-  label: string;
-  enabled: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <div className="flex items-center justify-between rounded border border-terminal-green/20 px-2 py-2">
-      <span>{label}</span>
-      <button
-        type="button"
-        onClick={onToggle}
-        className={`rounded border px-2 py-1 ${
-          enabled
-            ? "border-terminal-green/40 text-terminal-green"
-            : "border-terminal-gray/40 text-terminal-gray"
-        }`}
-      >
-        {enabled ? "enabled" : "disabled"}
-      </button>
-    </div>
   );
 }

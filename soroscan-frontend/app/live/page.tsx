@@ -1,7 +1,10 @@
 "use client";
 
-import { Suspense, useState, useEffect, useRef, useCallback } from "react";
+import { Suspense, useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { useWebSocket } from "@/src/hooks/useWebSocket";
+import { ConnectionStatusBadge } from "@/src/components/ConnectionStatusBadge";
+import { isValidContractId, toBadgeStatus, toStreamEvent, type StreamEvent } from "@/lib/live-stream";
 import {
   Play,
   Pause,
@@ -13,59 +16,17 @@ import {
   ArrowDownCircle,
   Terminal,
   Radio,
+  RefreshCw,
   X,
 } from "lucide-react";
-
-interface StreamEvent {
-  id: string;
-  contractId: string;
-  eventType: string;
-  timestamp: string;
-  ledgerSequence: number;
-  txHash: string;
-  topics: string[];
-  payload: Record<string, unknown>;
-}
-
-const initialEvents: StreamEvent[] = [
-  {
-    id: "evt_1001",
-    contractId: "CA3D525C2...77A2",
-    eventType: "transfer",
-    timestamp: new Date(Date.now() - 12000).toISOString(),
-    ledgerSequence: 4982104,
-    txHash: "0a1b2c3d4e5f...",
-    topics: ["transfer", "from:GBX...", "to:GAY..."],
-    payload: { amount: "50000000", asset: "USDC", from: "GBX...123", to: "GAY...456" },
-  },
-  {
-    id: "evt_1002",
-    contractId: "CB8E119A4...33F1",
-    eventType: "swap",
-    timestamp: new Date(Date.now() - 9000).toISOString(),
-    ledgerSequence: 4982105,
-    txHash: "9f8e7d6c5b4a...",
-    topics: ["swap", "pool:XLM/USDC"],
-    payload: { amountIn: "100.00 XLM", amountOut: "42.15 USDC", trader: "GCT...789" },
-  },
-  {
-    id: "evt_1003",
-    contractId: "CA3D525C2...77A2",
-    eventType: "mint",
-    timestamp: new Date(Date.now() - 5000).toISOString(),
-    ledgerSequence: 4982106,
-    txHash: "123456789abc...",
-    topics: ["mint", "to:GCT...789"],
-    payload: { amount: "1000000", recipient: "GCT...789" },
-  },
-];
 
 function LiveStreamingContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const [events, setEvents] = useState<StreamEvent[]>(initialEvents);
-  const [isPaused, setIsPaused] = useState(false);
+  // Snapshot shown while paused; null means following the live stream.
+  const [frozenEvents, setFrozenEvents] = useState<StreamEvent[] | null>(null);
+  const isPaused = frozenEvents !== null;
   const [autoScroll, setAutoScroll] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -74,6 +35,17 @@ function LiveStreamingContent() {
   const [contractFilter, setContractFilter] = useState(searchParams.get("contract") || "");
   const [typeFilter, setTypeFilter] = useState(searchParams.get("type") || "");
   const [dateFilter, setDateFilter] = useState(searchParams.get("date") || "");
+
+  const streamContract = isValidContractId(contractFilter) ? contractFilter.trim() : "";
+  const { events: socketEvents, status, reconnect, clearEvents } = useWebSocket(streamContract);
+
+  // The hook keeps the newest 100 messages, newest first; show oldest first.
+  const liveEvents = useMemo(() => socketEvents.map(toStreamEvent).reverse(), [socketEvents]);
+  const events = frozenEvents ?? liveEvents;
+
+  const togglePause = useCallback(() => {
+    setFrozenEvents((frozen) => (frozen ? null : liveEvents));
+  }, [liveEvents]);
 
   const streamContainerRef = useRef<HTMLDivElement>(null);
   const pageContainerRef = useRef<HTMLDivElement>(null);
@@ -93,6 +65,10 @@ function LiveStreamingContent() {
   );
 
   const handleContractChange = (val: string) => {
+    if (val.trim() !== contractFilter.trim()) {
+      clearEvents();
+      setFrozenEvents(null);
+    }
     setContractFilter(val);
     updateUrlParams(val, typeFilter, dateFilter);
   };
@@ -108,43 +84,13 @@ function LiveStreamingContent() {
   };
 
   const clearFilters = () => {
+    clearEvents();
+    setFrozenEvents(null);
     setContractFilter("");
     setTypeFilter("");
     setDateFilter("");
     updateUrlParams("", "", "");
   };
-
-  // Simulate streaming events when not paused
-  useEffect(() => {
-    if (isPaused) return;
-
-    const interval = setInterval(() => {
-      const eventTypes = ["transfer", "swap", "mint", "deposit", "withdraw", "approve"];
-      const contracts = ["CA3D525C2...77A2", "CB8E119A4...33F1", "CC99112F8...11AA"];
-      const randomType = eventTypes[Math.floor(Math.random() * eventTypes.length)];
-      const randomContract = contracts[Math.floor(Math.random() * contracts.length)];
-      const newId = `evt_${Date.now()}`;
-
-      const newEvent: StreamEvent = {
-        id: newId,
-        contractId: randomContract,
-        eventType: randomType,
-        timestamp: new Date().toISOString(),
-        ledgerSequence: 4982107 + Math.floor(Math.random() * 50),
-        txHash: `${Math.random().toString(16).substring(2, 12)}...`,
-        topics: [randomType, `contract:${randomContract.substring(0, 6)}`],
-        payload: {
-          value: (Math.random() * 1000).toFixed(2),
-          status: "SUCCESS",
-          nonce: Math.floor(Math.random() * 10000),
-        },
-      };
-
-      setEvents((prev) => [...prev.slice(-150), newEvent]);
-    }, 2500);
-
-    return () => clearInterval(interval);
-  }, [isPaused]);
 
   // Auto-scroll effect
   useEffect(() => {
@@ -174,7 +120,7 @@ function LiveStreamingContent() {
       // Spacebar toggles pause/resume (if not typing in input)
       if (e.code === "Space" && !(e.target instanceof HTMLInputElement)) {
         e.preventDefault();
-        setIsPaused((prev) => !prev);
+        togglePause();
       }
       // ESC key updates state if exiting fullscreen
       if (e.code === "Escape" && isFullscreen) {
@@ -184,7 +130,7 @@ function LiveStreamingContent() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isFullscreen]);
+  }, [isFullscreen, togglePause]);
 
   // Copy event JSON helper
   const copyEventJson = (event: StreamEvent) => {
@@ -193,11 +139,8 @@ function LiveStreamingContent() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  // Filtered events
+  // Filtered events (the stream is already scoped to one contract)
   const filteredEvents = events.filter((evt) => {
-    if (contractFilter && !evt.contractId.toLowerCase().includes(contractFilter.toLowerCase())) {
-      return false;
-    }
     if (typeFilter && evt.eventType !== typeFilter) {
       return false;
     }
@@ -218,7 +161,9 @@ function LiveStreamingContent() {
       <div className="flex flex-col gap-4 mb-4 border-b border-terminal-green/30 pb-4 shrink-0">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <Radio className={`h-6 w-6 text-terminal-green ${!isPaused ? "animate-pulse" : ""}`} />
+            <Radio
+              className={`h-6 w-6 text-terminal-green ${!isPaused && status === "CONNECTED" ? "animate-pulse" : ""}`}
+            />
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-terminal-green">
@@ -233,17 +178,28 @@ function LiveStreamingContent() {
                 >
                   {isPaused ? "PAUSED" : "LIVE STREAMING"}
                 </span>
+                {streamContract && <ConnectionStatusBadge status={toBadgeStatus(status)} />}
               </div>
               <p className="text-xs text-terminal-gray">
-                Real-time Soroban smart contract event log feed. Press [Space] to pause/resume.
+                Real-time events for one Soroban contract. Press [Space] to pause/resume.
               </p>
             </div>
           </div>
 
           {/* Action Buttons */}
           <div className="flex flex-wrap items-center gap-2">
+            {streamContract && toBadgeStatus(status) === "offline" && (
+              <button
+                onClick={reconnect}
+                className="flex items-center gap-2 px-3 py-2 text-xs rounded border border-terminal-warning/40 bg-terminal-dark text-terminal-warning hover:bg-terminal-warning/10 transition-colors"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Reconnect
+              </button>
+            )}
+
             <button
-              onClick={() => setIsPaused((prev) => !prev)}
+              onClick={togglePause}
               className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded border transition-colors ${
                 isPaused
                   ? "bg-terminal-green text-terminal-black border-terminal-green hover:bg-terminal-green/90"
@@ -288,7 +244,8 @@ function LiveStreamingContent() {
           <div className="relative">
             <input
               type="text"
-              placeholder="Filter by Contract ID..."
+              aria-label="Contract ID"
+              placeholder="Contract ID (C...)"
               value={contractFilter}
               onChange={(e) => handleContractChange(e.target.value)}
               className="bg-terminal-dark border border-terminal-green/30 text-terminal-green px-3 py-1.5 rounded w-48 text-xs focus:outline-none focus:border-terminal-cyan"
@@ -327,6 +284,12 @@ function LiveStreamingContent() {
             </button>
           )}
 
+          {contractFilter.trim() && !streamContract && (
+            <span role="alert" className="text-terminal-danger">
+              Enter a full contract ID (C followed by 55 characters).
+            </span>
+          )}
+
           <div className="ml-auto text-terminal-gray text-[11px]">
             Showing <span className="text-terminal-cyan font-bold">{filteredEvents.length}</span> / {events.length} events
           </div>
@@ -342,7 +305,17 @@ function LiveStreamingContent() {
         {filteredEvents.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 text-terminal-gray space-y-2">
             <Terminal className="h-8 w-8 text-terminal-gray/50" />
-            <p>No streaming events match the active filters.</p>
+            <p>
+              {!streamContract
+                ? "Enter a contract ID to start streaming its events."
+                : events.length > 0
+                  ? "No streaming events match the active filters."
+                  : status === "CONNECTED"
+                    ? "Connected. Waiting for events..."
+                    : status === "CONNECTING"
+                      ? "Connecting to the event stream..."
+                      : "Not connected to the event stream."}
+            </p>
           </div>
         ) : (
           filteredEvents.map((evt) => (
