@@ -1,7 +1,23 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, installGraphqlMocks, seedAuth } from "./helpers/fixtures";
 import AxeBuilder from "@axe-core/playwright";
 
-const PAGES = ["/webhooks/testing", "/developer/api-explorer", "/search/advanced"];
+const PAGES = [
+  "/",
+  "/login",
+  "/features",
+  "/docs",
+  "/developer-portal",
+  "/webhooks/testing",
+  "/developer/api-explorer",
+  "/search/advanced",
+];
+
+test.beforeEach(async ({ page }) => {
+  // Public pages and the search/testing tools all read GraphQL data; mocks keep
+  // the scans deterministic and independent of a running backend.
+  await seedAuth(page);
+  await installGraphqlMocks(page);
+});
 
 async function gotoWithRetry(page: Parameters<Parameters<typeof test>[1]>[0]["page"], path: string) {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
