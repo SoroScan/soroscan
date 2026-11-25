@@ -396,3 +396,136 @@ class TestSimulationCaching:
         assert key != simulation_cache_key("CBBB", "get_admin", [])
         assert key.startswith("soroscan:simulation:")
         assert SIMULATION_CACHE_TTL == 60
+
+
+class TestTransactionFeeAndInvocationParsing:
+    """Small mocked RPC-shaped fixtures for fee and invocation analysis."""
+
+    def test_extract_fee_data_reads_fee_and_soroban_resource_fields(self):
+        response = {
+            "feeCharged": "1200",
+            "resultMeta": {
+                "sorobanMeta": {
+                    "resources": {
+                        "cpuInsns": "900",
+                        "memBytes": 128,
+                        "readBytes": 64,
+                        "writeBytes": 32,
+                    },
+                    "resourceFee": "300",
+                }
+            },
+        }
+
+        assert SorobanClient.extract_fee_data(response) == {
+            "total_fee_stroops": 1200,
+            "inclusion_fee_stroops": 900,
+            "resource_fee_stroops": 300,
+            "cpu_instructions_used": 900,
+            "memory_bytes_used": 128,
+            "read_bytes_used": 64,
+            "write_bytes_used": 32,
+        }
+
+    @pytest.mark.parametrize(
+        "response, expected_total",
+        [(None, 0), ({"fee_charged": "bad"}, 0), ({"fee": 17}, 17)],
+    )
+    def test_extract_fee_data_defaults_partial_or_invalid_fields(self, response, expected_total):
+        result = SorobanClient.extract_fee_data(response)
+        assert result["total_fee_stroops"] == expected_total
+        assert result["inclusion_fee_stroops"] == expected_total
+        assert result["resource_fee_stroops"] == 0
+        assert result["cpu_instructions_used"] == 0
+        assert result["memory_bytes_used"] == 0
+        assert result["read_bytes_used"] == 0
+        assert result["write_bytes_used"] == 0
+
+    def test_parse_transaction_response_reads_decoded_invocation_fields(self, client):
+        response = {
+            "source_account": "G_CALLER",
+            "ledger": 42,
+            "envelope_xdr": "fixture-envelope-xdr",
+            "contract_id": "C_CONTRACT",
+            "function_name": "transfer",
+            "parameters": {"amount": 7},
+            "result_xdr": "fixture-result-xdr",
+        }
+
+        parsed = client._parse_transaction_response(response)
+
+        assert parsed.caller == "G_CALLER"
+        assert parsed.contract == "C_CONTRACT"
+        assert parsed.function_name == "transfer"
+        assert parsed.parameters == {"amount": 7}
+        assert parsed.result == {"xdr": "fixture-result-xdr"}
+        assert parsed.ledger_sequence == 42
+        assert parsed.success is True
+        assert parsed.error is None
+
+    def test_parse_transaction_response_accepts_missing_optional_result(self, client):
+        parsed = client._parse_transaction_response(
+            {
+                "source_account": "G_CALLER",
+                "ledger": 43,
+                "envelope_xdr": "fixture-envelope-xdr",
+                "contract": "C_CONTRACT",
+                "function": "balance",
+            }
+        )
+        assert parsed.success is True
+        assert parsed.result is None
+        assert parsed.parameters == {}
+
+    def test_parse_transaction_response_reports_malformed_or_incomplete_data(self, client):
+        parsed = client._parse_transaction_response(
+            {"source_account": "G_CALLER", "envelope_xdr": "malformed"}
+        )
+        assert parsed.success is False
+        assert parsed.caller == ""
+        assert parsed.error == (
+            "Parse error: Could not extract contract and function from transaction"
+        )
+
+    def test_get_invocation_fetches_and_parses_transaction(self, client):
+        response = {
+            "status": "SUCCESS",
+            "source_account": "G_CALLER",
+            "ledger": 77,
+            "envelope_xdr": "fixture-envelope-xdr",
+            "contract_id": "C_CONTRACT",
+            "function_name": "mint",
+            "parameters": {"to": "G_USER", "amount": 5},
+        }
+        client.server = MagicMock()
+        with patch(
+            "soroscan.ingest.stellar_client.execute_with_circuit_breaker",
+            return_value=response,
+        ) as rpc:
+            result = client.get_invocation("tx-hash")
+        rpc.assert_called_once_with("soroban_rpc", client.server.get_transaction, "tx-hash")
+        assert result.success is True
+        assert result.function_name == "mint"
+        assert result.parameters == {"to": "G_USER", "amount": 5}
+        assert result.ledger_sequence == 77
+
+    @pytest.mark.parametrize("response", [None, {"status": "NOT_FOUND"}])
+    def test_get_invocation_returns_not_found_for_missing_or_pending_tx(self, client, response):
+        client.server = MagicMock()
+        with patch(
+            "soroscan.ingest.stellar_client.execute_with_circuit_breaker",
+            return_value=response,
+        ):
+            result = client.get_invocation("missing-hash")
+        assert result.success is False
+        assert result.error == "Transaction not found"
+
+    def test_get_invocation_reports_rpc_failure(self, client):
+        client.server = MagicMock()
+        with patch(
+            "soroscan.ingest.stellar_client.execute_with_circuit_breaker",
+            side_effect=RuntimeError("RPC unavailable"),
+        ):
+            result = client.get_invocation("broken-hash")
+        assert result.success is False
+        assert result.error == "RPC unavailable"

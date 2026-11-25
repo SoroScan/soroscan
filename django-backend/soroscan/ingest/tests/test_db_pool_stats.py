@@ -10,11 +10,11 @@ Coverage
 * Graceful 503 when the DB layer raises an unexpected exception.
 """
 import pytest
+from unittest.mock import MagicMock, patch
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
-from unittest.mock import MagicMock, patch
 
 User = get_user_model()
 
@@ -206,3 +206,113 @@ class TestDbPoolStatsFailure:
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert "detail" in response.data
+
+
+class _FakeCursor:
+    def __init__(self, row=None, error=None):
+        self.row = row
+        self.error = error
+        self.executed = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def execute(self, sql):
+        self.executed = sql
+        if self.error:
+            raise self.error
+
+    def fetchone(self):
+        return self.row
+
+
+class _FakeConnection:
+    vendor = "postgresql"
+
+    def __init__(self, row=None, error=None):
+        self.cursor_value = _FakeCursor(row, error)
+
+    def cursor(self):
+        return self.cursor_value
+
+
+def test_emit_pool_metrics_sets_all_postgresql_gauges():
+    from soroscan.db_pool import emit_pool_metrics
+
+    connection = _FakeConnection((13, 4, 7, 2, 1))
+    gauges = {}
+
+    def get_or_create(_gauge_cls, name, _documentation):
+        gauge = MagicMock()
+        gauges[name] = gauge
+        return gauge
+
+    with patch("django.db.connection", connection), patch(
+        "soroscan.ingest.metrics._get_or_create", side_effect=get_or_create
+    ):
+        emit_pool_metrics()
+
+    assert "FROM pg_stat_activity" in connection.cursor_value.executed
+    assert {name: gauge.set.call_args.args[0] for name, gauge in gauges.items()} == {
+        "soroscan_db_connections_total": 13,
+        "soroscan_db_connections_active": 4,
+        "soroscan_db_connections_idle": 7,
+        "soroscan_db_connections_wait_queue": 2,
+        "soroscan_db_connections_idle_in_transaction": 1,
+    }
+
+
+def test_emit_pool_metrics_is_noop_for_non_postgresql():
+    from soroscan.db_pool import emit_pool_metrics
+
+    connection = MagicMock(vendor="sqlite")
+    with patch("django.db.connection", connection), patch(
+        "soroscan.ingest.metrics._get_or_create"
+    ) as get_or_create:
+        emit_pool_metrics()
+    connection.cursor.assert_not_called()
+    get_or_create.assert_not_called()
+
+
+def test_emit_pool_metrics_ignores_empty_result():
+    from soroscan.db_pool import emit_pool_metrics
+
+    with patch("django.db.connection", _FakeConnection(None)), patch(
+        "soroscan.ingest.metrics._get_or_create"
+    ) as get_or_create:
+        emit_pool_metrics()
+    get_or_create.assert_not_called()
+
+
+def test_emit_pool_metrics_is_noop_when_metrics_import_is_unavailable():
+    import builtins
+
+    from soroscan.db_pool import emit_pool_metrics
+
+    real_import = builtins.__import__
+
+    def import_without_metrics(name, *args, **kwargs):
+        if name == "soroscan.ingest.metrics":
+            raise ImportError("metrics disabled")
+        return real_import(name, *args, **kwargs)
+
+    with patch("django.db.connection", _FakeConnection((1, 1, 0, 0, 0))), patch(
+        "builtins.__import__", side_effect=import_without_metrics
+    ), patch("soroscan.db_pool.logger") as logger:
+        emit_pool_metrics()
+    logger.debug.assert_called_once()
+    assert "Could not update Prometheus" in logger.debug.call_args.args[0]
+
+
+def test_emit_pool_metrics_swallows_database_error_and_logs_warning():
+    from soroscan.db_pool import emit_pool_metrics
+
+    with patch("django.db.connection", _FakeConnection(error=RuntimeError("db down"))), patch(
+        "soroscan.db_pool.logger"
+    ) as logger:
+        emit_pool_metrics()
+    logger.warning.assert_called_once()
+    assert "failed to query pg_stat_activity" in logger.warning.call_args.args[0]
