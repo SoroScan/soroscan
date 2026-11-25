@@ -12,8 +12,6 @@
 import type {
   // Schema types
   Event,
-  EventConnection,
-  EventEdge,
   ContractEvent,
   AuthPayload,
   User,
