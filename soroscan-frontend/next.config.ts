@@ -1,6 +1,7 @@
 import createNextIntlPlugin from 'next-intl/plugin';
 import createBundleAnalyzer from '@next/bundle-analyzer';
 import type { NextConfig } from "next";
+import { securityHeaders } from './lib/security-headers';
 
 const withNextIntl = createNextIntlPlugin('./i18n.ts');
 const withBundleAnalyzer = createBundleAnalyzer({
@@ -28,6 +29,22 @@ const nextConfig: NextConfig = {
     // local blob URLs and intentionally opts out of next/image). Populate
     // this when a remote image source (e.g. an avatar/CDN host) is added.
     remotePatterns: [],
+  },
+  async headers() {
+    // Security headers for every route; see lib/security-headers.ts and
+    // docs/security/frontend-headers.md for the rationale per directive.
+    return [
+      {
+        source: '/:path*',
+        headers: securityHeaders({
+          isProduction: process.env.NODE_ENV === 'production',
+          graphqlUrl: process.env.NEXT_PUBLIC_GRAPHQL_URL,
+          wsUrl: process.env.NEXT_PUBLIC_WS_URL,
+          apiUrl: process.env.NEXT_PUBLIC_API_URL,
+          webVitalsEndpoint: process.env.NEXT_PUBLIC_WEB_VITALS_ENDPOINT,
+        }),
+      },
+    ];
   },
   async rewrites() {
     const backendBaseUrl = process.env.BACKEND_BASE_URL || 'http://localhost:8000';

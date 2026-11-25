@@ -21,6 +21,8 @@ infrastructure, and incident response.
 
 - Configure CORS to allow only trusted origins.
 - Enable CSRF protection for browser-based endpoints.
+- Send hardening headers (CSP report-only, HSTS, frame and MIME protections) from the
+  Next.js frontend — see [Frontend HTTP security headers](./frontend-headers.md).
 - Validate and sanitize incoming request payloads.
 - Prevent SQL injection by using Django ORM and parameterized queries.
 - Apply rate limiting and DDoS protections on public endpoints.
