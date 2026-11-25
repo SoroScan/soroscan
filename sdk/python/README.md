@@ -288,6 +288,242 @@ client.record_event(
 ) -> RecordEventResponse
 ```
 
+### Indexers and Contract Status
+
+The methods in this section are available on both clients. Async methods accept the same arguments and return the same
+models, but must be awaited. They raise the SDK API errors described in [Error Handling](#error-handling) for failed
+HTTP responses. Pydantic `ValidationError` may also be raised for invalid request values or malformed response data;
+HTTP transport and timeout errors may propagate as `httpx` exceptions.
+
+#### Authorize an Indexer (SC-9)
+
+Submit an indexer Stellar address for authorization. The address may contain at most 56 characters. Returns an
+`AddIndexerResponse` with `status`, `tx_hash`, `transaction_status`, and `error`.
+
+Signature: `add_indexer(indexer_address: str) -> AddIndexerResponse`.
+
+```python
+import asyncio
+
+from soroscan import AsyncSoroScanClient, SoroScanClient
+
+indexer_address = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+
+with SoroScanClient(base_url="https://api.soroscan.io", api_key="your-api-key") as client:
+    result = client.add_indexer(indexer_address)
+    print(result.status, result.tx_hash)
+
+async def main():
+    async with AsyncSoroScanClient(
+        base_url="https://api.soroscan.io", api_key="your-api-key"
+    ) as client:
+        result = await client.add_indexer(indexer_address)
+        print(result.status, result.tx_hash)
+
+asyncio.run(main())
+```
+
+#### Check Indexer Authorization (SC-15)
+
+Check whether an address is an authorized indexer. Returns `IsIndexerResponse` with the `is_indexer` boolean.
+
+Signature: `is_indexer(indexer_address: str) -> IsIndexerResponse`.
+
+```python
+import asyncio
+
+from soroscan import AsyncSoroScanClient, SoroScanClient
+
+indexer_address = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+
+with SoroScanClient(base_url="https://api.soroscan.io") as client:
+    result = client.is_indexer(indexer_address)
+    print(result.is_indexer)
+
+async def main():
+    async with AsyncSoroScanClient(base_url="https://api.soroscan.io") as client:
+        result = await client.is_indexer(indexer_address)
+        print(result.is_indexer)
+
+asyncio.run(main())
+```
+
+#### Get the Contract Admin (SC-15)
+
+Fetch the current contract admin. Returns `GetAdminResponse`; `admin_address` is `str | None`.
+
+Signature: `get_admin() -> GetAdminResponse`.
+
+```python
+import asyncio
+
+from soroscan import AsyncSoroScanClient, SoroScanClient
+
+with SoroScanClient(base_url="https://api.soroscan.io") as client:
+    result = client.get_admin()
+    print(result.admin_address)
+
+async def main():
+    async with AsyncSoroScanClient(base_url="https://api.soroscan.io") as client:
+        result = await client.get_admin()
+        print(result.admin_address)
+
+asyncio.run(main())
+```
+
+#### Get Contract Status (SC-28)
+
+Read whether event recording is paused, the current admin address, and the total event count. Returns `ContractStatus`
+with `paused: bool`, `admin: str`, and `total_events: int`.
+
+Signature: `get_contract_status() -> ContractStatus`.
+
+```python
+import asyncio
+
+from soroscan import AsyncSoroScanClient, SoroScanClient
+
+with SoroScanClient(base_url="https://api.soroscan.io") as client:
+    status = client.get_contract_status()
+    print(status.paused, status.admin, status.total_events)
+
+async def main():
+    async with AsyncSoroScanClient(base_url="https://api.soroscan.io") as client:
+        status = await client.get_contract_status()
+        print(status.paused, status.admin, status.total_events)
+
+asyncio.run(main())
+```
+
+#### Get Recent Contract Events (SC-30)
+
+Return recent `ContractEvent` records for one contract, newest first. The default `limit` is 10 and the valid range is
+1–20. Raises `ValueError` if `limit` is outside that range.
+
+Signature: `get_contract_recent_events(contract_id: str, limit: int = 10) -> list[ContractEvent]`.
+
+```python
+import asyncio
+
+from soroscan import AsyncSoroScanClient, SoroScanClient
+
+contract_id = "CCAAA111222333444555666777888999AAABBBCCCDDDEEEFFF"
+
+with SoroScanClient(base_url="https://api.soroscan.io") as client:
+    events = client.get_contract_recent_events(contract_id, limit=5)
+    print([event.event_type for event in events])
+
+async def main():
+    async with AsyncSoroScanClient(base_url="https://api.soroscan.io") as client:
+        events = await client.get_contract_recent_events(contract_id, limit=5)
+        print([event.event_type for event in events])
+
+asyncio.run(main())
+```
+
+#### Get Indexer Statistics (SC-13)
+
+Fetch the count of events recorded by an indexer. Returns `IndexerStats` with its address in `indexer` and the count in
+`events_recorded`.
+
+Signature: `get_indexer_stats(indexer: str) -> IndexerStats`.
+
+```python
+import asyncio
+
+from soroscan import AsyncSoroScanClient, SoroScanClient
+
+indexer_address = "GABC111222333444555666777888999AAABBBCCCDDDEEEFFF00"
+
+with SoroScanClient(base_url="https://api.soroscan.io") as client:
+    stats = client.get_indexer_stats(indexer_address)
+    print(stats.events_recorded)
+
+async def main():
+    async with AsyncSoroScanClient(base_url="https://api.soroscan.io") as client:
+        stats = await client.get_indexer_stats(indexer_address)
+        print(stats.events_recorded)
+
+asyncio.run(main())
+```
+
+#### Record Events in a Batch (SC-29)
+
+Submit between 1 and 25 `EventEntry` objects in one transaction. Each entry has `contract_id` (max 56 characters),
+`event_type` (max 100), and `payload_hash` (max 64). Returns `RecordEventsBatchResponse` with the status and event
+count. Invalid entry values or a batch outside the allowed size raise Pydantic `ValidationError`.
+
+Signature: `record_events_batch(events: list[EventEntry]) -> RecordEventsBatchResponse`.
+
+```python
+import asyncio
+
+from soroscan import AsyncSoroScanClient, SoroScanClient
+from soroscan.models import EventEntry
+
+events = [
+    EventEntry(
+        contract_id="CCAAA111222333444555666777888999AAABBBCCCDDDEEEFFF",
+        event_type="transfer",
+        payload_hash="a" * 64,
+    ),
+    EventEntry(
+        contract_id="CCAAA111222333444555666777888999AAABBBCCCDDDEEEFFF",
+        event_type="swap",
+        payload_hash="b" * 64,
+    ),
+]
+
+with SoroScanClient(base_url="https://api.soroscan.io") as client:
+    result = client.record_events_batch(events)
+    print(result.status, result.total_events)
+
+async def main():
+    async with AsyncSoroScanClient(base_url="https://api.soroscan.io") as client:
+        result = await client.record_events_batch(events)
+        print(result.status, result.total_events)
+
+asyncio.run(main())
+```
+
+#### Record a Structured Event (SC-38)
+
+Submit an idempotent structured event using a `correlation_id`. Returns `RecordEventResponse`. The required
+`schema_version` must be at least 1; `contract_id`, `event_type`, `payload_hash`, and `correlation_id` have maximum
+lengths 56, 100, 64, and 64 characters. Invalid values raise Pydantic `ValidationError`.
+
+Signature:
+`record_structured_event(contract_id: str, event_type: str, payload_hash: str, schema_version: int, correlation_id: str) -> RecordEventResponse`.
+
+```python
+import asyncio
+
+from soroscan import AsyncSoroScanClient, SoroScanClient
+
+with SoroScanClient(base_url="https://api.soroscan.io") as client:
+    result = client.record_structured_event(
+        contract_id="CCAAA111222333444555666777888999AAABBBCCCDDDEEEFFF",
+        event_type="transfer",
+        payload_hash="a" * 64,
+        schema_version=1,
+        correlation_id="transfer-2026-001",
+    )
+    print(result.status, result.tx_hash)
+
+async def main():
+    async with AsyncSoroScanClient(base_url="https://api.soroscan.io") as client:
+        result = await client.record_structured_event(
+            contract_id="CCAAA111222333444555666777888999AAABBBCCCDDDEEEFFF",
+            event_type="transfer",
+            payload_hash="a" * 64,
+            schema_version=1,
+            correlation_id="transfer-2026-001",
+        )
+        print(result.status, result.tx_hash)
+
+asyncio.run(main())
+```
+
 ### Webhooks
 
 #### List Webhooks
