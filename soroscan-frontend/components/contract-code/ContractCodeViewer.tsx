@@ -169,7 +169,7 @@ export function ContractCodeViewer({
                 const { key: lineKey, ...lineProps } = getLineProps({ line });
                 return (
                   <div
-                    key={lineIdx}
+                    key={lineKey}
                     {...lineProps}
                     data-line={lineNumber}
                     className={cn(
@@ -184,10 +184,10 @@ export function ContractCodeViewer({
                       {lineNumber}
                     </span>
                     <span className="flex-1">
-                      {line.map((token, tokenIdx) => {
+                      {line.map((token) => {
                         const { key: tokenKey, ...tokenProps } = getTokenProps({ token });
                         return (
-                          <span key={tokenIdx} {...tokenProps}>{token.content}</span>
+                          <span key={tokenKey} {...tokenProps}>{token.content}</span>
                         );
                       })}
                     </span>

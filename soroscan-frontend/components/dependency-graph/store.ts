@@ -103,8 +103,6 @@ function buildNodes(
     return nameMatch && (filterSeverity === "ALL" ? true : sevMatch);
   });
 
-  const visibleIds = new Set(filtered.map((c) => c.id));
-
   return filtered.map((contract) => {
     const worstSeverity = getWorstSeverity(contract.vulnerabilities);
     const colors = severityNodeColor(worstSeverity);
