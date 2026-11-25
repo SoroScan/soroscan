@@ -1,89 +1,59 @@
+import { Skeleton, SkeletonCard, SkeletonTable, SkeletonText } from '@/components/ui/skeleton';
+
 export default function ContractsLoading() {
   return (
-    <main
-      className="min-h-screen bg-terminal-black p-8 text-terminal-green font-mono"
+    <div
       role="status"
-      aria-label="Contracts list loading"
+      aria-busy="true"
+      aria-label="Loading contracts"
+      className="min-h-screen bg-terminal-black p-4 font-terminal-mono sm:p-8"
     >
+      <span className="sr-only">Loading contracts</span>
+
       <div className="mx-auto max-w-7xl space-y-6">
-        {/* Header skeleton */}
-        <header className="flex items-center justify-between mb-8">
-          <div className="space-y-3">
-            <div
-              className="h-8 w-80 animate-pulse rounded bg-gray-700/40"
-              aria-hidden="true"
-            />
-            <div
-              className="h-4 w-96 animate-pulse rounded bg-gray-700/40"
-              aria-hidden="true"
-            />
-          </div>
-          <div
-            className="h-10 w-40 animate-pulse rounded bg-gray-700/40"
-            aria-hidden="true"
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <SkeletonText
+            lines={2}
+            width={420}
+            lineHeight={18}
+            gap={12}
+            lineWidths={['70%', '100%']}
           />
+
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Skeleton width={145} height={40} animation="pulse" />
+
+            <Skeleton width={130} height={40} animation="pulse" />
+
+            <Skeleton width={155} height={40} animation="pulse" />
+          </div>
         </header>
 
-        {/* Search/filter skeleton */}
-        <div className="mb-6 flex gap-4 flex-wrap">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div
-              key={i}
-              className="h-10 w-32 animate-pulse rounded border border-gray-700/40 bg-gray-700/20"
-              aria-hidden="true"
+        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }, (_, index) => (
+            <SkeletonCard
+              key={index}
+              showMedia={false}
+              lines={1}
+              height={128}
+              animation="pulse"
+              animationSpeed="normal"
             />
-          ))}
-        </div>
-
-        {/* Table skeleton */}
-        <section className="rounded border border-terminal-green/20 bg-black/30 overflow-hidden">
-          {/* Table header skeleton */}
-          <div className="grid grid-cols-5 gap-4 border-b border-terminal-green/20 bg-black/50 p-4">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-4 animate-pulse rounded bg-gray-700/40"
-                aria-hidden="true"
-              />
-            ))}
-          </div>
-
-          {/* Table rows skeleton */}
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div
-              key={i}
-              className="grid grid-cols-5 gap-4 border-b border-terminal-green/10 p-4 hover:bg-black/40"
-            >
-              {Array.from({ length: 5 }).map((_, j) => (
-                <div
-                  key={j}
-                  className="h-4 animate-pulse rounded bg-gray-700/40"
-                  aria-hidden="true"
-                />
-              ))}
-            </div>
           ))}
         </section>
 
-        {/* Pagination skeleton */}
-        <div className="flex items-center justify-between">
-          <div
-            className="h-4 w-40 animate-pulse rounded bg-gray-700/40"
-            aria-hidden="true"
-          />
-          <div className="flex gap-2">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-8 w-8 animate-pulse rounded border border-gray-700/40 bg-gray-700/20"
-                aria-hidden="true"
-              />
-            ))}
-          </div>
-        </div>
+        <section className="space-y-4 rounded-lg border border-terminal-green/20 p-4">
+          <SkeletonText lines={1} width={220} lineHeight={20} />
 
-        <p className="sr-only">Loading contracts list...</p>
+          <SkeletonTable
+            rows={7}
+            columns={5}
+            rowHeight={18}
+            animation="pulse"
+            animationSpeed="normal"
+          />
+        </section>
       </div>
-    </main>
+    </div>
   );
 }

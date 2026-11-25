@@ -1,5 +1,27 @@
 import * as React from "react"
+import { ChevronDown, ChevronUp } from "lucide-react"
 import { cn } from "@/lib/utils"
+
+export type SortDirection = "asc" | "desc"
+
+interface SortDirectionIndicatorProps {
+  active: boolean
+  direction: SortDirection
+  className?: string
+}
+
+/** Up/down arrows for sortable table headers. */
+export function SortDirectionIndicator({
+  active,
+  direction,
+  className,
+}: SortDirectionIndicatorProps) {
+  if (!active) {
+    return <ChevronUp size={10} className={cn("opacity-20", className)} aria-hidden="true" />
+  }
+  const Icon = direction === "asc" ? ChevronUp : ChevronDown
+  return <Icon size={10} className={className} aria-hidden="true" />
+}
 
 const Table = React.forwardRef<
   HTMLTableElement,
@@ -73,7 +95,7 @@ const TableHead = React.forwardRef<
   <th
     ref={ref}
     className={cn(
-      "h-10 px-4 text-left align-middle font-bold text-terminal-cyan uppercase tracking-wider [&:has([role=checkbox])]:pr-0",
+      "h-10 px-4 text-left align-middle text-xs font-semibold uppercase tracking-wider text-muted-foreground [&:has([role=checkbox])]:pr-0",
       className
     )}
     {...props}

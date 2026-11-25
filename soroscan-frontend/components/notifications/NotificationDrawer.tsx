@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { NotificationItem } from "./NotificationItem";
 import type { NotificationFilter, NotificationItem as NotificationItemType } from "./useNotifications";
 
@@ -58,12 +58,16 @@ export function NotificationDrawer({
     return () => document.removeEventListener("keydown", handler);
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
-
   return (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 z-40 bg-black/40" aria-hidden="true" />
+      <div
+        className={`fixed inset-0 z-40 bg-black/40 transition-opacity duration-300 ${
+          isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+        }`}
+        aria-hidden="true"
+        onClick={onClose}
+      />
 
       {/* Drawer */}
       <div
@@ -71,12 +75,14 @@ export function NotificationDrawer({
         role="dialog"
         aria-modal="true"
         aria-label="Notification center"
-        className="
+        className={`
           fixed top-0 right-0 z-50 h-full w-full max-w-sm
           bg-terminal-black border-l border-terminal-green/40
           flex flex-col font-terminal-mono
-          shadow-[−4px_0_24px_rgba(0,255,65,0.08)]
-        "
+          shadow-[-4px_0_24px_rgba(0,255,65,0.08)]
+          transition-transform duration-300 ease-in-out
+          ${isOpen ? "translate-x-0" : "translate-x-full"}
+        `}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-terminal-green/30">
@@ -84,21 +90,21 @@ export function NotificationDrawer({
           <div className="flex items-center gap-3">
             <button
               onClick={onMarkAllRead}
-              className="text-[10px] text-terminal-green/60 hover:text-terminal-green transition-colors"
+              className="text-[10px] text-terminal-green/60 hover:text-terminal-green transition-colors cursor-pointer"
               aria-label="Mark all as read"
             >
               MARK ALL READ
             </button>
             <button
               onClick={onClearAll}
-              className="text-[10px] text-terminal-danger/70 hover:text-terminal-danger transition-colors"
+              className="text-[10px] text-terminal-danger/70 hover:text-terminal-danger transition-colors cursor-pointer"
               aria-label="Clear all notifications"
             >
               CLEAR ALL
             </button>
             <button
               onClick={onClose}
-              className="text-terminal-green/60 hover:text-terminal-green transition-colors text-lg leading-none"
+              className="text-terminal-green/60 hover:text-terminal-green transition-colors text-lg leading-none cursor-pointer"
               aria-label="Close notification drawer"
             >
               ×
@@ -113,7 +119,7 @@ export function NotificationDrawer({
               key={opt.value}
               onClick={() => onFilterChange(opt.value)}
               className={`
-                text-[10px] px-2 py-0.5 border shrink-0 transition-colors
+                text-[10px] px-2 py-0.5 border shrink-0 transition-colors cursor-pointer
                 ${filter === opt.value
                   ? "border-terminal-green text-terminal-green bg-terminal-green/10"
                   : "border-terminal-green/30 text-terminal-green/50 hover:border-terminal-green/60 hover:text-terminal-green/80"
@@ -138,9 +144,33 @@ export function NotificationDrawer({
             <p className="text-xs text-terminal-green/50 text-center py-8">LOADING...</p>
           )}
           {!loading && notifications.length === 0 && (
-            <p className="text-xs text-terminal-green/40 text-center py-12">
-              NO NOTIFICATIONS
-            </p>
+            <div
+              data-testid="empty-notification-state"
+              className="m-4 flex flex-col items-center justify-center p-6 text-center rounded border border-terminal-green/20 bg-terminal-green/5"
+            >
+              <div className="w-10 h-10 rounded-full bg-terminal-green/10 border border-terminal-green/30 flex items-center justify-center mb-3 text-terminal-green">
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+              </div>
+              <p className="text-xs font-semibold text-terminal-green">
+                All clear! No new notifications
+              </p>
+              <p className="mt-1 text-[11px] text-terminal-gray">
+                You have no unread notifications at this time.
+              </p>
+            </div>
           )}
           {!loading && notifications.map((n) => (
             <NotificationItem key={n.id} notification={n} onMarkRead={onMarkRead} />

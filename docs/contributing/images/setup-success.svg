@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="560" viewBox="0 0 1000 560">
+  <rect width="1000" height="560" rx="32" fill="#0f172a" />
+  <rect x="40" y="40" width="920" height="200" rx="24" fill="#111827" />
+  <rect x="60" y="60" width="260" height="36" rx="12" fill="#10b981" />
+  <rect x="60" y="112" width="760" height="16" rx="8" fill="#334155" />
+  <rect x="60" y="140" width="500" height="16" rx="8" fill="#334155" />
+  <rect x="60" y="168" width="620" height="16" rx="8" fill="#334155" />
+  <rect x="60" y="216" width="920" height="256" rx="24" fill="#111827" />
+  <circle cx="120" cy="308" r="24" fill="#10b981" />
+  <path d="M112 308 l12 12 l24 -24" stroke="#0f172a" stroke-width="12" fill="none" stroke-linecap="round" />
+  <text x="180" y="308" font-family="Inter, sans-serif" font-size="32" fill="#f8fafc" dominant-baseline="middle">Successful local setup</text>
+  <text x="80" y="360" font-family="Inter, sans-serif" font-size="24" fill="#cbd5e1">Backend running at localhost:8000</text>
+  <text x="80" y="400" font-family="Inter, sans-serif" font-size="24" fill="#cbd5e1">Frontend running at localhost:3000</text>
+  <text x="80" y="440" font-family="Inter, sans-serif" font-size="24" fill="#cbd5e1">Events visible in the explorer</text>
+</svg>

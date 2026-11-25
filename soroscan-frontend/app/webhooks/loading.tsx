@@ -1,89 +1,59 @@
+import { Skeleton, SkeletonCard, SkeletonTable, SkeletonText } from '@/components/ui/skeleton';
+
 export default function WebhooksLoading() {
   return (
-    <main
-      className="min-h-screen bg-terminal-black p-8 text-terminal-green font-mono"
+    <div
       role="status"
-      aria-label="Webhooks list loading"
+      aria-busy="true"
+      aria-label="Loading webhooks"
+      className="min-h-screen bg-terminal-black font-terminal-mono"
     >
-      <div className="mx-auto max-w-7xl space-y-6">
-        {/* Header skeleton */}
-        <header className="flex items-center justify-between mb-8">
-          <div className="space-y-3">
-            <div
-              className="h-8 w-80 animate-pulse rounded bg-gray-700/40"
-              aria-hidden="true"
-            />
-            <div
-              className="h-4 w-96 animate-pulse rounded bg-gray-700/40"
-              aria-hidden="true"
-            />
-          </div>
-          <div
-            className="h-10 w-40 animate-pulse rounded bg-gray-700/40"
-            aria-hidden="true"
+      <span className="sr-only">Loading webhooks</span>
+
+      <main className="container mx-auto max-w-7xl space-y-8 px-6 py-10 md:px-8 md:py-14">
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <SkeletonText
+            lines={3}
+            width={360}
+            lineHeight={16}
+            gap={10}
+            lineWidths={['35%', '80%', '60%']}
           />
+
+          <Skeleton width={150} height={42} animation="pulse" />
         </header>
 
-        {/* Filter/search skeleton */}
-        <div className="mb-6 flex gap-4 flex-wrap">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div
-              key={i}
-              className="h-10 w-32 animate-pulse rounded border border-gray-700/40 bg-gray-700/20"
-              aria-hidden="true"
+        <section className="grid grid-cols-2 gap-4 border border-terminal-green/20 p-4 sm:grid-cols-4">
+          {Array.from({ length: 4 }, (_, index) => (
+            <SkeletonCard
+              key={index}
+              showMedia={false}
+              lines={1}
+              height={112}
+              animation="pulse"
+              animationSpeed="normal"
             />
-          ))}
-        </div>
-
-        {/* Webhooks table/list skeleton */}
-        <section className="rounded border border-terminal-green/20 bg-black/30 overflow-hidden">
-          {/* Table header skeleton */}
-          <div className="grid grid-cols-5 gap-4 border-b border-terminal-green/20 bg-black/50 p-4">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-4 animate-pulse rounded bg-gray-700/40"
-                aria-hidden="true"
-              />
-            ))}
-          </div>
-
-          {/* Table rows skeleton */}
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div
-              key={i}
-              className="grid grid-cols-5 gap-4 border-b border-terminal-green/10 p-4 hover:bg-black/40"
-            >
-              {Array.from({ length: 5 }).map((_, j) => (
-                <div
-                  key={j}
-                  className="h-4 animate-pulse rounded bg-gray-700/40"
-                  aria-hidden="true"
-                />
-              ))}
-            </div>
           ))}
         </section>
 
-        {/* Pagination skeleton */}
-        <div className="flex items-center justify-between">
-          <div
-            className="h-4 w-40 animate-pulse rounded bg-gray-700/40"
-            aria-hidden="true"
-          />
-          <div className="flex gap-2">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-8 w-8 animate-pulse rounded border border-gray-700/40 bg-gray-700/20"
-                aria-hidden="true"
-              />
-            ))}
-          </div>
-        </div>
+        <SkeletonText lines={1} width={260} lineHeight={12} />
 
-        <p className="sr-only">Loading webhooks list...</p>
-      </div>
-    </main>
+        <section className="space-y-4">
+          <div className="flex items-center gap-4">
+            <SkeletonText lines={1} width={180} lineHeight={20} />
+
+            <Skeleton width="100%" height={2} animation="pulse" />
+          </div>
+
+          <SkeletonTable
+            rows={6}
+            columns={6}
+            rowHeight={18}
+            animation="pulse"
+            animationSpeed="normal"
+          />
+        </section>
+      </main>
+    </div>
   );
 }

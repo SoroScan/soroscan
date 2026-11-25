@@ -2,9 +2,11 @@
 Tests for export_events / import_events management commands and the
 underlying export_import service.
 """
+
 import csv
 import io
 import json
+from datetime import datetime, timezone as dt_timezone
 
 import pytest
 from django.core.management import call_command
@@ -29,6 +31,7 @@ class TestExportJSON:
 
         buf = io.StringIO()
         from soroscan.ingest.services.export_import import export_json
+
         count = export_json(contract.contract_id, buf)
 
         assert count == 3
@@ -51,6 +54,39 @@ class TestExportJSON:
 
         buf = io.StringIO()
         count = export_json(contract.contract_id, buf, start_ledger=150, end_ledger=250)
+        assert count == 1
+        data = json.loads(buf.getvalue())
+        assert data[0]["ledger"] == 200
+
+    def test_date_range_filter(self):
+        contract = TrackedContractFactory()
+        ContractEventFactory(
+            contract=contract,
+            ledger=100,
+            event_index=0,
+            timestamp=datetime(2026, 1, 1, tzinfo=dt_timezone.utc),
+        )
+        ContractEventFactory(
+            contract=contract,
+            ledger=200,
+            event_index=1,
+            timestamp=datetime(2026, 1, 15, tzinfo=dt_timezone.utc),
+        )
+        ContractEventFactory(
+            contract=contract,
+            ledger=300,
+            event_index=2,
+            timestamp=datetime(2026, 2, 1, tzinfo=dt_timezone.utc),
+        )
+
+        buf = io.StringIO()
+        count = export_json(
+            contract.contract_id,
+            buf,
+            start_date=datetime(2026, 1, 10, tzinfo=dt_timezone.utc),
+            end_date=datetime(2026, 1, 31, tzinfo=dt_timezone.utc),
+        )
+
         assert count == 1
         data = json.loads(buf.getvalue())
         assert data[0]["ledger"] == 200
@@ -116,22 +152,26 @@ class TestImportJSON:
         assert ContractEvent.objects.count() == 3
 
     def test_import_missing_contract_records_error(self):
-        bad_row = json.dumps([{
-            "contract_id": "CNON_EXISTENT",
-            "event_type": "test",
-            "payload": "{}",
-            "payload_hash": "abc",
-            "ledger": 1,
-            "event_index": 0,
-            "timestamp": "2024-01-01T00:00:00+00:00",
-            "tx_hash": "deadbeef",
-            "raw_xdr": "",
-            "schema_version": None,
-            "validation_status": "passed",
-            "decoded_payload": None,
-            "decoding_status": "no_abi",
-            "signature_status": "missing",
-        }])
+        bad_row = json.dumps(
+            [
+                {
+                    "contract_id": "CNON_EXISTENT",
+                    "event_type": "test",
+                    "payload": "{}",
+                    "payload_hash": "abc",
+                    "ledger": 1,
+                    "event_index": 0,
+                    "timestamp": "2024-01-01T00:00:00+00:00",
+                    "tx_hash": "deadbeef",
+                    "raw_xdr": "",
+                    "schema_version": None,
+                    "validation_status": "passed",
+                    "decoded_payload": None,
+                    "decoding_status": "no_abi",
+                    "signature_status": "missing",
+                }
+            ]
+        )
         result = import_json(io.StringIO(bad_row), ImportResult())
         assert result.errors == 1
         assert result.imported == 0
@@ -184,6 +224,50 @@ class TestExportCommand:
         with open(out_file) as f:
             rows = list(csv.DictReader(f))
         assert len(rows) == 2
+
+    def test_command_supports_contract_alias_and_date_filter(self, tmp_path):
+        contract = TrackedContractFactory()
+        ContractEventFactory(
+            contract=contract,
+            ledger=100,
+            event_index=0,
+            timestamp=datetime(2026, 1, 1, tzinfo=dt_timezone.utc),
+        )
+        ContractEventFactory(
+            contract=contract,
+            ledger=200,
+            event_index=1,
+            timestamp=datetime(2026, 1, 20, tzinfo=dt_timezone.utc),
+        )
+        out_file = str(tmp_path / "events.json")
+
+        call_command(
+            "export_events",
+            contract_id=contract.contract_id,
+            format="json",
+            output=out_file,
+            start_date="2026-01-15",
+            end_date="2026-01-31",
+        )
+
+        data = json.loads(open(out_file).read())
+        assert [row["ledger"] for row in data] == [200]
+
+    def test_missing_contract_option_raises(self):
+        with pytest.raises(CommandError, match="Either --contract or --contract-id"):
+            call_command("export_events", format="json", output="-")
+
+    def test_invalid_date_range_raises(self):
+        contract = TrackedContractFactory()
+        with pytest.raises(CommandError, match="--start-date"):
+            call_command(
+                "export_events",
+                contract_id=contract.contract_id,
+                format="json",
+                output="-",
+                start_date="2026-02-01",
+                end_date="2026-01-01",
+            )
 
     def test_unknown_contract_raises(self):
         with pytest.raises(CommandError, match="No TrackedContract"):
@@ -257,3 +341,81 @@ class TestImportCommand:
         # No --format flag; should auto-detect from .csv extension
         call_command("import_events", file=out_file)
         assert ContractEvent.objects.count() == 2
+
+
+@pytest.mark.django_db
+class TestExportParquetAvro:
+    def test_parquet_roundtrip(self, tmp_path):
+        pytest.importorskip("pyarrow")
+        contract = TrackedContractFactory()
+        ContractEventFactory.create_batch(3, contract=contract)
+        out_file = str(tmp_path / "events.parquet")
+
+        call_command(
+            "export_events",
+            contract_id=contract.contract_id,
+            format="parquet",
+            output=out_file,
+        )
+        ContractEvent.objects.all().delete()
+
+        call_command("import_events", file=out_file, format="parquet")
+        assert ContractEvent.objects.count() == 3
+
+    def test_avro_roundtrip(self, tmp_path):
+        pytest.importorskip("fastavro")
+        contract = TrackedContractFactory()
+        ContractEventFactory.create_batch(3, contract=contract)
+        out_file = str(tmp_path / "events.avro")
+
+        call_command(
+            "export_events",
+            contract_id=contract.contract_id,
+            format="avro",
+            output=out_file,
+        )
+        ContractEvent.objects.all().delete()
+
+        call_command("import_events", file=out_file, format="avro")
+        assert ContractEvent.objects.count() == 3
+
+
+@pytest.mark.django_db
+class TestStreamingExport:
+    def test_export_uses_batching_without_loading_all_rows(self, monkeypatch):
+        contract = TrackedContractFactory()
+        ContractEventFactory.create_batch(5, contract=contract)
+
+        chunk_calls = {"count": 0}
+        original_iter = __import__(
+            "soroscan.ingest.services.export_import",
+            fromlist=["_iter_events"],
+        )._iter_events
+
+        def counting_iter(*args, **kwargs):
+            for event in original_iter(*args, **kwargs):
+                chunk_calls["count"] += 1
+                yield event
+
+        monkeypatch.setattr(
+            "soroscan.ingest.services.export_import._iter_events",
+            counting_iter,
+        )
+
+        buf = io.StringIO()
+        export_json(contract.contract_id, buf)
+        assert chunk_calls["count"] == 5
+        assert len(json.loads(buf.getvalue())) == 5
+
+
+@pytest.mark.django_db
+class TestImportValidation:
+    def test_fail_fast_aborts_on_validation_error(self, tmp_path):
+        contract = TrackedContractFactory()
+        bad_file = str(tmp_path / "bad.json")
+        with open(bad_file, "w", encoding="utf-8") as f:
+            f.write('[{"contract_id": "CNONEXISTENT", "event_type": "x"}]')
+
+        with pytest.raises(CommandError, match="validation error"):
+            call_command("import_events", file=bad_file, format="json", fail_fast=True)
+        assert ContractEvent.objects.filter(contract=contract).count() == 0

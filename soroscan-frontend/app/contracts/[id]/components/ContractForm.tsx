@@ -11,6 +11,9 @@ interface ContractFormProps {
   onCancel: () => void;
 }
 
+const DESCRIPTION_MAX_LENGTH = 256;
+const DESCRIPTION_WARNING_THRESHOLD = Math.floor(DESCRIPTION_MAX_LENGTH * 0.9);
+
 export function ContractForm({ contract, onSave, onCancel }: ContractFormProps) {
   const [formData, setFormData] = React.useState<ContractFormData>({
     contractId: contract.contractId,
@@ -70,6 +73,7 @@ export function ContractForm({ contract, onSave, onCancel }: ContractFormProps) 
 
       <Input
         label="Name"
+        data-testid="contract-name-input"
         value={formData.name}
         onChange={(e) => setFormData({ ...formData, name: e.target.value })}
         placeholder="My Contract"
@@ -89,8 +93,21 @@ export function ContractForm({ contract, onSave, onCancel }: ContractFormProps) 
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
             placeholder="Optional description..."
             rows={3}
+            maxLength={DESCRIPTION_MAX_LENGTH}
             className="w-full bg-terminal-black border-terminal border-terminal-gray/30 px-8 py-2 text-sm font-terminal-mono text-terminal-green placeholder:text-terminal-gray/50 focus-visible:outline-none focus-visible:border-terminal-green focus-visible:shadow-glow-green/20 transition-all resize-none"
           />
+        </div>
+        <div className="flex justify-end">
+          <span
+            className={`text-xs font-terminal-mono ${
+              (formData.description?.length ?? 0) >= DESCRIPTION_WARNING_THRESHOLD
+                ? "text-terminal-danger"
+                : "text-terminal-gray"
+            }`}
+            aria-live="polite"
+          >
+            {formData.description?.length ?? 0}/{DESCRIPTION_MAX_LENGTH}
+          </span>
         </div>
       </div>
 
@@ -142,7 +159,13 @@ export function ContractForm({ contract, onSave, onCancel }: ContractFormProps) 
       )}
 
      <div className="flex flex-col sm:flex-row gap-3 pt-4">
-        <Button type="submit" variant="primary" disabled={isSubmitting} className="flex-1">
+        <Button
+          type="submit"
+          variant="primary"
+          data-testid="contract-save-btn"
+          disabled={isSubmitting}
+          className="flex-1"
+        >
           {isSubmitting ? "SAVING..." : "SAVE CHANGES"}
         </Button>
         <Button type="button" variant="secondary" onClick={onCancel} disabled={isSubmitting} className="sm:w-auto">

@@ -25,10 +25,12 @@ venv/
 env/
 ENV/
 .venv
+.venv*/
 
 # Testing
 .pytest_cache/
 .coverage
+coverage.xml
 htmlcov/
 .tox/
 

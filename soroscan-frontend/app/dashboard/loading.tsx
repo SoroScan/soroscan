@@ -1,109 +1,72 @@
-export default function DashboardLoading() {
+import {
+  Skeleton,
+  SkeletonCard,
+  SkeletonChart,
+  SkeletonTable,
+  SkeletonText,
+} from '@/components/ui/skeleton';
+
+export default function EventExplorerLoading() {
   return (
-    <main
-      className="min-h-screen bg-terminal-black p-8 text-terminal-green font-terminal-mono"
+    <div
       role="status"
-      aria-label="Dashboard loading"
+      aria-busy="true"
+      aria-label="Loading Event Explorer"
+      className="min-h-screen bg-terminal-black p-4 font-terminal-mono sm:p-8"
     >
-      <div className="mx-auto max-w-6xl space-y-8">
-        {/* Header skeleton */}
-        <header className="space-y-3">
-          <div
-            className="h-3 w-48 animate-pulse rounded bg-gray-700/40"
-            aria-hidden="true"
+      <span className="sr-only">Loading Event Explorer</span>
+
+      <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
+        <aside className="space-y-4 rounded-lg border border-terminal-green/20 p-4">
+          <SkeletonText lines={2} lineHeight={14} lineWidths={['45%', '75%']} />
+
+          <SkeletonCard
+            showMedia={false}
+            lines={4}
+            height={220}
+            animation="pulse"
+            animationSpeed="normal"
           />
-          <div
-            className="h-10 w-96 animate-pulse rounded bg-gray-700/40"
-            aria-hidden="true"
-          />
-          <div
-            className="h-5 w-full max-w-md animate-pulse rounded bg-gray-700/40"
-            aria-hidden="true"
-          />
-        </header>
 
-        {/* Metric cards skeleton (4 cards) */}
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <article
-              key={i}
-              className="rounded border border-terminal-green/20 bg-black/30 p-4"
-            >
-              <div
-                className="h-3 w-20 animate-pulse rounded bg-gray-700/40"
-                aria-hidden="true"
-              />
-              <div
-                className="mt-3 h-8 w-32 animate-pulse rounded bg-gray-700/40"
-                aria-hidden="true"
-              />
-              <div
-                className="mt-2 h-3 w-24 animate-pulse rounded bg-gray-700/40"
-                aria-hidden="true"
-              />
-            </article>
-          ))}
-        </section>
+          <SkeletonText lines={3} lineHeight={38} gap={12} lineWidths={['100%', '100%', '100%']} />
+        </aside>
 
-        {/* Additional metric cards skeleton (3 cards) */}
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <article
-              key={i}
-              className="rounded border border-terminal-green/20 bg-black/30 p-4"
-            >
-              <div
-                className="h-3 w-20 animate-pulse rounded bg-gray-700/40"
-                aria-hidden="true"
-              />
-              <div
-                className="mt-3 h-8 w-24 animate-pulse rounded bg-gray-700/40"
-                aria-hidden="true"
-              />
-              <div
-                className="mt-2 h-3 w-28 animate-pulse rounded bg-gray-700/40"
-                aria-hidden="true"
-              />
-            </article>
-          ))}
-        </section>
-
-        {/* System health section skeleton */}
-        <section className="rounded border border-terminal-green/20 p-4">
-          <div className="flex items-center justify-between">
-            <div
-              className="h-3 w-24 animate-pulse rounded bg-gray-700/40"
-              aria-hidden="true"
+        <main className="min-w-0 space-y-6">
+          <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <SkeletonText
+              lines={3}
+              width={360}
+              lineHeight={16}
+              gap={10}
+              lineWidths={['25%', '70%', '100%']}
             />
-            <div
-              className="h-6 w-20 animate-pulse rounded bg-gray-700/40"
-              aria-hidden="true"
-            />
-          </div>
-          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-4 w-40 animate-pulse rounded bg-gray-700/40"
-                aria-hidden="true"
-              />
-            ))}
-          </div>
-        </section>
 
-        {/* Controls skeleton */}
-        <section className="flex gap-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div
-              key={i}
-              className="h-8 w-24 animate-pulse rounded bg-gray-700/40"
-              aria-hidden="true"
-            />
-          ))}
-        </section>
+            <Skeleton width={42} height={42} animation="pulse" className="shrink-0" />
+          </header>
 
-        <p className="sr-only">Loading dashboard data...</p>
+          <SkeletonChart height={220} bars={10} animation="pulse" animationSpeed="normal" />
+
+          <section className="space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <SkeletonText lines={1} width={180} lineHeight={20} />
+
+              <div className="flex gap-2">
+                <Skeleton width={100} height={34} animation="pulse" />
+
+                <Skeleton width={80} height={34} animation="pulse" />
+              </div>
+            </div>
+
+            <SkeletonTable
+              rows={8}
+              columns={7}
+              rowHeight={16}
+              animation="pulse"
+              animationSpeed="normal"
+            />
+          </section>
+        </main>
       </div>
-    </main>
+    </div>
   );
 }
