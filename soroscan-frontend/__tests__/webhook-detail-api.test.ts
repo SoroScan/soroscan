@@ -1,4 +1,4 @@
-import { adaptDeliveryLog, adaptWebhook } from "@/app/webhooks/[id]/page";
+import { adaptDeliveryLog, adaptWebhook } from "@/app/webhooks/[id]/api";
 
 describe("webhook detail adapters (API -> UI)", () => {
   it("adapts a REST webhook payload to the UI Webhook type", () => {
