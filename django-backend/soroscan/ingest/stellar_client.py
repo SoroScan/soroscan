@@ -966,28 +966,39 @@ class SorobanClient:
         """
         try:
             # Extract source account
-            caller = getattr(tx_response, "source_account", "")
+            caller = _get_attr_or_key(tx_response, "source_account") or ""
             if not caller:
                 raise ValueError("No source account in transaction")
 
             # Extract ledger sequence
-            ledger_sequence = getattr(tx_response, "ledger", 0)
+            ledger_sequence = _get_attr_or_key(tx_response, "ledger") or 0
 
             # Extract contract and function from transaction envelope
             # The transaction response contains the envelope with operations
-            envelope = getattr(tx_response, "envelope_xdr", None)
+            envelope = _get_attr_or_key(tx_response, "envelope_xdr")
             if not envelope:
                 raise ValueError("No envelope in transaction response")
 
-            # For now, we'll extract basic info from the response
-            # In a real implementation, we'd parse the XDR envelope
-            # This is a simplified version that assumes the response has these fields
-            contract = ""
-            function_name = ""
-            parameters = {}
+            # RPC adapters that provide a decoded operation expose these
+            # fields directly; the envelope remains the validity check.
+            contract = (
+                _get_attr_or_key(tx_response, "contract_id")
+                or _get_attr_or_key(tx_response, "contract")
+                or ""
+            )
+            function_name = (
+                _get_attr_or_key(tx_response, "function_name")
+                or _get_attr_or_key(tx_response, "function")
+                or ""
+            )
+            parameters = (
+                _get_attr_or_key(tx_response, "parameters")
+                or _get_attr_or_key(tx_response, "args")
+                or {}
+            )
 
             # Try to extract from result_xdr if available
-            result_xdr = getattr(tx_response, "result_xdr", None)
+            result_xdr = _get_attr_or_key(tx_response, "result_xdr")
 
             # Store result as XDR-encoded dict
             result = None
