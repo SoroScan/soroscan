@@ -1,12 +1,10 @@
-import type { Config } from 'jest';
 import nextJest from 'next/jest.js';
 
 const createJestConfig = nextJest({
   dir: './',
 });
 
-const config: Config = {
-  coverageProvider: 'v8',
+const config: NonNullable<Parameters<typeof createJestConfig>[0]> = {
   testEnvironment: 'jsdom',
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   // Tell Jest how to resolve the @/ path aliases
@@ -33,15 +31,24 @@ const config: Config = {
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'text-summary', 'lcov', 'json', 'html'],
 
-  // Keep Jest at its current 40/30/35/40 baseline; Codecov tracks 70% as a longer-term target.
-  coverageThreshold: {
-    global: {
-      lines: 40,
-      branches: 30,
-      functions: 35,
-      statements: 40,
-    },
-  },
 };
 
-export default createJestConfig(config);
+const resolveJestConfig = createJestConfig(config);
+
+async function jestConfig() {
+  return {
+    ...(await resolveJestConfig()),
+    coverageProvider: 'v8',
+    // Keep Jest at its current 40/30/35/40 baseline; Codecov tracks 70% as a longer-term target.
+    coverageThreshold: {
+      global: {
+        lines: 40,
+        branches: 30,
+        functions: 35,
+        statements: 40,
+      },
+    },
+  };
+}
+
+export default jestConfig;
