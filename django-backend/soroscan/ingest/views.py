@@ -1545,7 +1545,7 @@ class TeamViewSet(viewsets.ModelViewSet):
         try:
             new_user = User.objects.get(pk=ser.validated_data["user_id"])
         except User.DoesNotExist:
-            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"detail": "User not found."}, status=status.HTTP_400_BAD_REQUEST)
         _, created = TeamMembership.objects.get_or_create(
             team=team,
             user=new_user,
