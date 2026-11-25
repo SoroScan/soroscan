@@ -11,7 +11,6 @@ from pydantic import TypeAdapter
 
 from soroscan.exceptions import (
     SoroScanAPIError,
-    SoroScanAuthError,
     SoroScanAuthenticationError,
     SoroScanAuthorizationError,
     SoroScanConnectionError,
@@ -35,7 +34,6 @@ from soroscan.models import (
     GetEventsByContractsResponse,
     IndexerStats,
     IsIndexerResponse,
-    MAX_TAGS,
     PaginatedResponse,
     RecordEventRequest,
     RecordEventResponse,
