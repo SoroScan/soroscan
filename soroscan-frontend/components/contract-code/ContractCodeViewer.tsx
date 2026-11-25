@@ -166,10 +166,10 @@ export function ContractCodeViewer({
                 const lineText = line.map((t) => t.content).join('');
                 const isMatch = highlightLine(lineText);
                 const lineNumber = lineIdx + 1;
-                const { key: lineKey, ...lineProps } = getLineProps({ line });
+                const { key: _lineKey, ...lineProps } = getLineProps({ line });
                 return (
                   <div
-                    key={lineIdx}
+                    key={lineNumber}
                     {...lineProps}
                     data-line={lineNumber}
                     className={cn(
@@ -185,7 +185,7 @@ export function ContractCodeViewer({
                     </span>
                     <span className="flex-1">
                       {line.map((token, tokenIdx) => {
-                        const { key: tokenKey, ...tokenProps } = getTokenProps({ token });
+                        const { key: _tokenKey, ...tokenProps } = getTokenProps({ token });
                         return (
                           <span key={tokenIdx} {...tokenProps}>{token.content}</span>
                         );

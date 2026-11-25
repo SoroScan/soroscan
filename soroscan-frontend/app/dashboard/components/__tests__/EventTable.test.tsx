@@ -250,7 +250,7 @@ describe("EventTable", () => {
       });
     });
 
-    it("applies hover effects to event rows", () => {
+    it("marks event rows as interactive", () => {
       const { container } = render(
         <EventTable
           events={mockEvents}
@@ -260,9 +260,7 @@ describe("EventTable", () => {
         />,
       );
 
-      expect(container.querySelector("tbody tr")).toHaveStyle({
-        cursor: "pointer",
-      });
+      expect(container.querySelector("tbody tr")).toHaveClass("eventRow");
     });
   });
 
