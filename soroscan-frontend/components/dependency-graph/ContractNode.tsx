@@ -17,9 +17,8 @@ import { useDependencyGraphStore } from "./store";
  */
 export const ContractNode = memo(function ContractNode({
   data,
-  selected,
 }: NodeProps<GraphNodeData>) {
-  const { contract, isSelected, isHighlighted, isDimmed, worstSeverity } = data;
+  const { contract, isSelected, isHighlighted, worstSeverity } = data;
   const colors = severityNodeColor(worstSeverity);
   const { selectContract, hoverContract } = useDependencyGraphStore();
 
