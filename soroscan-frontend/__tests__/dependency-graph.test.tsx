@@ -18,10 +18,12 @@ import {
   getWorstSeverity,
   severityColor,
   severityNodeColor,
-  generateMockContracts,
-  MOCK_CONTRACTS,
   type VulnerabilitySeverity,
 } from "@/components/dependency-graph/types";
+import {
+  generateMockContracts,
+  MOCK_CONTRACTS,
+} from "@/components/dependency-graph/mock-data";
 
 // ── Store ─────────────────────────────────────────────────────────────────────
 import { useDependencyGraphStore } from "@/components/dependency-graph/store";
@@ -276,16 +278,16 @@ describe("dependency-graph/store", () => {
     expect(useDependencyGraphStore.getState().viewMode).toBe("tree");
   });
 
-  it("loadMockData populates with default MOCK_CONTRACTS", () => {
+  it("setContracts populates with the default MOCK_CONTRACTS", () => {
     act(() => {
-      useDependencyGraphStore.getState().loadMockData();
+      useDependencyGraphStore.getState().setContracts(MOCK_CONTRACTS);
     });
     expect(useDependencyGraphStore.getState().contracts.length).toBe(MOCK_CONTRACTS.length);
   });
 
-  it("loadMockData with count generates that many contracts", () => {
+  it("setContracts with generated data yields that many contracts", () => {
     act(() => {
-      useDependencyGraphStore.getState().loadMockData(120);
+      useDependencyGraphStore.getState().setContracts(generateMockContracts(120));
     });
     expect(useDependencyGraphStore.getState().contracts.length).toBe(120);
   });
@@ -308,7 +310,7 @@ describe("GraphFilter", () => {
   beforeEach(() => {
     resetStore();
     act(() => {
-      useDependencyGraphStore.getState().loadMockData();
+      useDependencyGraphStore.getState().setContracts(MOCK_CONTRACTS);
     });
   });
 
@@ -375,7 +377,7 @@ describe("DependencyTreeView", () => {
   beforeEach(() => {
     resetStore();
     act(() => {
-      useDependencyGraphStore.getState().loadMockData();
+      useDependencyGraphStore.getState().setContracts(MOCK_CONTRACTS);
     });
   });
 
@@ -406,7 +408,7 @@ describe("DependencyTreeView", () => {
 
   it("renders with 100 contracts without crashing", () => {
     act(() => {
-      useDependencyGraphStore.getState().loadMockData(100);
+      useDependencyGraphStore.getState().setContracts(generateMockContracts(100));
     });
     const { container } = render(<DependencyTreeView />);
     expect(container).toBeTruthy();
@@ -433,7 +435,7 @@ describe("VulnerabilityImpactPanel", () => {
   beforeEach(() => {
     resetStore();
     act(() => {
-      useDependencyGraphStore.getState().loadMockData();
+      useDependencyGraphStore.getState().setContracts(MOCK_CONTRACTS);
     });
   });
 
@@ -489,7 +491,7 @@ describe("DependencyStackPanel", () => {
   beforeEach(() => {
     resetStore();
     act(() => {
-      useDependencyGraphStore.getState().loadMockData();
+      useDependencyGraphStore.getState().setContracts(MOCK_CONTRACTS);
     });
   });
 
@@ -536,7 +538,7 @@ describe("DependencyStackPanel", () => {
 
   it("renders without crashing for 100 contracts", () => {
     act(() => {
-      useDependencyGraphStore.getState().loadMockData(100);
+      useDependencyGraphStore.getState().setContracts(generateMockContracts(100));
       useDependencyGraphStore.getState().selectContract("contract_0");
     });
     const { container } = render(<DependencyStackPanel />);
