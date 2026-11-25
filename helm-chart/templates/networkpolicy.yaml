@@ -1,0 +1,101 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $namespace := default .Release.Namespace .Values.networkPolicy.namespace }}
+{{- $appSelector := .Values.networkPolicy.appSelector | default (dict "app" (include "soroscan.name" .)) }}
+{{- $backendSelector := deepCopy $appSelector }}
+{{- $_ := set $backendSelector "component" "backend" }}
+{{- $egressExcept := .Values.networkPolicy.egress.except }}
+# Default-deny ingress and egress, then explicit allows for the flows the
+# application needs. Mirrors k8s/networkpolicy.yaml.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "soroscan.fullname" . }}-default-deny
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "soroscan.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "soroscan.fullname" . }}-allow-backend-ingress
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "soroscan.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- toYaml $backendSelector | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    {{- range .Values.networkPolicy.ingressNamespaces }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ $.Values.networkPolicy.backendPort }}
+    {{- end }}
+    {{- with .Values.networkPolicy.additionalIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "soroscan.fullname" . }}-allow-app-egress
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "soroscan.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- toYaml $appSelector | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    {{- with .Values.networkPolicy.dnsNamespace }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+      ports:
+        - protocol: UDP
+          port: {{ $.Values.networkPolicy.dnsPort }}
+        - protocol: TCP
+          port: {{ $.Values.networkPolicy.dnsPort }}
+    {{- end }}
+    {{- if .Values.networkPolicy.database.enabled }}
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.database.cidr | quote }}
+            {{- with $egressExcept }}
+            except:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.database.port }}
+    {{- end }}
+    {{- if .Values.networkPolicy.redis.enabled }}
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.redis.cidr | quote }}
+            {{- with $egressExcept }}
+            except:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.redis.port }}
+    {{- end }}
+    {{- with .Values.networkPolicy.egress.additional }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}
