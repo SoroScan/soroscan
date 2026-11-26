@@ -1,10 +1,13 @@
 import factory
+import factory
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from factory.django import DjangoModelFactory
 
 from soroscan.ingest.models import (
+    CallGraph,
     ContractABI,
+    ContractDependency,
     ContractEvent,
     ContractMetadata,
     EventSchema,
@@ -207,3 +210,31 @@ class EventAggregationFactory(DjangoModelFactory):
     )
     event_count = 100
     is_anomaly = False
+
+
+
+class ContractDependencyFactory(DjangoModelFactory):
+    class Meta:
+        model = ContractDependency
+
+    caller = factory.SubFactory(TrackedContractFactory)
+    callee = factory.SubFactory(TrackedContractFactory)
+    call_count = 1
+    risk_score = 0.0
+
+
+class CallGraphFactory(DjangoModelFactory):
+    class Meta:
+        model = CallGraph
+
+    contract = factory.SubFactory(TrackedContractFactory)
+    graph_data = factory.LazyFunction(
+        lambda: {
+            "nodes": [],
+            "edges": [],
+            "metadata": {"contract_count": 0}
+        }
+    )
+    has_cycles = False
+    cycle_details = None
+    computed_at = factory.LazyFunction(timezone.now)

@@ -33,10 +33,12 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0,<9",
-    "pytest-asyncio>=0.21.0",
+    "pytest-asyncio>=0.23",
     "pytest-httpx>=0.22.0",
     "pytest-timeout>=2.1.0",
     "responses>=0.23.0",
+    "anyio[trio]>=3.0.0",
+    "pytest-anyio>=0.0.0",
 ]
 
 [project.urls]
@@ -53,15 +55,3 @@ include = ["soroscan*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-
-[tool.ruff.lint.per-file-ignores]
-# TODO: pre-existing lint debt, not introduced by the CI workflow added in
-# issue #1937. Clean these up and drop the ignores in a follow-up.
-"soroscan/__init__.py" = ["I001", "RUF022"]
-"soroscan/async_client.py" = ["RUF022"]
-"soroscan/builder.py" = ["I001"]
-"soroscan/client.py" = ["I001", "F401", "PYI034", "PYI036", "SIM114", "BLE001"]
-"soroscan/exceptions.py" = ["I001"]
-"soroscan/models.py" = ["F811"]
-"soroscan/pagination.py" = ["I001", "UP035", "UP037"]
-"soroscan/webhook_verification.py" = ["BLE001"]

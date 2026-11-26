@@ -207,3 +207,55 @@ serviceMonitor:
   interval: 30s
   scrapeTimeout: 10s
   labels: {}
+
+# Network isolation matching k8s/networkpolicy.yaml. Disabled by default so
+# existing installations keep their current pod-to-pod connectivity.
+networkPolicy:
+  enabled: false
+  # Empty means the release namespace (.Release.Namespace).
+  namespace: ""
+  # Empty means the chart's standard app label; override to match custom pods.
+  appSelector: {}
+  backendSelector:
+    component: backend
+  backendPort: 8000
+  # Namespaces with the kubernetes.io/metadata.name label allowed to reach the
+  # backend on backendPort (ingress controller, monitoring, node/kubelet).
+  ingressNamespaces:
+    - ingress-nginx
+    - monitoring
+    - kube-system
+  additionalIngress: []
+  dnsNamespace: kube-system
+  dnsPort: 53
+  database:
+    enabled: true
+    port: 5432
+    cidr: 0.0.0.0/0
+  redis:
+    enabled: true
+    port: 6379
+    cidr: 0.0.0.0/0
+  egress:
+    # Excluded from all ipBlock egress rules (cloud metadata endpoint).
+    except:
+      - 169.254.169.254/32
+    # Extra egress rules, e.g. HTTPS to Soroban RPC/Sentry and plain HTTP
+    # webhook subscribers. Narrow the CIDRs to your environment in production.
+    additional:
+      - to:
+          - ipBlock:
+              cidr: 0.0.0.0/0
+              except:
+                - 169.254.169.254/32
+        ports:
+          - protocol: TCP
+            port: 443
+      - to:
+          - ipBlock:
+              cidr: 0.0.0.0/0
+              except:
+                - 169.254.169.254/32
+        ports:
+          - protocol: TCP
+            port: 80

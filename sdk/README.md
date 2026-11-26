@@ -10,7 +10,7 @@ events = client.get_contract_recent_events(contract_id, limit=10)
 ```
 
 ```ts
-const events = await client.getContractRecentEvents({ contractId, limit: 10 });
+const events = await client.getContractRecentEvents(contractId, 10);
 ```
 
 CLI:

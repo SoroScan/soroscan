@@ -123,6 +123,54 @@ for (const event of events.results) {
 }
 ```
 
+#### `client.recordStructuredEvent(params)` (SC-38)
+
+Submit a versioned, deduplicated event. The `correlationId` makes retries safe — the contract rejects a repeated ID without publishing a second event.
+
+```ts
+const result = await client.recordStructuredEvent({
+  contractId: "CCAAA...",
+  eventType: "escrow",
+  payloadHash: "a".repeat(64),
+  schemaVersion: 1,
+  correlationId: "b".repeat(64), // unique 32-byte hex id
+});
+
+console.log(result.status);            // "submitted" | "failed"
+console.log(result.transactionStatus); // e.g. "SUCCESS"
+```
+
+**`RecordStructuredEventParams`**
+
+| Field | Type | Description |
+|---|---|---|
+| `contractId` | `string` | Target contract address |
+| `eventType` | `string` | Event category name |
+| `payloadHash` | `string` | SHA-256 hex hash of the event payload |
+| `schemaVersion` | `number` | Positive integer; selects the payload decoder |
+| `correlationId` | `string` | 32-byte hex idempotency key |
+
+#### `client.recordEventsBatch(params)` (SC-29)
+
+Record up to 25 events in a single on-chain transaction.
+
+```ts
+const result = await client.recordEventsBatch({
+  events: [
+    { contractId: "CCAAA...", eventType: "transfer", payloadHash: "a".repeat(64) },
+    { contractId: "CCAAA...", eventType: "swap",     payloadHash: "b".repeat(64) },
+  ],
+});
+
+console.log("New total events:", result.totalEvents);
+```
+
+**`RecordEventsBatchParams`**
+
+| Field | Type | Description |
+|---|---|---|
+| `events` | `EventEntry[]` | 1–25 entries; each has `contractId`, `eventType`, `payloadHash` |
+
 ---
 
 ### Contracts
@@ -147,6 +195,87 @@ Returns details for a single contract.
 const contract = await client.getContract({ contractId: "CCAAA..." });
 console.log(contract.spec?.functions); // ABI
 ```
+
+#### `client.getContractEvents(contractId, limit?)` (SC-16)
+
+Returns up to `limit` recent events for a contract (default 100).
+
+```ts
+const events = await client.getContractEvents("CCAAA...", 20);
+
+for (const event of events) {
+  console.log(event.ledger, event.type, event.txHash);
+}
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| `contractId` | `string` | Contract address |
+| `limit` | `number` | Max events to return (default: `100`) |
+
+#### `client.getContractRecentEvents(contractId, limit?)` (SC-30)
+
+Returns the newest events for a contract, newest first. The limit is clamped to the server maximum of 20.
+
+```ts
+const recent = await client.getContractRecentEvents("CCAAA...", 10);
+
+for (const event of recent) {
+  console.log(event.ledger, event.type);
+}
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| `contractId` | `string` | Contract address |
+| `limit` | `number` | Max events to return, 1–20 (default: `10`) |
+
+#### `client.getContractHealth(contractId)` (SC-16)
+
+Returns the indexing health of a tracked contract.
+
+```ts
+const health = await client.getContractHealth("CCAAA...");
+
+console.log("Status:", health.status);               // "healthy" | "unhealthy"
+console.log("Failures:", health.consecutiveFailures);
+console.log("Last event:", health.lastEventTime);
+```
+
+**`ContractHealth`**
+
+| Field | Type | Description |
+|---|---|---|
+| `contractId` | `string` | Contract address |
+| `status` | `string` | `"healthy"` or `"unhealthy"` |
+| `lastEventTime` | `string \| null` | ISO timestamp of the last indexed event |
+| `minutesSinceLastEvent` | `number \| null` | Minutes since the last event |
+| `abiDecodeErrors1h` | `number` | ABI decode errors in the last hour |
+| `consecutiveFailures` | `number` | Consecutive indexing failures |
+| `errorMessage` | `string` | Error detail when unhealthy |
+| `checkedAt` | `string \| null` | When health was last evaluated |
+
+#### `client.getContractStatus()` (SC-28)
+
+Returns the SoroScan contract's current pause state and total event count.
+
+```ts
+const status = await client.getContractStatus();
+
+if (status.paused) {
+  console.log("Paused. Admin:", status.admin);
+} else {
+  console.log("Active. Total events:", status.totalEvents);
+}
+```
+
+**`ContractStatus`**
+
+| Field | Type | Description |
+|---|---|---|
+| `paused` | `boolean` | Whether event recording is paused |
+| `admin` | `string` | Current admin Stellar address |
+| `totalEvents` | `number` | Total events recorded so far |
 
 ---
 
@@ -207,6 +336,56 @@ console.log(account.balances);
 
 ---
 
+### Indexers & Admin
+
+#### `client.addIndexer(params)` (SC-9)
+
+Authorizes a Stellar address as an indexer on the SoroScan contract.
+
+```ts
+const result = await client.addIndexer({ indexerAddress: "GABC..." });
+
+console.log(result.status);     // "submitted"
+console.log(result.txHash);     // transaction hash or null
+```
+
+**`AddIndexerParams`**
+
+| Field | Type | Description |
+|---|---|---|
+| `indexerAddress` | `string` | Stellar G... address to authorize |
+
+#### `client.isIndexer(indexerAddress)` (SC-15)
+
+Checks whether an address is a currently registered indexer.
+
+```ts
+const { is_indexer } = await client.isIndexer("GABC...");
+console.log("Registered:", is_indexer); // true | false
+```
+
+#### `client.getAdmin()` (SC-15)
+
+Returns the current SoroScan contract admin address.
+
+```ts
+const { admin_address } = await client.getAdmin();
+console.log("Admin:", admin_address);
+```
+
+#### `client.getIndexerStats(indexer)` (SC-13)
+
+Returns the total number of events recorded by a specific indexer.
+
+```ts
+const stats = await client.getIndexerStats("GABC...");
+
+console.log("Indexer:", stats.indexer);
+console.log("Events recorded:", stats.eventsRecorded);
+```
+
+---
+
 ### Webhooks
 
 #### `client.subscribeWebhook(params)`
@@ -254,6 +433,15 @@ await client.updateWebhook("wh_001", { status: "paused" });
 #### `client.deleteWebhook(webhookId)`
 
 Permanently deletes a webhook.
+
+#### `client.testWebhook(webhookId)`
+
+Triggers a synthetic test delivery to the webhook's target URL and returns immediately.
+
+```ts
+const result = await client.testWebhook("wh_001");
+console.log(result.status); // "test_webhook_queued"
+```
 
 ---
 

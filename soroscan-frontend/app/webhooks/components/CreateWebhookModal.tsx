@@ -25,7 +25,7 @@ const ALL_EVENT_TYPES: EventType[] = [
 interface CreateWebhookModalProps {
   isOpen: boolean
   onClose: () => void
-  onCreate: (webhook: Omit<Webhook, "id" | "createdAt" | "totalDeliveries" | "secret" | "successRate">) => void
+  onCreate: (webhook: Omit<Webhook, "id" | "createdAt" | "totalDeliveries" | "secret" | "successRate">) => Promise<Webhook>
 }
 
 export function CreateWebhookModal({ isOpen, onClose, onCreate }: CreateWebhookModalProps) {
@@ -116,8 +116,8 @@ export function CreateWebhookModal({ isOpen, onClose, onCreate }: CreateWebhookM
     if (hasHeaderErrors) return // Stop submission if invalid headers exist
 
     setSubmitting(true)
-    setTimeout(() => {
-      onCreate({
+    try {
+      await onCreate({
         url,
         eventTypes: selectedTypes.length === 0 ? ["ALL"] : selectedTypes,
         contractFilter: contractFilter.trim() || undefined,
@@ -132,9 +132,12 @@ export function CreateWebhookModal({ isOpen, onClose, onCreate }: CreateWebhookM
       setContractFilter(""); setStatus("ACTIVE"); setTimeoutInput("30"); setTimeoutTouched(false)
       setFilterExpression(undefined); setFilterExpressionStr("")
       setCustomHeaders([])
-      setSubmitting(false)
       onClose()
-    }, 600)
+    } catch {
+      // The page layer surfaces API errors via toasts; keep the modal open so the user can retry.
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const handleClose = () => {

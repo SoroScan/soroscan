@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SoroScanClient } from "../src/client.js";
+import {
+  SoroScanClient,
+  SoroScanConnectionError,
+} from "../src/client.js";
 
 const BASE_URL = "https://api.soroscan.io";
 
@@ -25,6 +28,7 @@ function stallingFetch() {
 
 describe("SoroScanClient request timeout", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -62,27 +66,21 @@ describe("SoroScanClient request timeout", () => {
     expect(signal?.aborted).toBe(true);
   });
 
-  // TODO(#1938): times out after 5s instead of asserting the default
-  // timeout quickly. Fix the test (or the client's default timeout wiring)
-  // and re-enable.
-  it.skip("defaults to a 10_000ms timeout when timeoutMs is omitted", async () => {
+  it("defaults to a 10_000ms timeout when timeoutMs is omitted", async () => {
+    vi.useFakeTimers();
+
     const fetchMock = stallingFetch();
     vi.stubGlobal("fetch", fetchMock);
 
-    // Record the requested timeout, then hand back an already-aborted signal so
-    // the assertion does not have to wait out the real 10s default.
-    let requestedMs: number | undefined;
-    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
-      requestedMs = ms;
-      return AbortSignal.abort();
-    });
-
     const client = new SoroScanClient({ baseUrl: BASE_URL, maxRetries: 0 });
-
-    await expect(client.getEvents()).rejects.toThrow(
+    const request = client.getEvents();
+    const timeoutAssertion = expect(request).rejects.toThrow(
       "SoroScanClient: request timed out after 10000ms"
     );
-    expect(requestedMs).toBe(10_000);
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await timeoutAssertion;
   });
 
   it("does not retry a timed-out request", async () => {
@@ -99,10 +97,7 @@ describe("SoroScanClient request timeout", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  // TODO(#1938): client now wraps network errors in SoroScanConnectionError
-  // instead of propagating the original error unchanged. Fix the assertion
-  // (or the wrapping behavior) and re-enable.
-  it.skip("propagates non-timeout network errors unchanged", async () => {
+  it("wraps non-timeout network errors in SoroScanConnectionError", async () => {
     const networkError = new TypeError("fetch failed");
     const fetchMock = vi.fn().mockRejectedValue(networkError);
     vi.stubGlobal("fetch", fetchMock);
@@ -113,6 +108,11 @@ describe("SoroScanClient request timeout", () => {
       maxRetries: 0,
     });
 
-    await expect(client.getEvents()).rejects.toBe(networkError);
+    const request = client.getEvents();
+
+    await expect(request).rejects.toBeInstanceOf(SoroScanConnectionError);
+    await expect(request).rejects.toThrow(
+      "SoroScanClient: network error — fetch failed"
+    );
   });
 });

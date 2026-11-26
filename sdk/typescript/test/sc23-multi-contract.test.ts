@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { SoroScanClient, SoroScanError } from "../src/client.js";
+import {
+  SoroScanClient,
+  SoroScanError,
+  SoroScanValidationError,
+} from "../src/client.js";
 import type { GetEventsByContractsResponse } from "../src/types.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -125,15 +129,15 @@ describe("getEventsByContracts() — SC-23", () => {
     expect(result.contractIds).toHaveLength(1);
   });
 
-  // TODO(#1938): asserts the generic SoroScanError name, but the client now
-  // throws a more specific SoroScanError subclass. Fix the assertion (or the
-  // thrown error name) and re-enable.
-  it.skip("throws SoroScanError on 400 validation error", async () => {
+  it("throws SoroScanValidationError on 400 validation error", async () => {
     mockFetch({ code: "INVALID_REQUEST", message: "Too many contract IDs" }, 400);
-    await expect(
-      makeClient().getEventsByContracts({ contractIds: CONTRACT_IDS })
-    ).rejects.toMatchObject({
-      name: "SoroScanError",
+    const error = await makeClient()
+      .getEventsByContracts({ contractIds: CONTRACT_IDS })
+      .catch((err: unknown) => err);
+
+    expect(error).toBeInstanceOf(SoroScanError);
+    expect(error).toBeInstanceOf(SoroScanValidationError);
+    expect(error).toMatchObject({
       statusCode: 400,
       code: "INVALID_REQUEST",
     });

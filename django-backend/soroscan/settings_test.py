@@ -20,6 +20,126 @@ FRONTEND_BASE_URL = "http://localhost:3000"
 SOFTWARE_VERSION = "1.0.0-test"
 
 # Application definition
+try:
+    import opentelemetry  # noqa: F401
+except ImportError:
+    import sys
+    import types
+    import contextlib
+
+    class SpanKind:
+        INTERNAL = 1
+        SERVER = 2
+        CLIENT = 3
+        PRODUCER = 4
+        CONSUMER = 5
+
+    class SpanContext:
+        def __init__(self, trace_id=1, span_id=1, trace_flags=1, is_valid=True):
+            self.trace_id = trace_id
+            self.span_id = span_id
+            self.trace_flags = trace_flags
+            self.is_valid = is_valid
+
+    class MockSpan:
+        def __init__(self, name="", attributes=None, kind=SpanKind.INTERNAL, exporter=None):
+            self.name = name
+            self.attributes = attributes or {}
+            self.kind = kind
+            self._span_context = SpanContext()
+            self._exporter = exporter
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            if self._exporter:
+                self._exporter._spans.append(self)
+
+        def get_span_context(self):
+            return self._span_context
+
+        def set_attribute(self, key, value):
+            self.attributes[key] = value
+
+    class InMemorySpanExporter:
+        def __init__(self):
+            self._spans = []
+
+        def get_finished_spans(self):
+            return self._spans
+
+        def export(self, spans):
+            self._spans.extend(spans)
+
+        def clear(self):
+            self._spans.clear()
+
+    class SimpleSpanProcessor:
+        def __init__(self, exporter):
+            self.exporter = exporter
+
+    class MockTracer:
+        def __init__(self, provider=None):
+            self._provider = provider
+
+        @contextlib.contextmanager
+        def start_as_current_span(self, name, attributes=None, kind=SpanKind.INTERNAL):
+            exporter = None
+            if self._provider and self._provider._processors:
+                exporter = getattr(self._provider._processors[0], "exporter", None)
+            span = MockSpan(name, attributes, kind, exporter=exporter)
+            yield span
+
+    class TracerProvider:
+        def __init__(self, *args, **kwargs):
+            self._processors = []
+            self._tracer = MockTracer(self)
+
+        def add_span_processor(self, processor):
+            self._processors.append(processor)
+
+        def get_tracer(self, *args, **kwargs):
+            return self._tracer
+
+    otel = types.ModuleType("opentelemetry")
+    trace = types.ModuleType("opentelemetry.trace")
+    propagate = types.ModuleType("opentelemetry.propagate")
+    sdk = types.ModuleType("opentelemetry.sdk")
+    sdk_trace = types.ModuleType("opentelemetry.sdk.trace")
+    sdk_trace_export = types.ModuleType("opentelemetry.sdk.trace.export")
+    sdk_trace_in_memory = types.ModuleType("opentelemetry.sdk.trace.export.in_memory_span_exporter")
+
+    trace.SpanKind = SpanKind
+    _default_provider = TracerProvider()
+    trace._TRACER_PROVIDER = _default_provider
+    trace.get_tracer = lambda name="": _default_provider.get_tracer(name)
+    trace.get_current_span = lambda: None
+    trace.set_tracer_provider = lambda p: setattr(trace, "_TRACER_PROVIDER", p)
+    trace.get_tracer_provider = lambda: trace._TRACER_PROVIDER
+
+    propagate.inject = lambda headers: None
+    propagate.extract = lambda carrier: {}
+
+    sdk_trace.TracerProvider = TracerProvider
+    sdk_trace_export.SimpleSpanProcessor = SimpleSpanProcessor
+    sdk_trace_in_memory.InMemorySpanExporter = InMemorySpanExporter
+
+    otel.trace = trace
+    otel.propagate = propagate
+    otel.sdk = sdk
+    sdk.trace = sdk_trace
+    sdk_trace.export = sdk_trace_export
+    sdk_trace_export.in_memory_span_exporter = sdk_trace_in_memory
+
+    sys.modules["opentelemetry"] = otel
+    sys.modules["opentelemetry.trace"] = trace
+    sys.modules["opentelemetry.propagate"] = propagate
+    sys.modules["opentelemetry.sdk"] = sdk
+    sys.modules["opentelemetry.sdk.trace"] = sdk_trace
+    sys.modules["opentelemetry.sdk.trace.export"] = sdk_trace_export
+    sys.modules["opentelemetry.sdk.trace.export.in_memory_span_exporter"] = sdk_trace_in_memory
+
 INSTALLED_APPS = [
     "django_prometheus",  # must be before django.contrib apps
     "django.contrib.admin",

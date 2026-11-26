@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import { MarkerType, type Node, type Edge } from "reactflow";
 import type { ContractWithDeps, VulnerabilitySeverity } from "./types";
-import { getWorstSeverity, severityNodeColor, generateMockContracts, MOCK_CONTRACTS } from "./types";
+import { getWorstSeverity, severityNodeColor } from "./types";
 
 export type ViewMode = "graph" | "tree";
 
@@ -47,7 +47,6 @@ export interface DependencyGraphState {
   setFilterSeverity: (sev: VulnerabilitySeverity | "ALL") => void;
   setViewMode: (mode: ViewMode) => void;
   setLoading: (loading: boolean) => void;
-  loadMockData: (count?: number) => void;
 }
 
 // Compute which contract IDs are reachable from `startId` following dependency edges
@@ -102,8 +101,6 @@ function buildNodes(
       c.vulnerabilities.some((v) => v.severity === filterSeverity);
     return nameMatch && (filterSeverity === "ALL" ? true : sevMatch);
   });
-
-  const visibleIds = new Set(filtered.map((c) => c.id));
 
   return filtered.map((contract) => {
     const worstSeverity = getWorstSeverity(contract.vulnerabilities);
@@ -270,9 +267,4 @@ export const useDependencyGraphStore = create<DependencyGraphState>((set, get) =
 
   setViewMode: (viewMode) => set({ viewMode }),
   setLoading: (isLoading) => set({ isLoading }),
-
-  loadMockData: (count) => {
-    const contracts = count ? generateMockContracts(count) : MOCK_CONTRACTS;
-    get().setContracts(contracts);
-  },
 }));

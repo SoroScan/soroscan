@@ -7,7 +7,7 @@ const withBundleAnalyzer = createBundleAnalyzer({
   enabled: process.env.ANALYZE === 'true',
 });
 
-const nextConfig: NextConfig = {
+const nextConfig = {
   output: 'standalone',
   // This package lives in a monorepo alongside a sibling root pnpm-lock.yaml.
   // Without this, Next infers the workspace root as the repo root and nests
@@ -38,6 +38,6 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-};
+} satisfies NextConfig;
 
 export default withBundleAnalyzer(withNextIntl(nextConfig));

@@ -16,7 +16,7 @@ on:
       - "sdk-python-v*"
       - "sdk-typescript-v*"
   pull_request:
-    branches: [main, dev]
+    branches: [dev]
     paths:
       - "sdk/typescript/**"
       - "django-backend/soroscan/ingest/**"
