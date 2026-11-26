@@ -13,9 +13,12 @@ Features:
 """
 import json
 
+from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
 from soroscan.ingest.models import TrackedContract
+
+DEFAULT_RESTORE_USERNAME = "soroscan-restore"
 
 
 class Command(BaseCommand):
@@ -44,11 +47,16 @@ class Command(BaseCommand):
         force = options["force"]
 
         # Load backup data
-        if input_path == "-":
-            data = json.load(self.stdin)
-        else:
-            with open(input_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+        try:
+            if input_path == "-":
+                data = json.load(self.stdin)
+            else:
+                with open(input_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+        except json.JSONDecodeError as exc:
+            raise CommandError(f"Invalid JSON in {input_path}: {exc}") from exc
+        except OSError as exc:
+            raise CommandError(f"Unable to read {input_path}: {exc}") from exc
 
         # Validate backup format
         if not isinstance(data, dict):
@@ -146,6 +154,7 @@ class Command(BaseCommand):
             TrackedContract.objects.create(
                 contract_id=contract_id,
                 name=alias,
+                owner=self._resolve_owner(contract_data.get("owner")),
                 description=settings.get("description", ""),
                 is_active=settings.get("is_active", True),
                 deprecation_status=settings.get("deprecation_status", "active"),
@@ -154,3 +163,19 @@ class Command(BaseCommand):
                 last_indexed_ledger=metadata.get("last_indexed_ledger"),
             )
         return "created"
+
+    def _resolve_owner(self, username):
+        """Resolve the contract owner by username, falling back to a service user."""
+        User = get_user_model()
+
+        if username:
+            try:
+                return User.objects.get(username=username)
+            except User.DoesNotExist:
+                pass
+
+        owner, _ = User.objects.get_or_create(
+            username=DEFAULT_RESTORE_USERNAME,
+            defaults={"email": "soroscan-restore@example.com"},
+        )
+        return owner

@@ -1,0 +1,40 @@
+name: TypeScript SDK Tests
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - 'sdk/typescript/**'
+      - '.github/workflows/sdk-typescript-tests.yml'
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - 'sdk/typescript/**'
+      - '.github/workflows/sdk-typescript-tests.yml'
+
+jobs:
+  test:
+    name: Lint & test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: sdk/typescript/package-lock.json
+
+      - name: Install dependencies
+        working-directory: sdk/typescript
+        run: npm ci
+
+      - name: Type check
+        working-directory: sdk/typescript
+        run: npm run lint
+
+      - name: Run unit tests
+        working-directory: sdk/typescript
+        run: npx vitest run --exclude test/integration.test.ts --exclude "test/pact/**"

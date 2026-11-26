@@ -27,7 +27,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         output = options["output"]
 
-        contracts = TrackedContract.objects.all()
+        contracts = TrackedContract.objects.select_related("owner").all()
         count = contracts.count()
 
         self.stderr.write(f"Exporting {count} contracts to {output}")
@@ -42,6 +42,7 @@ class Command(BaseCommand):
             backup_data["contracts"].append({
                 "contract_id": contract.contract_id,
                 "alias": contract.name,
+                "owner": contract.owner.username,
                 "settings": {
                     "is_active": contract.is_active,
                     "deprecation_status": contract.deprecation_status,

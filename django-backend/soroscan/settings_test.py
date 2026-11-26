@@ -217,6 +217,17 @@ if _test_db_url:
 
     DATABASES = {"default": environ.Env.db_url_config(_test_db_url)}
 else:
+    # Issue #1575 — relax durability guarantees for the in-memory test DB;
+    # the data never needs to survive a crash, so skip the fsync-equivalent
+    # work that PRAGMA synchronous=FULL (the sqlite3 default) would do.
+    from django.db.backends.signals import connection_created
+
+    def _tune_sqlite_test_pragmas(sender, connection, **kwargs):
+        if connection.vendor == "sqlite":
+            connection.cursor().execute("PRAGMA synchronous=OFF")
+
+    connection_created.connect(_tune_sqlite_test_pragmas)
+
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
